@@ -1,9 +1,38 @@
 import time
 
 import gobject
-from explorerhat import motor
+import serial
 
 from joy import Joystick
+
+
+class Motor:
+    def __init__(self):
+        self.serialportname = "/dev/ttyAMA0"
+        self.serialportspeed = 115200
+        self.motorone = 0
+        self.motortwo = 0
+        self.update_motor()
+
+    def one(self, power):
+        self.motorone = power
+        self.update_motor()
+
+    def two(self, power):
+        self.motortwo = power
+        self.update_motor()
+
+    def update_motor(self):
+        with serial.Serial(self.serialportname, self.serialportspeed, timeout=1) as ser:
+            ser.write("+ss %s %s %s %s" % (self.motorone,
+                                           self.motortwo,
+                                           self.motorone,
+                                           self.motortwo))
+
+    def stop(self):
+        self.motorone = 0
+        self.motortwo = 0
+        self.update_motor()
 
 
 class Robot:
@@ -13,6 +42,7 @@ class Robot:
         self.y_axis = 0.0
         self.max_power = 1.0
         self.disable_motor = True
+        self.motor = Motor()
 
     def mixer(self, in_yaw, in_throttle):
         left = in_throttle + in_yaw
@@ -38,8 +68,8 @@ class Robot:
         print("left: " + str(power_left) + " right: " + str(power_right))
 
         if not self.disable_motor:
-            motor.one.speed((-power_right * self.max_power))
-            motor.two.speed(power_left * self.max_power)
+            self.motor.one((-power_right * self.max_power))
+            self.motor.two((power_left * self.max_power))
 
     def axis_handler(self, signal, number, value, init):
         # Axis 0 = left stick horizontal.  -ve = left
@@ -87,7 +117,7 @@ class Robot:
         except Exception, e:
             print(e)
             print("stop")
-            motor.stop()
+            self.motor.stop()
         print("bye")
 
 

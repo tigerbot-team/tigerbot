@@ -1,0 +1,21 @@
+#cryptography
+ds4drv
+#enum34
+#evdev
+# ExplorerHAT==0.4.2
+#idna
+inputs
+#ipaddress
+#keyring
+#keyrings.alt
+#numpy
+#pyasn1
+#pycrypto
+# pygame==1.9.3
+pygobject
+pyserial
+#pyudev
+#pyxdg
+RPi.GPIO
+#SecretStorage
+#six

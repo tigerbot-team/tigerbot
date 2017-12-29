@@ -7,3 +7,7 @@ RUN apt-get update && \
   # && \
 RUN dpkg -i propelleride-0.38.5-armhf.deb || true
 RUN apt-get install -f
+
+# Expects metabotspin repo to have been mounted at /metabotspin
+# Compile and upload metabot code to propellor
+RUN cd /metabotspin && openspin mb3.spin && propman mb3.binary
