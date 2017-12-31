@@ -19,3 +19,4 @@ pyserial
 RPi.GPIO
 #SecretStorage
 #six
+approxeng.input

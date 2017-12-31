@@ -24,10 +24,12 @@ class Motor:
 
     def update_motor(self):
         with serial.Serial(self.serialportname, self.serialportspeed, timeout=1) as ser:
-            ser.write("+ss %s %s %s %s" % (self.motorone,
+            command = "+sa %s %s %s %s\n" % (self.motorone,
                                            self.motortwo,
                                            self.motorone,
-                                           self.motortwo))
+                                           self.motortwo)
+            print "sending: %s" % command
+            ser.write(command)
 
     def stop(self):
         self.motorone = 0
