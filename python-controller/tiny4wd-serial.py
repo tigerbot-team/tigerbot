@@ -7,37 +7,13 @@
 from time import sleep
 
 import serial
-import smbus
 # All we need, as we don't care which controller we bind to, is the ControllerResource
 from approxeng.input.selectbinder import ControllerResource
 
 # approxeng.input.logger.setLevel(logging.ERROR)
 
-# From mb3.spin:
-# I2C interface : registers
-#      0 :     Target Motor 0 Speed
-#      1 :     Target Motor 0 Direction
-#      2 -7 :  Speed and Direction for Motors 1-3
-#      8 :     AutoPing Rate (0 = off, 1 = continuous, other = not implemented)
-#      9 :     Left Ping distance (x3 for distance in millimetres)
-#      10:     Right Ping distance (ditto)
-#      11:     Front Ping distance (ditto)
-I2C_PORT = smbus.SMBus(1)
-DEVICE_REG_MODE1 = 0x00
-
-MOTOR_ADDR = 0x42
-MOTOR1_REG = 0
-MOTOR1_DIR = 1
-MOTOR2_REG = 2
-MOTOR2_DIR = 3
-MOTOR3_REG = 4
-MOTOR3_DIR = 5
-MOTOR4_REG = 6
-MOTOR4_DIR = 7
-PING_RATE_REG = 8
-LEFT_DIST_REG = 9
-RIGHT_DIST_REG = 10
-FRONT_DIST_REG = 11
+serialportname = "/dev/ttyAMA0"
+serialportspeed = 115200
 
 try:
     # Attempt to import the Explorer HAT library. If this fails, because we're running somewhere
@@ -81,43 +57,15 @@ except ImportError:
         No motor hat - print what we would have sent to it if we'd had one.
         """
         print('Left: {}, Right: {}'.format(power_left, power_right))
-
-        # Assemble a list of values for motor registers
-        motor_values = [
-            abs(power_left),
-            sign(power_left),
-            abs(power_left),
-            sign(power_left),
-            abs(power_right),
-            sign(power_right, invert=True),
-            abs(power_right),
-            sign(power_right, invert=True),
-        ]
-        print "sending: %s" % motor_values
-        i2c_block_send(motor_values)
+        with serial.Serial(serialportname, serialportspeed, timeout=1) as ser:
+            command = "\n+sa %s %s %s %s\n" % (power_right,
+                                               power_right,
+                                               -power_left,
+                                               -power_left,
+                                               )
+            print "sending: %s" % command
+            ser.write(command)
         sleep(0.1)
-        data = read_sensors()
-        print "Read back: %s" % data
-
-    def read_sensors():
-        data = I2C_PORT.read_i2c_block_data(MOTOR_ADDR, 0, 12)
-        return data
-
-    def i2c_block_send(data):
-        I2C_PORT.write_i2c_block_data(MOTOR_ADDR, 0, data)
-
-    def sign(data, invert=False):
-        if data >= 0:
-            ret_val = 1
-        else:
-            ret_val = 0
-
-        if invert:
-            if ret_val:
-                ret_val = 0
-            else:
-                ret_val = 1
-        return ret_val
 
 
     def stop_motors():
@@ -125,7 +73,6 @@ except ImportError:
         No motor hat, so just print a message.
         """
         print('Motors stopping')
-        set_speeds(0, 0)
 
 
 class RobotStopException(Exception):

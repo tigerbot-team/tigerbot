@@ -68,7 +68,7 @@ PUB main
   Kd := 10
   millioffset := negx / millidiv * -1
   ps.init(string(">"), string("?"), 115200, 31, 30)   ' start the command interpreter shell (COG 1)
-  i2c.start(28,29,$42)                                ' (COG 2)
+  i2c.start(24,25,$42)                                ' (COG 2)  Start I2C using pins 24/25 at address 0x42
   quad.Start(@encoderPins)                            ' start the quadrature encoder reader (COG 3)
   resetMotors                                         ' reset the motors
   pwm.start_pwm(motorPWM[0], motorPWM[1], motorPWM[2], motorPWM[3], 20000)    ' start the pwm driver (COGS 4 & 5)

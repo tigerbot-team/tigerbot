@@ -5,6 +5,8 @@ COPY mb3.binary /
 
 RUN apt-get update && \
   apt-get -qy install \
+  i2c-tools \
+  python-smbus \
   libusb-dev \
   libdbus-1-dev \
   libglib2.0-dev \
