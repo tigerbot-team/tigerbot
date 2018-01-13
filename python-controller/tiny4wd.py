@@ -107,7 +107,6 @@ except ImportError:
         ]
         logger.debug("sending: %s", motor_values)
         i2c_block_send(motor_values)
-        sleep(0.1)
         data = read_sensors()
         logger.info("Read back: %s", data)
 
@@ -141,7 +140,7 @@ class RobotStopException(Exception):
     pass
 
 
-def mixer(yaw, throttle, expo=2.0, max_power_throttle=127.0, max_power_yaw=63.0):
+def mixer(yaw, throttle, expo=2.0, yaw_throttle_ratio=0.5):
     """
     Mix a pair of joystick axes, returning a pair of wheel speeds. This is where the mapping from
     joystick positions to wheel powers is defined, so any changes to how the robot drives should
@@ -156,22 +155,27 @@ def mixer(yaw, throttle, expo=2.0, max_power_throttle=127.0, max_power_yaw=63.0)
         still maintaining full control authority at full deflection
         Values less than 1 make the robot more 'twitchy'
         Values great than 1 make the robot less 'twitchy'
-    :param max_power_throttle:
-        Maximum speed that should be returned from the mixer, defaults to 127
-    :param max_power_yaw:
-        Maximum yaw that should be returned from the mixer, defaults to 63
+    :param yaw_throttle_ratio:
+        Typically we don't want to yaw as fast as we can - scale yaw less than throttle using
+        this factor
     :return:
         A pair of power_left, power_right integer values to send to the motor driver
     """
+    max_output = 127
     # Expo example: T = <output_range> * (I / <input_range>) ^ 3.3219
     # We do the sign and abs things to ensure we get a sane behaviour for negative inputs
     logger.info("yaw: %s   throttle: %s", yaw, throttle)
-    throttle_exp = sign(throttle) * max_power_throttle * ((abs(throttle) / 1) ** expo)
-    yaw_exp = sign(yaw) * max_power_yaw * ((abs(yaw) / 1) ** expo)
+    throttle_exp = sign(throttle) * ((abs(throttle) / 1) ** expo)
+    yaw_exp = sign(yaw) * yaw_throttle_ratio * ((abs(yaw) / 1) ** expo)
+
     left = throttle_exp + yaw_exp
     right = throttle_exp - yaw_exp
-    logger.info("mixer output: left: %s right:%s", int(left), int(right))
-    return int(left), int(right)
+
+    scale = float(max_output) / max(1, abs(left), abs(right))
+    scaled_left = left * scale
+    scaled_right = right * scale
+    logger.info("mixer output: left: %s right:%s", int(scaled_left), int(scaled_right))
+    return int(scaled_left), int(scaled_right)
 
 
 def sign(data):
