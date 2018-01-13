@@ -4,17 +4,19 @@
 # axis values in a single call, use implicit de-structuring of tuples to reduce verbosity, add
 # an exception to break out of the control loop on pressing HOME etc.
 
+import logging
+import traceback
 from time import sleep
 
-import serial
+import approxeng
 import smbus
 # All we need, as we don't care which controller we bind to, is the ControllerResource
 from approxeng.input.selectbinder import ControllerResource
-import approxeng
-import logging
-import traceback
 
-approxeng.input.logger.setLevel(logging.INFO)
+# approxeng.input.logger.setLevel(logging.INFO)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # From mb3.spin:
 # I2C interface : registers
@@ -61,7 +63,7 @@ try:
 
     from explorerhat import motor
 
-    print('Explorer HAT library available.')
+    logger.info('Explorer HAT library available.')
 
 
     def set_speeds(power_left, power_right):
@@ -85,27 +87,29 @@ try:
 
 except ImportError:
 
-    print('No explorer HAT library available, using dummy functions.')
+    logger.info('No explorer HAT library available, using dummy functions.')
 
 
-    def set_speeds(power_left, power_right):
+    def set_speeds(left, right):
         """
         No motor hat - print what we would have sent to it if we'd had one.
         """
-        print('Left: {}, Right: {}'.format(power_left, power_right))
+        logger.info('Left: {}, Right: {}'.format(left, right))
+        assert abs(left) < 128
+        assert abs(right) < 128
 
         # Assemble a list of values for motor registers
         motor_values = [
-            -power_left,
-            -power_left,
-            power_right,
-            power_right,
+            -left,
+            -left,
+            right,
+            right,
         ]
-        print "sending: %s" % motor_values
+        logger.debug("sending: %s", motor_values)
         i2c_block_send(motor_values)
         sleep(0.1)
         data = read_sensors()
-        print "Read back: %s" % data
+        logger.info("Read back: %s", data)
 
     def read_sensors():
         # Write 1 to Read Ready
@@ -125,7 +129,7 @@ except ImportError:
         """
         No motor hat, so just print a message.
         """
-        print('Motors stopping')
+        logger.warning('Motors stopping')
         set_speeds(0, 0)
 
 
@@ -137,7 +141,7 @@ class RobotStopException(Exception):
     pass
 
 
-def mixer(yaw, throttle, expo=2.0, max_power=127):
+def mixer(yaw, throttle, expo=2.0, max_power_throttle=127.0, max_power_yaw=63.0):
     """
     Mix a pair of joystick axes, returning a pair of wheel speeds. This is where the mapping from
     joystick positions to wheel powers is defined, so any changes to how the robot drives should
@@ -152,19 +156,21 @@ def mixer(yaw, throttle, expo=2.0, max_power=127):
         still maintaining full control authority at full deflection
         Values less than 1 make the robot more 'twitchy'
         Values great than 1 make the robot less 'twitchy'
-    :param max_power:
+    :param max_power_throttle:
         Maximum speed that should be returned from the mixer, defaults to 127
+    :param max_power_yaw:
+        Maximum yaw that should be returned from the mixer, defaults to 63
     :return:
         A pair of power_left, power_right integer values to send to the motor driver
     """
     # Expo example: T = <output_range> * (I / <input_range>) ^ 3.3219
     # We do the sign and abs things to ensure we get a sane behaviour for negative inputs
-
-    throttle_exp = sign(throttle) * max_power * ((abs(throttle) / 1) ** expo)
-    yaw_exp = sign(yaw) * max_power * ((abs(yaw) / 1) ** expo)
+    logger.info("yaw: %s   throttle: %s", yaw, throttle)
+    throttle_exp = sign(throttle) * max_power_throttle * ((abs(throttle) / 1) ** expo)
+    yaw_exp = sign(yaw) * max_power_yaw * ((abs(yaw) / 1) ** expo)
     left = throttle_exp + yaw_exp
     right = throttle_exp - yaw_exp
-    logging.info("mixer output: left: %s right:%s", int(left), int(right))
+    logger.info("mixer output: left: %s right:%s", int(left), int(right))
     return int(left), int(right)
 
 
@@ -187,8 +193,8 @@ try:
             # Bind to any available joystick, this will use whatever's connected as long as the
             # library supports it.
             with ControllerResource(dead_zone=0.1, hot_zone=0.2) as joystick:
-                print('Controller found, press HOME button to exit, use left stick to drive.')
-                print(joystick.controls)
+                logger.info('Controller found, press HOME button to exit, use left stick to drive.')
+                logger.info(joystick.controls)
                 # Loop until the joystick disconnects, or we deliberately stop by raising a
                 # RobotStopException
                 while joystick.connected:
@@ -203,7 +209,7 @@ try:
                     joystick.check_presses()
                     # Print out any buttons that were pressed, if we had any
                     if joystick.has_presses:
-                        print(joystick.presses)
+                        logger.debug(joystick.presses)
                     # If home was pressed, raise a RobotStopException to bail out of the loop
                     # Home is generally the PS button for playstation controllers, XBox for XBox etc
                     if 'home' in joystick.presses:
@@ -212,7 +218,7 @@ try:
             # We get an IOError when using the ControllerResource if we don't have a controller yet,
             # so in this case we just wait a second and try again after printing a message.
             traceback.print_exc()
-            print('No controller found yet')
+            logger.info('No controller found yet')
             sleep(1)
 except RobotStopException:
     # This exception will be raised when the home button is pressed, at which point we should
