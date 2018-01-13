@@ -170,11 +170,7 @@ PRI pid | i, nextpos, error, last_error, nexttime, newspeed, desired_speed, maxi
       b := i2c.get(speedbase+i)   
       desired_speed := ~b         ' note sneaky '~' that sign extends the byte value
       nextpos := quad.count(i)
-      
-      ' Hack for broken motor with no encoder, delete when motor replaced
-      if (i == 1)
-        nextpos := quad.count(2)
-        
+
       last_error := desired_speed - actual_speed[i] 
       actual_speed[i] := (nextpos - lastpos[i]) * 3
       lastpos[i] := nextpos
