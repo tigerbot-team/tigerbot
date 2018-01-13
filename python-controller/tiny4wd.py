@@ -96,10 +96,10 @@ except ImportError:
 
         # Assemble a list of values for motor registers
         motor_values = [
-            power_left,
-            power_left,
-            -power_right,
-            -power_right,
+            -power_left,
+            -power_left,
+            power_right,
+            power_right,
         ]
         print "sending: %s" % motor_values
         i2c_block_send(motor_values)
