@@ -22,7 +22,6 @@ def read_sensors():
     I2C_PORT.write_byte_data(PROP_ADDR, READ_RDY_REG, 1)
     # Wait for Read Ready to get set to 0
     while I2C_PORT.read_byte_data(PROP_ADDR, READ_RDY_REG) != 0:
-        print "waiting"
         sleep(0.1)
     # Read all 32 registers
     data = I2C_PORT.read_i2c_block_data(PROP_ADDR, 0, 32)
@@ -30,10 +29,10 @@ def read_sensors():
 
 
 read_sensors()
-motor_data = [1, 1, 1, 1]
+motor_data = [30, 30, 30, 30]
 I2C_PORT.write_i2c_block_data(PROP_ADDR, MOTOR1_REG, motor_data)
 read_sensors()
-sleep(1)
+sleep(0.1)
 motor_data = [0, 0, 0, 0]
 I2C_PORT.write_i2c_block_data(PROP_ADDR, MOTOR1_REG, motor_data)
 while True:
