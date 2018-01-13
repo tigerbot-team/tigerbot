@@ -33,11 +33,9 @@ VAR
   byte  _slave_address
   byte  SCL_pin
   byte  SDA_pin
-
-  byte  register[256]
-  
   byte  cog
-
+  byte  register[32]
+  
 PUB start(clk_pin, data_pin, slave_address) : okay
   stop
   _slave_address := slave_address
@@ -86,12 +84,21 @@ PUB clear_flag(index)
 PUB get(index)
   return register[index]
 
+PUB getw(index)
+  return word[@register+index][0]
+  
 PUB put(index,data)
   register[index] := data
+
+PUB putw(index,data)
+  word[@register+index][0] := data
+
+PUB putl(index,data)
+  long[@register+index][0] := data
   
 PUB flush | i  
   flags~
-  bytefill(@register,0,256)
+  bytefill(@register,0,32)
   
 DAT                     org
 entry
@@ -108,7 +115,7 @@ entry
                         rdbyte    t2,t1
                         mov       SDA_mask,#1
                         shl       SDA_mask,t2
-                        add       t1,#1
+                        add       t1,#2
                         mov       register_address,t1
                         mov       idle_mask,SCL_mask
                         or        idle_mask,SDA_mask

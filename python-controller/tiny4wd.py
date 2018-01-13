@@ -10,34 +10,46 @@ import serial
 import smbus
 # All we need, as we don't care which controller we bind to, is the ControllerResource
 from approxeng.input.selectbinder import ControllerResource
+import approxeng
+import logging
+import traceback
 
-# approxeng.input.logger.setLevel(logging.ERROR)
+approxeng.input.logger.setLevel(logging.INFO)
 
 # From mb3.spin:
 # I2C interface : registers
-#      0 :     Target Motor 0 Speed
-#      1 :     Target Motor 0 Direction
-#      2 -7 :  Speed and Direction for Motors 1-3
-#      8 :     AutoPing Rate (0 = off, 1 = continuous, other = not implemented)
-#      9 :     Left Ping distance (x3 for distance in millimetres)
-#      10:     Right Ping distance (ditto)
-#      11:     Front Ping distance (ditto)
+#      0 :     Motor 0 position (4 bytes)
+#      4 :     Motor 1 position (4 bytes)
+#      8 :     Motor 2 position (4 bytes)
+#      12 :    Motor 3 position (4 bytes)
+#      16 :    Left Ping distance in mm (2 bytes)
+#      18 :    Right Ping distance in mm (2 bytes)
+#      20 :    Front Ping distance in mm (2 bytes)
+#      22 :    Target Motor 0 Speed (1 byte) signed -127 - 127
+#      23 :    Target Motor 1 Speed (1 byte)
+#      24 :    Target Motor 2 Speed (1 byte)
+#      25 :    Target Motor 3 Speed (1 byte)
+#      26 :    Options (low bit = autoping on / off)
+#      27, 28 : Ball Thrower Motor Speed
+#      29 :    Ball Thrower Servo 1
+#      30 :    Ball Thrower Servo 2
+#      31 :    Read Ready (master sets to 1 when ready to read,
+#               slave sets to zero when multi-byte values updated
+
 I2C_PORT = smbus.SMBus(1)
 DEVICE_REG_MODE1 = 0x00
 
-MOTOR_ADDR = 0x42
-MOTOR1_REG = 0
-MOTOR1_DIR = 1
-MOTOR2_REG = 2
-MOTOR2_DIR = 3
-MOTOR3_REG = 4
-MOTOR3_DIR = 5
-MOTOR4_REG = 6
-MOTOR4_DIR = 7
-PING_RATE_REG = 8
-LEFT_DIST_REG = 9
-RIGHT_DIST_REG = 10
-FRONT_DIST_REG = 11
+PROP_ADDR = 0x42
+MOTOR1_REG = 22
+MOTOR2_REG = 23
+MOTOR3_REG = 24
+MOTOR4_REG = 25
+AUTO_PING_REG = 26
+THROWER_SPD1_REG = 27
+THROWER_SPD2_REG = 28
+THROWER_SRV1_REG = 29
+THROWER_SRV2_REG = 30
+READ_RDY_REG = 31
 
 try:
     # Attempt to import the Explorer HAT library. If this fails, because we're running somewhere
@@ -84,14 +96,10 @@ except ImportError:
 
         # Assemble a list of values for motor registers
         motor_values = [
-            abs(power_left),
-            sign(power_left),
-            abs(power_left),
-            sign(power_left),
-            abs(power_right),
-            sign(power_right, invert=True),
-            abs(power_right),
-            sign(power_right, invert=True),
+            power_left,
+            power_left,
+            -power_right,
+            -power_right,
         ]
         print "sending: %s" % motor_values
         i2c_block_send(motor_values)
@@ -100,24 +108,17 @@ except ImportError:
         print "Read back: %s" % data
 
     def read_sensors():
-        data = I2C_PORT.read_i2c_block_data(MOTOR_ADDR, 0, 12)
+        # Write 1 to Read Ready
+        I2C_PORT.write_byte_data(PROP_ADDR, READ_RDY_REG, 1)
+        # Wait for Read Ready to get set to 0
+        while I2C_PORT.read_byte_data(PROP_ADDR, READ_RDY_REG) != 0:
+            sleep(0.1)
+        # Read all 32 registers
+        data = I2C_PORT.read_i2c_block_data(PROP_ADDR, 0, 32)
         return data
 
     def i2c_block_send(data):
-        I2C_PORT.write_i2c_block_data(MOTOR_ADDR, 0, data)
-
-    def sign(data, invert=False):
-        if data >= 0:
-            ret_val = 1
-        else:
-            ret_val = 0
-
-        if invert:
-            if ret_val:
-                ret_val = 0
-            else:
-                ret_val = 1
-        return ret_val
+        I2C_PORT.write_i2c_block_data(PROP_ADDR, MOTOR1_REG, data)
 
 
     def stop_motors():
@@ -136,7 +137,7 @@ class RobotStopException(Exception):
     pass
 
 
-def mixer(yaw, throttle, max_power=100):
+def mixer(yaw, throttle, expo=2.0, max_power=127):
     """
     Mix a pair of joystick axes, returning a pair of wheel speeds. This is where the mapping from
     joystick positions to wheel powers is defined, so any changes to how the robot drives should
@@ -146,15 +147,33 @@ def mixer(yaw, throttle, max_power=100):
         Yaw axis value, ranges from -1.0 to 1.0
     :param throttle:
         Throttle axis value, ranges from -1.0 to 1.0
+    :param expo:
+        Factor which makes control less sensitive near centre, while
+        still maintaining full control authority at full deflection
+        Values less than 1 make the robot more 'twitchy'
+        Values great than 1 make the robot less 'twitchy'
     :param max_power:
-        Maximum speed that should be returned from the mixer, defaults to 100
+        Maximum speed that should be returned from the mixer, defaults to 127
     :return:
         A pair of power_left, power_right integer values to send to the motor driver
     """
-    left = throttle + yaw
-    right = throttle - yaw
-    scale = float(max_power) / max(1, abs(left), abs(right))
-    return int(left * scale), int(right * scale)
+    # Expo example: T = <output_range> * (I / <input_range>) ^ 3.3219
+    # We do the sign and abs things to ensure we get a sane behaviour for negative inputs
+
+    throttle_exp = sign(throttle) * max_power * ((abs(throttle) / 1) ** expo)
+    yaw_exp = sign(yaw) * max_power * ((abs(yaw) / 1) ** expo)
+    left = throttle_exp + yaw_exp
+    right = throttle_exp - yaw_exp
+    logging.info("mixer output: left: %s right:%s", int(left), int(right))
+    return int(left), int(right)
+
+
+def sign(data):
+    if data >= 0:
+        ret_val = 1
+    else:
+        ret_val = -1
+    return ret_val
 
 
 # Outer try / except catches the RobotStopException we just defined, which we'll raise when we want
@@ -192,6 +211,7 @@ try:
         except IOError:
             # We get an IOError when using the ControllerResource if we don't have a controller yet,
             # so in this case we just wait a second and try again after printing a message.
+            traceback.print_exc()
             print('No controller found yet')
             sleep(1)
 except RobotStopException:
