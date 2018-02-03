@@ -1,7 +1,4 @@
 FROM resin/rpi-raspbian:latest
-ENTRYPOINT []
-
-COPY mb3.binary /
 
 RUN apt-get update && \
   apt-get -qy install \
@@ -28,11 +25,11 @@ RUN apt-get update && \
   apt-get install -y -f && \
   apt-get clean -y
 
-RUN mkdir /controller
-COPY requirements.txt tiny4wd.py joy.py simpleRobot.py /controller/
+COPY python-controller /controller
 # COPY zerobot.apt-clone.tar.gz .
 # RUN apt-clone restore zerobot.apt-clone.tar.gz
 WORKDIR /controller
 RUN pip install -r requirements.txt
-
+COPY metabotspin/mb3.binary /mb3.binary
+ENTRYPOINT []
 CMD propman /mb3.binary && python tiny4wd.py
