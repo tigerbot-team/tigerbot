@@ -1,3 +1,5 @@
+BOT_HOST ?= tigerbot
+
 ifeq ($(shell uname -m),x86_64)
 	ARCH_DEPS:=/proc/sys/fs/binfmt_misc/arm
 endif
@@ -11,7 +13,16 @@ build-image: $(ARCH_DEPS)
 controller-image: $(ARCH_DEPS) metabotspin/mb3.binary
 	docker build . -f python-controller/Dockerfile -t tigerbot/controller:latest
 
-metabotspin/mb3.binary: build-image
+controller-image.tar: metabotspin/mb3.binary python-controller/*
+	$(MAKE) controller-image
+	docker save tigerbot/controller:latest > controller-image.tar
+
+install-to-pi: controller-image.tar
+	rsync -zv --progress controller-image.tar pi@$(BOT_HOST):controller-image.tar
+	ssh pi@$(BOT_HOST) docker load -i controller-image.tar
+
+metabotspin/mb3.binary: metabotspin/*.spin
+	$(MAKE) build-image
 	docker run --rm \
 	           -v "$(shell pwd):/tigerbot" \
 	           -w /tigerbot/metabotspin \

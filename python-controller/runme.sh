@@ -7,4 +7,4 @@ docker run --rm -ti \
     -v /dev/input:/dev/input \
     -v /var/run/dbus:/var/run/dbus \
     -v /home/pi/tigerbot/python-controller:/controller \
-    controller # /bin/bash
+    tigerbot/controller # /bin/bash

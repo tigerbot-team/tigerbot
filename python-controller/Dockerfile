@@ -25,11 +25,18 @@ RUN apt-get update && \
   apt-get install -y -f && \
   apt-get clean -y
 
-COPY python-controller /controller
-# COPY zerobot.apt-clone.tar.gz .
-# RUN apt-clone restore zerobot.apt-clone.tar.gz
+RUN mkdir /controller
+COPY python-controller/requirements.txt \
+     /controller/
 WORKDIR /controller
 RUN pip install -r requirements.txt
+
+COPY python-controller/tiny4wd.py \
+     python-controller/joy.py \
+     python-controller/simpleRobot.py \
+     /controller/
+# COPY zerobot.apt-clone.tar.gz .
+# RUN apt-clone restore zerobot.apt-clone.tar.gz
 COPY metabotspin/mb3.binary /mb3.binary
 ENTRYPOINT []
 CMD propman /mb3.binary && python tiny4wd.py
