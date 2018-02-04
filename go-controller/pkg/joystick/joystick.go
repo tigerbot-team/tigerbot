@@ -21,16 +21,18 @@ import (
 //    R2        = 7 (also an axis)
 //    Share     = 8
 //    Options   = 9
-//    Pad click = 13
+//    L stick   = 10
+//    R stick   = 11
 //    PS        = 12
+//    Pad click = 13
 //
 // Axes
 //
 //    D-pad   u/d = 7 (up = -32767; down = +32767)
 //            l/r = 6 (left = -32767; right = +32767)
-//    L Thumb u/d = 1 (up = -32767; down = +32767)
+//    L stick u/d = 1 (up = -32767; down = +32767)
 //            l/r = 0 (left = -32767; right = +32767)
-//    R Thumb u/d = 5 (up = -32767; down = +32767)
+//    R stick u/d = 5 (up = -32767; down = +32767)
 //            l/r = 2 (left = -32767; right = +32767)
 //    L2          = 3 (unpressed = -32767; fully-pressed = 32767)
 //    R2          = 4 (unpressed = -32767; fully-pressed = 32767)
