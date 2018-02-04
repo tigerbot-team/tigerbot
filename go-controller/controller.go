@@ -2,14 +2,16 @@ package main
 
 import (
 	"fmt"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 )
 
-func main()  {
+func main() {
 	fmt.Print("---- Tigerbot ----\n\n")
 
-	restartLoop: for {
+restartLoop:
+	for {
 		j, err := joystick.NewJoystick("/dev/input/js0")
 		if err != nil {
 			fmt.Printf("Failed to open joystick: %v.\n", err)
