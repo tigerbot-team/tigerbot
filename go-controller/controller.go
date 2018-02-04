@@ -21,18 +21,38 @@ restartLoop:
 			continue
 		}
 		for {
-			fmt.Println("Turning on motors")
-			err := p.SetSpeeds(1, 1)
+			fmt.Println("Front left")
+			err = p.SetMotorSpeeds(2, 0, 0, 0)
 			if err != nil {
 				panic(err)
 			}
 			time.Sleep(1*time.Second)
+			fmt.Println("Front right")
+			err = p.SetMotorSpeeds(0, 2, 0, 0)
+			if err != nil {
+				panic(err)
+			}
+			time.Sleep(1*time.Second)
+			fmt.Println("Back left")
+			err = p.SetMotorSpeeds(0, 0, 2, 0)
+			if err != nil {
+				panic(err)
+			}
+			time.Sleep(1*time.Second)
+			fmt.Println("Back right")
+			err = p.SetMotorSpeeds(0, 0, 0, 2)
+			if err != nil {
+				panic(err)
+			}
+			time.Sleep(1*time.Second)
+
+
 			fmt.Println("Turning off motors")
-			err = p.SetSpeeds(0,0)
+			err = p.SetMotorSpeeds(0,0, 0, 0)
 			if err != nil {
 				panic(err)
 			}
-			time.Sleep(1*time.Second)
+			time.Sleep(5*time.Second)
 		}
 
 

@@ -41,14 +41,20 @@ func New() (*Propeller, error) {
 	}, nil
 }
 
-func (p *Propeller) SetSpeeds(left, right int8) error {
-	// Clamp to avoid overflow when we negate.
-	if left == -128 {
-		left = -127
+func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error {
+	// Clamp all the values for symmetry/to avoid overflow when we negate.
+	if backLeft == -128 {
+		backLeft = -127
 	}
-	if right == -128 {
-		right = -127
+	if backRight == -128 {
+		backRight = -127
 	}
-	data := []byte{RegMotor1, byte(-left), byte(-left), byte(right), byte(right)}
+	if frontLeft == -128 {
+		frontLeft = -127
+	}
+	if frontRight == -128 {
+		frontRight = -127
+	}
+	data := []byte{RegMotor1, byte(-backLeft), byte(-frontLeft), byte(frontRight), byte(backRight)}
 	return p.dev.Write(data)
 }
