@@ -44,6 +44,23 @@ const (
 	EventTypeAxis   = 2
 )
 
+const (
+	ButtonSquare   = 0
+	ButtonCross    = 1
+	ButtonCircle   = 2
+	ButtonTriangle = 3
+	ButtonL1       = 4
+	ButtonR1       = 5
+	ButtonL2       = 6
+	ButtonR2       = 7
+	ButtonShare    = 8
+	ButtonOptions  = 9
+	ButtonLStick   = 10
+	ButtonRStick   = 11
+	ButtonPS       = 12
+	ButtonPadClick = 13
+)
+
 func (e EventType) String() string {
 	switch e {
 	case EventTypeAxis:
