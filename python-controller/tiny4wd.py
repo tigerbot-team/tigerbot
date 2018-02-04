@@ -9,7 +9,7 @@ import traceback
 from time import sleep
 
 import approxeng
-import smbus
+import smbus2 as smbus
 # All we need, as we don't care which controller we bind to, is the ControllerResource
 from approxeng.input.selectbinder import ControllerResource
 

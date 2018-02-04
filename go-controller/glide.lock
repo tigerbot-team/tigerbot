@@ -1,0 +1,8 @@
+hash: aa2a14de9e9409f25df0c933954993ab1a136d1600179b6944fa4455e3ae97ba
+updated: 2018-02-04T11:33:17.172110761Z
+imports:
+- name: github.com/d2r2/go-i2c
+  version: 0e2f2c2aa371128f5819750a71a923eb50b9269c
+- name: github.com/op/go-logging
+  version: 970db520ece77730c7e4724c61121037378659d9
+testImports: []
