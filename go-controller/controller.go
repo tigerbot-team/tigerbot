@@ -22,7 +22,7 @@ restartLoop:
 		}
 		for {
 			fmt.Println("Turning on motors")
-			err := p.SetSpeeds(20, 20)
+			err := p.SetSpeeds(1, 1)
 			if err != nil {
 				panic(err)
 			}

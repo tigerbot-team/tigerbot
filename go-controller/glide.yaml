@@ -1,3 +1,6 @@
 package: github.com/tigerbot-team/tigerbot/go-controller
 import:
 - package: github.com/d2r2/go-i2c
+- package: golang.org/x/exp
+  subpackages:
+  - io/i2c

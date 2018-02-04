@@ -1,6 +1,8 @@
 package propeller
 
-import i2c2 "github.com/d2r2/go-i2c"
+import (
+	"golang.org/x/exp/io/i2c"
+)
 
 // DEVICE_REG_MODE1 = 0x00
 
@@ -19,27 +21,27 @@ import i2c2 "github.com/d2r2/go-i2c"
 const (
 	PropAddr = 0x42
 
-	RegMotor1 = 0x22
-	RegMotor2 = 0x23
-	RegMotor3 = 0x24
-	RegMotor4 = 0x25
+	RegMotor1 = 22
+	RegMotor2 = 23
+	RegMotor3 = 24
+	RegMotor4 = 25
 )
 
 type Propeller struct {
-	i2c *i2c2.I2C
+	dev *i2c.Device
 }
 
 func New() (*Propeller, error) {
-	i2c, err := i2c2.NewI2C(PropAddr, 1)
+	dev,err  := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
 	if err != nil {
 		return nil, err
 	}
 	return &Propeller{
-		i2c: i2c,
+		dev: dev,
 	}, nil
 }
 
-func (p *Propeller) SetSpeeds(left, right byte) error {
+func (p *Propeller) SetSpeeds(left, right int8) error {
 	// Clamp to avoid overflow when we negate.
 	if left == -128 {
 		left = -127
@@ -47,23 +49,6 @@ func (p *Propeller) SetSpeeds(left, right byte) error {
 	if right == -128 {
 		right = -127
 	}
-	data := []byte{4, -left, -left, right, right}
-
-	err := p.i2c.WriteRegU8(RegMotor1, uint8(-left))
-	if err != nil {
-		return err
-	}
-	err = p.i2c.WriteRegU8(RegMotor2, uint8(-left))
-	if err != nil {
-		return err
-	}
-	err = p.i2c.WriteRegU8(RegMotor3, uint8(right))
-	if err != nil {
-		return err
-	}
-	err = p.i2c.WriteRegU8(RegMotor4, uint8(right))
-	if err != nil {
-		return err
-	}
-	return nil
+	data := []byte{RegMotor1, byte(-left), byte(-left), byte(right), byte(right)}
+	return p.dev.Write(data)
 }
