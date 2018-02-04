@@ -1,12 +1,13 @@
 package testmode
 
 import (
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"sync"
-	"fmt"
-	"time"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 )
 
 type TestMode struct {
@@ -42,7 +43,7 @@ func (t *TestMode) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		time.Sleep(1*time.Second)
+		time.Sleep(1 * time.Second)
 		fmt.Println("TestMode: Front right")
 		err = t.Propeller.SetMotorSpeeds(0, 2, 0, 0)
 		if err != nil {
@@ -51,7 +52,7 @@ func (t *TestMode) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		time.Sleep(1*time.Second)
+		time.Sleep(1 * time.Second)
 		fmt.Println("TestMode: Back left")
 		err = t.Propeller.SetMotorSpeeds(0, 0, 2, 0)
 		if err != nil {
@@ -60,7 +61,7 @@ func (t *TestMode) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		time.Sleep(1*time.Second)
+		time.Sleep(1 * time.Second)
 		fmt.Println("TestMode: Back right")
 		err = t.Propeller.SetMotorSpeeds(0, 0, 0, 2)
 		if err != nil {
@@ -69,18 +70,17 @@ func (t *TestMode) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		time.Sleep(1*time.Second)
-
+		time.Sleep(1 * time.Second)
 
 		fmt.Println("TestMode: Turning off motors")
-		err = t.Propeller.SetMotorSpeeds(0,0, 0, 0)
+		err = t.Propeller.SetMotorSpeeds(0, 0, 0, 0)
 		if err != nil {
 			panic(err)
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		time.Sleep(5*time.Second)
+		time.Sleep(5 * time.Second)
 	}
 }
 

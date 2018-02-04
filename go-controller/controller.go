@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"context"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 )
 
 type Mode interface {
@@ -69,29 +70,29 @@ func main() {
 		rcmode.New(p),
 		&testmode.TestMode{Propeller: p},
 	}
-	var activeMode Mode
-	activeModeIdx := -1
+	var activeMode Mode = allModes[0]
+	fmt.Printf("----- %s -----\n", activeMode.Name())
+	activeMode.Start(ctx)
+	activeModeIdx := 0
 
 	for {
 		select {
 		case event, ok := <-joystickEvents:
-			if ! ok {
+			if !ok {
 				fmt.Println("Joystick events channel closed!")
 				cancel()
 				time.Sleep(1 * time.Second)
 				return
 			}
+			// Intercept the Options button to implement mode switching.
 			if event.Type == joystick.EventTypeButton &&
 				event.Number == joystick.ButtonOptions &&
 				event.Value == 1 {
 				fmt.Printf("Options pressed: switching modes.\n")
-
-				if activeMode != nil {
-					activeMode.Stop()
-					err = p.SetMotorSpeeds(0, 0, 0, 0)
-					if err != nil {
-						panic(err)
-					}
+				activeMode.Stop()
+				err = p.SetMotorSpeeds(0, 0, 0, 0)
+				if err != nil {
+					panic(err)
 				}
 				activeModeIdx++
 				activeModeIdx = activeModeIdx % len(allModes)
@@ -100,6 +101,7 @@ func main() {
 				activeMode.Start(ctx)
 				continue
 			}
+			// Pass other joystick events through if this mode requires them.
 			if ju, ok := activeMode.(JoystickUser); ok {
 				ju.OnJoystickEvent(event)
 			}

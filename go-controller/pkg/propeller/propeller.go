@@ -32,7 +32,7 @@ type Propeller struct {
 }
 
 func New() (*Propeller, error) {
-	dev,err  := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
+	dev, err := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
 	if err != nil {
 		return nil, err
 	}
