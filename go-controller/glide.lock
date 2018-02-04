@@ -1,12 +1,9 @@
-hash: d8987825c711396d625e6659bcc1c45afcdd00f2d841188ef19140bcd46578ec
-updated: 2018-02-04T12:13:43.724659196Z
+hash: c432813aa4d5fb319a1777309a0aaf7908cbe1e290bc182a8f52fefb6bfe1283
+updated: 2018-02-04T20:48:01.549568887Z
 imports:
-- name: github.com/d2r2/go-i2c
-  version: 0e2f2c2aa371128f5819750a71a923eb50b9269c
-- name: github.com/op/go-logging
-  version: 970db520ece77730c7e4724c61121037378659d9
 - name: golang.org/x/exp
   version: 072991165226c11c888c881218850e8318c2b32e
   subpackages:
   - io/i2c
+  - io/i2c/driver
 testImports: []
