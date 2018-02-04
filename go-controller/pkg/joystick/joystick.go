@@ -1,10 +1,10 @@
 package joystick
 
 import (
-	"os"
 	"encoding/binary"
-	"time"
 	"fmt"
+	"os"
+	"time"
 )
 
 // Button and pad mappings:
@@ -41,7 +41,7 @@ type EventType uint8
 
 const (
 	EventTypeButton = 1
-	EventTypeAxis = 2
+	EventTypeAxis   = 2
 )
 
 func (e EventType) String() string {
@@ -52,33 +52,33 @@ func (e EventType) String() string {
 		return "button"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(e))
-		}
+	}
 }
 
 type Joystick struct {
-	device *os.File
+	device  *os.File
 	readBuf [8]byte
 
-	deviceEpoch uint32
+	deviceEpoch    uint32
 	wallclockEpoch time.Time
 }
 
 type rawEvent struct {
-	Time uint32
-	Value int16
-	Type uint8
+	Time   uint32
+	Value  int16
+	Type   uint8
 	Number uint8
 }
 
 type Event struct {
-	Time time.Time
-	Value int16
-	Type EventType
+	Time   time.Time
+	Value  int16
+	Type   EventType
 	Number uint8
 }
 
 func (e *Event) String() string {
-	return fmt.Sprintf("%v(%v)=%v", e.Type,e.Number,e.Value)
+	return fmt.Sprintf("%v(%v)=%v", e.Type, e.Number, e.Value)
 }
 
 func NewJoystick(device string) (*Joystick, error) {
@@ -104,9 +104,9 @@ func (j *Joystick) ReadEvent() (*Event, error) {
 	}
 
 	return &Event{
-		Time: j.wallclockEpoch.Add(time.Duration(rawEvent.Time - j.deviceEpoch) * time.Millisecond),
-		Value: rawEvent.Value,
-		Type: EventType(rawEvent.Type & 0x7f),
+		Time:   j.wallclockEpoch.Add(time.Duration(rawEvent.Time-j.deviceEpoch) * time.Millisecond),
+		Value:  rawEvent.Value,
+		Type:   EventType(rawEvent.Type & 0x7f),
 		Number: rawEvent.Number,
 	}, nil
 }
