@@ -17,7 +17,7 @@ controller-image.tar: metabotspin/mb3.binary python-controller/*
 	$(MAKE) controller-image
 	docker save tigerbot/controller:latest > controller-image.tar
 
-go-controller/controller: go-controller/*.go
+go-controller/controller: $(shell find go-controller -name '*.go')
 	docker run --rm -v "$(shell pwd):/go/src/github.com/tigerbot-team/tigerbot" \
 	           -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
 	           -e GOARCH=arm \
