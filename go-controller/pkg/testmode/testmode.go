@@ -87,18 +87,3 @@ func (t *TestMode) loop(ctx context.Context) {
 func (t *TestMode) OnJoystickEvent(event *joystick.Event) {
 	fmt.Println("TestMode: Joystick event", event)
 }
-
-type PauseMode struct {
-	Propeller *propeller.Propeller
-}
-
-func (t *PauseMode) Name() string{
-	return "Pause mode"
-}
-
-func (t *PauseMode) Start(ctx context.Context) {
-	t.Propeller.SetMotorSpeeds(0,0,0,0)
-}
-
-func (t *PauseMode) Stop() {
-}

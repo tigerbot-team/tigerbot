@@ -8,6 +8,8 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"context"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
 )
 
 type Mode interface {
@@ -63,7 +65,8 @@ func main() {
 	}()
 
 	allModes := []Mode{
-		&testmode.PauseMode{Propeller: p},
+		&pausemode.PauseMode{Propeller: p},
+		rcmode.New(p),
 		&testmode.TestMode{Propeller: p},
 	}
 	var activeMode Mode
