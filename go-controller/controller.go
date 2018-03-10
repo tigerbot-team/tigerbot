@@ -12,6 +12,7 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 	"os"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbowmode"
 )
 
 type Mode interface {
@@ -76,9 +77,10 @@ func main() {
 	}()
 
 	allModes := []Mode{
-		&pausemode.PauseMode{Propeller: prop},
 		rcmode.New(prop),
+		rainbowmode.New(prop),
 		&testmode.TestMode{Propeller: prop},
+		&pausemode.PauseMode{Propeller: prop},
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
