@@ -1,6 +1,8 @@
-hash: c432813aa4d5fb319a1777309a0aaf7908cbe1e290bc182a8f52fefb6bfe1283
-updated: 2018-02-04T20:48:01.549568887Z
+hash: 809affd207ffb852a63ca61b1f31966f2f9b69fa3a54bf72f46d78ca509b7444
+updated: 2018-03-01T12:37:45.953286606Z
 imports:
+- name: gocv.io/x/gocv
+  version: 65d6ebdd323af342cc48ac0d146ef7ad16b33fbc
 - name: golang.org/x/exp
   version: 072991165226c11c888c881218850e8318c2b32e
   subpackages:
