@@ -1,0 +1,6 @@
+#!/bin/bash -xe
+
+mkdir /controller-libs
+for file in $(ldd controller | grep -P -o '/[^ ]+/[^ :]+' | sort | uniq); do
+  cp $file /controller-libs
+done
