@@ -13,6 +13,9 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 	"os"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbowmode"
+	"os/signal"
+	"syscall"
+	"log"
 )
 
 type Mode interface {
@@ -30,6 +33,17 @@ func main() {
 
 	// Our global context, we cancel it to trigger shutdown.
 	ctx, cancel := context.WithCancel(context.Background())
+
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		s := <-signals
+		log.Println("Signal: ", s)
+		cancel()
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
+	}()
 
 	joystickEvents := make(chan *joystick.Event)
 	for {
@@ -89,9 +103,16 @@ func main() {
 
 	for {
 		select {
+		case <-ctx.Done():
+			fmt.Println("Context done, stopping active mode and shutting down")
+			activeMode.Stop()
+			cancel()
+			time.Sleep(1 * time.Second)
+			return
 		case event, ok := <-joystickEvents:
 			if !ok {
 				fmt.Println("Joystick events channel closed!")
+				activeMode.Stop()
 				cancel()
 				time.Sleep(1 * time.Second)
 				return
