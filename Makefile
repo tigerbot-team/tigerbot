@@ -17,20 +17,8 @@ controller-image.tar: metabotspin/mb3.binary python-controller/*
 	$(MAKE) controller-image
 	docker save tigerbot/controller:latest > controller-image.tar
 
-go-controller/controller: $(shell find go-controller -name '*.go')
-	docker run --rm -v "$(shell pwd):/go/src/github.com/tigerbot-team/tigerbot" \
-	           -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
-	           -e GOARCH=arm \
-	           -e GOOS=linux \
-	           -e GOARM=7 \
-	           golang:1.9-alpine3.6 \
-	           go build controller.go
-
-go-controller-image: $(ARCH_DEPS) metabotspin/mb3.binary go-controller/controller
+go-controller-image go-controller-image.tar: $(ARCH_DEPS) metabotspin/mb3.binary $(shell find go-controller -name '*.go') go-controller/Dockerfile
 	docker build . -f go-controller/Dockerfile -t tigerbot/go-controller:latest
-
-go-controller-image.tar: metabotspin/mb3.binary go-controller/controller
-	$(MAKE) go-controller-image
 	docker save tigerbot/go-controller:latest > go-controller-image.tar
 
 go-install-to-pi: go-controller-image.tar

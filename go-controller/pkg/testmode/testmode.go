@@ -8,6 +8,7 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"gocv.io/x/gocv"
 )
 
 type TestMode struct {
@@ -86,4 +87,36 @@ func (t *TestMode) loop(ctx context.Context) {
 
 func (t *TestMode) OnJoystickEvent(event *joystick.Event) {
 	fmt.Println("TestMode: Joystick event", event)
+
+	if event.Type == joystick.EventTypeButton && event.Value == 1 {
+		switch event.Number {
+		case joystick.ButtonR1:
+			fmt.Println("TestMode: button R1 pushed, taking a picture")
+
+			deviceID := 0
+			saveFile := "/tmp/image.jpg"
+
+			webcam, err := gocv.VideoCaptureDevice(int(deviceID))
+			if err != nil {
+				fmt.Printf("error opening video capture device: %v\n", deviceID)
+				return
+			}
+			defer webcam.Close()
+
+			img := gocv.NewMat()
+			defer img.Close()
+
+			if ok := webcam.Read(img); !ok {
+				fmt.Printf("cannot read device %d\n", deviceID)
+				return
+			}
+			if img.Empty() {
+				fmt.Printf("no image on device %d\n", deviceID)
+				return
+			}
+
+			success := gocv.IMWrite(saveFile, img)
+			fmt.Printf("TestMode: wrote image? %v\n", success)
+		}
+	}
 }
