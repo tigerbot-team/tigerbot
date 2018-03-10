@@ -1,3 +1,6 @@
+# Start with a container that's already set up with OpenCV
+# and do the builds in there.
+
 FROM sgtwilko/rpi-raspbian-opencv:stretch-latest as build
 
 RUN apt update
@@ -15,7 +18,8 @@ RUN mkdir -p $GOPATH/src/gocv.io/x/ && \
     cd $GOPATH/src/gocv.io/x/ && \
     git clone https://github.com/fasaxc/gocv.git
 
-# Pre-build gocv to cache the package.
+# Pre-build gocv to cache the package in this layer. That
+# stops expensive gocv builds when we're compiling the controller.
 RUN bash -c "cd $GOPATH/src/gocv.io/x/gocv && \
              source ./env.sh && \
              go build -v gocv.io/x/gocv"
@@ -24,23 +28,30 @@ RUN bash -c "cd $GOPATH/src/gocv.io/x/gocv && \
              source ./env.sh && \
              go build -v ./cmd/saveimage/main.go"
 
+# Now add the controller code and build.
+
 COPY go-controller/ $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
              go build -v controller.go"
 
-COPY metabotspin/mb3.binary /mb3.binary
+# Copy the shared libraries that the controlelr uses to a designated
+# directory so that they're easy to find in the next phase.
+RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
+             ./copy-libs"
+
+# Now build the container image that we actually ship by copying
+# across only the relevant files.  We start with alpins since it's
+# nice and small to start with but we'll be throwing in a lot
+# of glibc-linked binaries so the resulting system will be a bit
+# of a hybrid.
 
 FROM resin/raspberry-pi-alpine:latest
 
-COPY --from=build /lib/ld-linux-armhf.so* /lib
 RUN mkdir -p /usr/local/lib
-
-COPY --from=build /usr/lib/arm-linux-gnueabihf/* /usr/local/lib/
-COPY --from=build /lib/arm-linux-gnueabihf/* /usr/local/lib/
-COPY --from=build /usr/local/lib /usr/local/lib
+COPY --from=build /lib/ld-linux-armhf.so* /lib
+COPY --from=build /controller-libs/* /usr/local/lib/
 COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller /controller
-COPY --from=build /opt/vc/lib/* /usr/local/lib/
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
 ENTRYPOINT []
