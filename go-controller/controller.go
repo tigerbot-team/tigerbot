@@ -11,6 +11,11 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
+	"os"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbowmode"
+	"os/signal"
+	"syscall"
+	"log"
 )
 
 type Mode interface {
@@ -29,9 +34,24 @@ func main() {
 	// Our global context, we cancel it to trigger shutdown.
 	ctx, cancel := context.WithCancel(context.Background())
 
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		s := <-signals
+		log.Println("Signal: ", s)
+		cancel()
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
+	}()
+
 	joystickEvents := make(chan *joystick.Event)
 	for {
-		j, err := joystick.NewJoystick("/dev/input/js0")
+		jDev := os.Getenv("JOYSTICK_DEVICE")
+		if jDev == "" {
+			jDev = "/dev/input/js0"
+		}
+		j, err := joystick.NewJoystick(jDev)
 		if err != nil {
 			fmt.Printf("Failed to open joystick: %v.\n", err)
 			time.Sleep(1 * time.Second)
@@ -48,27 +68,33 @@ func main() {
 		break
 	}
 
-	p, err := propeller.New()
+	prop, err := propeller.New()
 	if err != nil {
 		fmt.Printf("Failed to open propeller: %v.\n", err)
-		cancel()
-		return
+		if os.Getenv("IGNORE_MISSING_PROPELLER") == "true" {
+			fmt.Printf("Using dummy propeller\n")
+			prop = propeller.Dummy()
+		}else {
+			cancel()
+			return
+		}
 	}
 
 	fmt.Println("Zeroing motors")
-	err = p.SetMotorSpeeds(0, 0, 0, 0)
+	err = prop.SetMotorSpeeds(0, 0, 0, 0)
 	if err != nil {
 		panic(err)
 	}
 	defer func() {
 		fmt.Println("Zeroing motors")
-		p.SetMotorSpeeds(0, 0, 0, 0)
+		prop.SetMotorSpeeds(0, 0, 0, 0)
 	}()
 
 	allModes := []Mode{
-		&pausemode.PauseMode{Propeller: p},
-		rcmode.New(p),
-		&testmode.TestMode{Propeller: p},
+		rcmode.New(prop),
+		rainbowmode.New(prop),
+		&testmode.TestMode{Propeller: prop},
+		&pausemode.PauseMode{Propeller: prop},
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
@@ -77,9 +103,16 @@ func main() {
 
 	for {
 		select {
+		case <-ctx.Done():
+			fmt.Println("Context done, stopping active mode and shutting down")
+			activeMode.Stop()
+			cancel()
+			time.Sleep(1 * time.Second)
+			return
 		case event, ok := <-joystickEvents:
 			if !ok {
 				fmt.Println("Joystick events channel closed!")
+				activeMode.Stop()
 				cancel()
 				time.Sleep(1 * time.Second)
 				return
@@ -90,7 +123,7 @@ func main() {
 				event.Value == 1 {
 				fmt.Printf("Options pressed: switching modes.\n")
 				activeMode.Stop()
-				err = p.SetMotorSpeeds(0, 0, 0, 0)
+				err = prop.SetMotorSpeeds(0, 0, 0, 0)
 				if err != nil {
 					panic(err)
 				}

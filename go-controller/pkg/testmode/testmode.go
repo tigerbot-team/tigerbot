@@ -8,10 +8,11 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"gocv.io/x/gocv"
 )
 
 type TestMode struct {
-	Propeller *propeller.Propeller
+	Propeller propeller.Interface
 	cancel    context.CancelFunc
 	stopWG    sync.WaitGroup
 }
@@ -86,4 +87,70 @@ func (t *TestMode) loop(ctx context.Context) {
 
 func (t *TestMode) OnJoystickEvent(event *joystick.Event) {
 	fmt.Println("TestMode: Joystick event", event)
+
+	if event.Type == joystick.EventTypeButton && event.Value == 1 {
+		switch event.Number {
+		case joystick.ButtonR1:
+			fmt.Println("TestMode: button R1 pushed, taking a picture")
+			go t.takePicture()
+		case joystick.ButtonR2:
+			fmt.Println("TestMode: button R2 pushed, benchmarking camera")
+			go t.benchmarkPicture()
+		}
+	}
+}
+
+func (t *TestMode) takePicture() {
+	deviceID := 0
+	saveFile := "/tmp/image.jpg"
+
+	webcam, err := gocv.VideoCaptureDevice(int(deviceID))
+	if err != nil {
+		fmt.Printf("error opening video capture device: %v\n", deviceID)
+		return
+	}
+	defer webcam.Close()
+
+	img := gocv.NewMat()
+	defer img.Close()
+
+	if ok := webcam.Read(img); !ok {
+		fmt.Printf("cannot read device %d\n", deviceID)
+		return
+	}
+	if img.Empty() {
+		fmt.Printf("no image on device %d\n", deviceID)
+		return
+	}
+
+	success := gocv.IMWrite(saveFile, img)
+	fmt.Printf("TestMode: wrote image? %v\n", success)
+}
+
+func (t *TestMode) benchmarkPicture() {
+	deviceID := 0
+	webcam, err := gocv.VideoCaptureDevice(int(deviceID))
+	if err != nil {
+		fmt.Printf("error opening video capture device: %v\n", deviceID)
+		return
+	}
+	defer webcam.Close()
+
+	img := gocv.NewMat()
+	defer img.Close()
+
+	startTime := time.Now()
+
+	for i := 0; i < 100; i++ {
+		if ok := webcam.Read(img); !ok {
+			fmt.Printf("cannot read device %d\n", deviceID)
+			return
+		}
+		if img.Empty() {
+			fmt.Printf("no image on device %d\n", deviceID)
+			return
+		}
+	}
+
+	fmt.Printf("TestMode: time per image %v\n", time.Since(startTime) / 100)
 }

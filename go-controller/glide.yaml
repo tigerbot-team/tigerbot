@@ -4,3 +4,5 @@ import:
   version: 072991165226c11c888c881218850e8318c2b32e
   subpackages:
   - io/i2c
+- package: gocv.io/x/gocv
+  version: ~0.9.0

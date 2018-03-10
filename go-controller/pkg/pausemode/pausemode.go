@@ -7,7 +7,7 @@ import (
 )
 
 type PauseMode struct {
-	Propeller *propeller.Propeller
+	Propeller propeller.Interface
 }
 
 func (t *PauseMode) Name() string {

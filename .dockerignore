@@ -1,2 +1,4 @@
 printed
 *.tar
+go-controller/vendor/gocv.io
+go-controller/Dockerfile
