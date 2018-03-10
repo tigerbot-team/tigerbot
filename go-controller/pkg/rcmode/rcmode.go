@@ -10,13 +10,13 @@ import (
 )
 
 type RCMode struct {
-	Propeller      *propeller.Propeller
+	Propeller      propeller.Interface
 	cancel         context.CancelFunc
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 }
 
-func New(propeller *propeller.Propeller) *RCMode {
+func New(propeller propeller.Interface) *RCMode {
 	return &RCMode{
 		Propeller:      propeller,
 		joystickEvents: make(chan *joystick.Event),

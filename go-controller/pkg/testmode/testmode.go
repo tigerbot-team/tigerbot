@@ -11,7 +11,7 @@ import (
 )
 
 type TestMode struct {
-	Propeller *propeller.Propeller
+	Propeller propeller.Interface
 	cancel    context.CancelFunc
 	stopWG    sync.WaitGroup
 }

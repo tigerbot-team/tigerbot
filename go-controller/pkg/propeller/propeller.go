@@ -2,6 +2,7 @@ package propeller
 
 import (
 	"golang.org/x/exp/io/i2c"
+	"fmt"
 )
 
 // DEVICE_REG_MODE1 = 0x00
@@ -27,11 +28,19 @@ const (
 	RegMotor4 = 25
 )
 
+type Interface interface{
+	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error
+}
+
 type Propeller struct {
 	dev *i2c.Device
 }
 
-func New() (*Propeller, error) {
+func Dummy() Interface {
+	return &dummyPropeller{}
+}
+
+func New() (Interface, error) {
 	dev, err := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
 	if err != nil {
 		return nil, err
@@ -57,4 +66,12 @@ func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight in
 	}
 	data := []byte{RegMotor1, byte(-backLeft), byte(-frontLeft), byte(frontRight), byte(backRight)}
 	return p.dev.Write(data)
+}
+
+type dummyPropeller struct {
+}
+
+func (p *dummyPropeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error {
+	fmt.Printf("Dummy propeller setting motors: fl=%v fr=%v bl=%v br=%v\n", frontLeft, frontRight, backLeft, backRight)
+	return nil
 }
