@@ -1,18 +1,12 @@
 package tofsensor
 
-import "golang.org/x/exp/io/i2c"
-
-
-
 
 /*
-#cgo CFLAGS: -I ../../../VL53L0X_1.0.2/Api/core/inc
-#cgo LDFLAGS: -L . -lclibrary
+#cgo CFLAGS: -I ../../../VL53L0X_1.0.2/Api/core/inc/
+#cgo CFLAGS: -I ../../../VL53L0X_rasp/platform/inc/
+#cgo LDFLAGS: -L ../../../VL53L0X_rasp/bin -lVL53L0X_Rasp
 
-#include "clibrary.h"
-
-int callOnMeGo_cgo(int in); // Forward declaration.
-#include "vl53l0x_api.h"
+#include <vl53l0x_api.h>
 */
 import "C"
 
@@ -27,16 +21,11 @@ type Interface interface {
 }
 
 type TOFSensor struct {
-	dev          *i2c.Device
-	stopVariable byte
 }
 
 func New() (Interface, error) {
 
-
-	return &TOFSensor{
-		dev: dev,
-	}, nil
+	return nil, nil
 }
 
 func (p *TOFSensor) Init() error {
@@ -44,5 +33,5 @@ func (p *TOFSensor) Init() error {
 }
 
 func (p *TOFSensor) Measure() (int, error) {
-
+	return 0, nil
 }
