@@ -28,6 +28,11 @@ RUN bash -c "cd $GOPATH/src/gocv.io/x/gocv && \
              source ./env.sh && \
              go build -v ./cmd/saveimage/main.go"
 
+# Build the VL53L0X library
+RUN git clone https://github.com/cassou/VL53L0X_rasp.git
+COPY VL53L0X_1.0.2 /VL53L0X_rasp/VL53L0X_1.0.2
+RUN cd VL53L0X_rasp && API_DIR=./VL53L0X_1.0.2 make all examples
+
 # Now add the controller code and build.
 
 COPY go-controller/ $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
@@ -52,6 +57,7 @@ RUN mkdir -p /usr/local/lib
 COPY --from=build /lib/ld-linux-armhf.so* /lib
 COPY --from=build /controller-libs/* /usr/local/lib/
 COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller /controller
+COPY --from=build /VL53L0X_rasp/bin/* /usr/local/bin/
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
 ENTRYPOINT []
