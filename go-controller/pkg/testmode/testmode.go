@@ -9,10 +9,12 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"gocv.io/x/gocv"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 )
 
 type TestMode struct {
 	Propeller propeller.Interface
+	context context.Context
 	cancel    context.CancelFunc
 	stopWG    sync.WaitGroup
 }
@@ -25,6 +27,7 @@ func (t *TestMode) Start(ctx context.Context) {
 	t.stopWG.Add(1)
 	var loopCtx context.Context
 	loopCtx, t.cancel = context.WithCancel(ctx)
+	t.context = loopCtx
 	go t.loop(loopCtx)
 }
 
@@ -34,6 +37,11 @@ func (t *TestMode) Stop() {
 }
 
 func (t *TestMode) loop(ctx context.Context) {
+	defer t.stopWG.Done()
+	<-ctx.Done()
+}
+
+func (t *TestMode) testMotors(ctx context.Context) {
 	defer t.stopWG.Done()
 	for {
 		fmt.Println("TestMode: Front left")
@@ -96,6 +104,34 @@ func (t *TestMode) OnJoystickEvent(event *joystick.Event) {
 		case joystick.ButtonR2:
 			fmt.Println("TestMode: button R2 pushed, benchmarking camera")
 			go t.benchmarkPicture()
+		case joystick.ButtonSquare:
+			fmt.Println("TestMode: square pushed, testing sensors")
+			go t.testSensors(t.context)
+		case joystick.ButtonTriangle:
+			fmt.Println("TestMode: triangle pushed, testing sensors")
+			t.stopWG.Add(1)
+			go t.testMotors(t.context)
+		}
+	}
+}
+
+func (t *TestMode) testSensors(ctx context.Context) {
+	tof,err := tofsensor.New()
+	if err != nil {
+		fmt.Println("Failed to open sensor", err)
+		return
+	}
+	tof.Init()
+	for i := 0; i < 1000; i++ {
+		rng, err := tof.Measure()
+		if err != nil {
+			fmt.Println("Failed to read sensor", err)
+			return
+		}
+		fmt.Println("Range reading:", rng)
+		time.Sleep(100 * time.Millisecond)
+		if ctx.Err() != nil {
+			return
 		}
 	}
 }
