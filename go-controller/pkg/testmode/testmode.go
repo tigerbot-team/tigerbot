@@ -135,12 +135,17 @@ func (t *TestMode) testSensors(ctx context.Context) {
 			fmt.Println("Failed to open sensor", err)
 			return
 		}
+		err = tof.StartContinuousMeasurements()
+		if err != nil {
+			fmt.Println("Failed to start continuous measurements", err)
+			return
+		}
 		tofs = append(tofs, tof)
 	}
 	for ctx.Err() == nil {
 		for j, tof := range tofs {
 			reading := "-"
-			readingInMM, err := tof.Measure()
+			readingInMM, err := tof.GetNextContinuousMeasurement()
 			if err == tofsensor.ErrMeasurementInvalid {
 				reading = "<invalid>"
 			} else if err != nil {
