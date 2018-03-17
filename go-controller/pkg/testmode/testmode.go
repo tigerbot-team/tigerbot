@@ -116,19 +116,24 @@ func (t *TestMode) OnJoystickEvent(event *joystick.Event) {
 }
 
 func (t *TestMode) testSensors(ctx context.Context) {
-	tof,err := tofsensor.New()
+	tof, err := tofsensor.New("/dev/i2c-1", 0x29)
 	if err != nil {
 		fmt.Println("Failed to open sensor", err)
 		return
 	}
-	tof.Init()
 	for i := 0; i < 1000; i++ {
 		rng, err := tof.Measure()
+		if err == tofsensor.ErrMeasurementInvalid {
+			fmt.Println("Invalid reading")
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
 		if err != nil {
 			fmt.Println("Failed to read sensor", err)
-			return
+			time.Sleep(100 * time.Millisecond)
+			continue
 		}
-		fmt.Println("Range reading:", rng)
+		fmt.Printf("Range reading: %vmm\n", rng)
 		time.Sleep(100 * time.Millisecond)
 		if ctx.Err() != nil {
 			return
