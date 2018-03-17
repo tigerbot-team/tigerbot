@@ -13,6 +13,7 @@ import (
 	"errors"
 	"syscall"
 	"unsafe"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 )
 
 const (
@@ -31,6 +32,41 @@ type Interface interface {
 	Close() error
 }
 
+type MuxedTOFSensor struct {
+	Port int
+	tof Interface
+	mux mux.Interface
+}
+
+func NewMuxed(device string, addr byte, mux mux.Interface, muxPort int) (Interface, error) {
+	err := mux.SelectSinglePort(muxPort)
+	if err != nil {
+		return nil, err
+	}
+	tof, err := New(device, addr)
+	if err != nil {
+		return nil, err
+	}
+	muxed := MuxedTOFSensor{
+		Port: muxPort,
+		tof: tof,
+		mux: mux,
+	}
+	return &muxed, nil
+}
+
+func (m *MuxedTOFSensor) Measure() (int, error) {
+	err := m.mux.SelectSinglePort(m.Port)
+	if err != nil {
+		return 0, err
+	}
+	return m.tof.Measure()
+}
+
+func (m *MuxedTOFSensor) Close() error {
+	return m.tof.Close()
+}
+
 type TOFSensor struct {
 	deviceFileName *C.char
 	device         *C.VL53L0X_Dev_t
@@ -39,7 +75,9 @@ type TOFSensor struct {
 func New(device string, addr byte) (Interface, error) {
 	tof := &TOFSensor{}
 	
-	var status C.VL53L0X_Error = C.VL53L0X_ERROR_NONE
+	var status C.VL53L0X_Error
+	status = C.VL53L0X_ERROR_NONE
+
 	defer func() {
 		if status != C.VL53L0X_ERROR_NONE {
 			tof.Close()

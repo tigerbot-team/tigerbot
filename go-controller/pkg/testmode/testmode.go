@@ -10,6 +10,7 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"gocv.io/x/gocv"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
+	mux2 "github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 )
 
 type TestMode struct {
@@ -116,28 +117,44 @@ func (t *TestMode) OnJoystickEvent(event *joystick.Event) {
 }
 
 func (t *TestMode) testSensors(ctx context.Context) {
-	tof, err := tofsensor.New("/dev/i2c-1", 0x29)
+	m, err := mux2.New("/dev/i2c-1")
 	if err != nil {
-		fmt.Println("Failed to open sensor", err)
+		fmt.Println("Failed to open mux", err)
 		return
 	}
-	for i := 0; i < 1000; i++ {
-		rng, err := tof.Measure()
-		if err == tofsensor.ErrMeasurementInvalid {
-			fmt.Println("Invalid reading")
-			time.Sleep(100 * time.Millisecond)
-			continue
+
+	var tofs []tofsensor.Interface
+	defer func() {
+		for _, tof := range tofs {
+			tof.Close()
 		}
+	}()
+	for _, port := range []int{mux2.BusTOF1, mux2.BusTOF2, mux2.BusTOF3} {
+		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, m, port)
 		if err != nil {
-			fmt.Println("Failed to read sensor", err)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-		fmt.Printf("Range reading: %vmm\n", rng)
-		time.Sleep(100 * time.Millisecond)
-		if ctx.Err() != nil {
+			fmt.Println("Failed to open sensor", err)
 			return
 		}
+		tofs = append(tofs, tof)
+	}
+	for ctx.Err() == nil {
+		for j, tof := range tofs {
+			reading := "-"
+			readingInMM, err := tof.Measure()
+			if err == tofsensor.ErrMeasurementInvalid {
+				reading = "<invalid>"
+			} else if err != nil {
+				reading = "<failed>"
+			} else {
+				reading = fmt.Sprintf("%dmm", readingInMM)
+			}
+			fmt.Printf("%d: %10s ", j, reading)
+			if ctx.Err() != nil {
+				return
+			}
+		}
+		fmt.Println()
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
