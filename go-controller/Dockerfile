@@ -30,10 +30,15 @@ RUN bash -c "cd $GOPATH/src/gocv.io/x/gocv && \
 
 # Now add the controller code and build.
 
+COPY VL53L0X_1.0.2 $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_1.0.2
+COPY VL53L0X_rasp $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp
+WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp
+RUN API_DIR=../VL53L0X_1.0.2 make all examples
+
 COPY go-controller/ $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
-             go build -v controller.go"
+             GOMAXPROCS=1 go build -p 1 -v controller.go"
 
 # Copy the shared libraries that the controlelr uses to a designated
 # directory so that they're easy to find in the next phase.
@@ -52,6 +57,7 @@ RUN mkdir -p /usr/local/lib
 COPY --from=build /lib/ld-linux-armhf.so* /lib
 COPY --from=build /controller-libs/* /usr/local/lib/
 COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller /controller
+COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp/bin/* /usr/local/bin/
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
 ENTRYPOINT []
