@@ -164,6 +164,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	forward := filters[1]
 	right := filters[2]
 	_ = right
+	_=left
 
 	readSensors()
 	readSensors()
@@ -172,13 +173,13 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	readSensors()
 
 	for ctx.Err() == nil {
-		fmt.Println("Following left wall...")
+		fmt.Println("Following right wall...")
 		for ctx.Err() == nil {
 			m.sleepIfPaused(ctx)
 
 			readSensors()
 
-			targetLeft := targetDiagonalDistance + 10
+			targetright := targetDiagonalDistance + 10
 
 			// If we reach a wall in front, break out and do the turn.
 			const earlyTurnDist = 250
@@ -187,40 +188,40 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				if forwardGuess < 130 {
 					log.Println("Reached wall in front")
 					break
-				} else if forwardGuess < earlyTurnDist && left.BestGuess() < 50 {
-					log.Println("Left too close to wall, beginning turn...")
+				} else if forwardGuess < earlyTurnDist && right.BestGuess() < 50 {
+					log.Println("right too close to wall, beginning turn...")
 					break
 				} else if forwardGuess < earlyTurnDist {
 					// Start to turn early.
 					delta := 50 + float64(earlyTurnDist-forward.BestGuess())
-					targetLeft += delta
-					fmt.Println("Early turn active", delta, "->", targetLeft, "mm")
+					targetright += delta
+					fmt.Println("Early turn active", delta, "->", targetright, "mm")
 				}
 			}
 
-			if left.BestGuess() == 0 {
-				log.Println("Lost left wall!")
+			if right.BestGuess() == 0 {
+				log.Println("Lost right wall!")
 			}
 
-			// Otherwise, try to keep the left sensor the right distance from the wall.
-			errorInMM := float64(left.BestGuess()) - targetLeft
+			// Otherwise, try to keep the right sensor the right distance from the wall.
+			errorInMM := float64(right.BestGuess()) - targetright
 			errorInMMSq := math.Copysign(errorInMM*errorInMM, errorInMM)
 			clamped := math.Min(math.Max(-baseSpeed*0.6, errorInMMSq*0.05), baseSpeed*0.6)
 
-			lSpeed := int8(baseSpeed - clamped)
-			rSpeed := int8(baseSpeed + clamped/2)
-			lRearSpeed := int8(baseSpeed - clamped)
-			rRearSpeed := int8(baseSpeed + clamped/2)
+			rSpeed := int8(baseSpeed - clamped)
+			lSpeed := int8(baseSpeed + clamped/2)
+			rRearSpeed := int8(baseSpeed - clamped)
+			lRearSpeed := int8(baseSpeed + clamped/2)
 
 			m.Propeller.SetMotorSpeeds(lSpeed, rSpeed, lRearSpeed, rRearSpeed)
 		}
 
-		fmt.Println("Turning right...")
-		m.Propeller.SetMotorSpeeds(14, -7, 9, -5)
+		fmt.Println("Turning left...")
+		m.Propeller.SetMotorSpeeds(-7, 14, -5, 9)
 		for ctx.Err() == nil {
 			m.sleepIfPaused(ctx)
 			readSensors()
-			if forward.IsFar() || forward.BestGuess() > 180 && float64(left.BestGuess()) > targetDiagonalDistance * 0.5 {
+			if forward.IsFar() || forward.BestGuess() > 180 && float64(right.BestGuess()) > targetDiagonalDistance * 0.5 {
 				break
 			}
 		}
