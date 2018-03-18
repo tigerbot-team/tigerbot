@@ -11,8 +11,10 @@ package tofsensor
 import "C"
 import (
 	"errors"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"syscall"
 	"unsafe"
+	"time"
 )
 
 const (
@@ -20,15 +22,70 @@ const (
 )
 
 var (
-	ErrI2CInitFailed  = errors.New("I2C init failed")
-	ErrDataInitFailed = errors.New("data init failed")
-	ErrMeasurementFailed = errors.New("measurement failed")
+	ErrI2CInitFailed      = errors.New("I2C init failed")
+	ErrDataInitFailed     = errors.New("data init failed")
+	ErrMeasurementFailed  = errors.New("measurement failed")
 	ErrMeasurementInvalid = errors.New("measurement invalid")
 )
 
 type Interface interface {
-	Measure() (int, error)
+	StartContinuousMeasurements() error
+	GetNextContinuousMeasurement() (int, error)
+
+	DoSingleMeasurement() (int, error)
+
 	Close() error
+}
+
+type MuxedTOFSensor struct {
+	Port int
+	tof  Interface
+	mux  mux.Interface
+}
+
+func NewMuxed(device string, addr byte, mux mux.Interface, muxPort int) (Interface, error) {
+	err := mux.SelectSinglePort(muxPort)
+	if err != nil {
+		return nil, err
+	}
+	tof, err := New(device, addr)
+	if err != nil {
+		return nil, err
+	}
+	muxed := MuxedTOFSensor{
+		Port: muxPort,
+		tof:  tof,
+		mux:  mux,
+	}
+	return &muxed, nil
+}
+
+func (m *MuxedTOFSensor) DoSingleMeasurement() (int, error) {
+	err := m.mux.SelectSinglePort(m.Port)
+	if err != nil {
+		return 0, err
+	}
+	return m.tof.DoSingleMeasurement()
+}
+
+func (m *MuxedTOFSensor) StartContinuousMeasurements() (error) {
+	err := m.mux.SelectSinglePort(m.Port)
+	if err != nil {
+		return err
+	}
+	return m.tof.StartContinuousMeasurements()
+}
+
+func (m *MuxedTOFSensor) GetNextContinuousMeasurement() (int, error) {
+	err := m.mux.SelectSinglePort(m.Port)
+	if err != nil {
+		return 0, err
+	}
+	return m.tof.GetNextContinuousMeasurement()
+}
+
+func (m *MuxedTOFSensor) Close() error {
+	return m.tof.Close()
 }
 
 type TOFSensor struct {
@@ -38,8 +95,10 @@ type TOFSensor struct {
 
 func New(device string, addr byte) (Interface, error) {
 	tof := &TOFSensor{}
-	
-	var status C.VL53L0X_Error = C.VL53L0X_ERROR_NONE
+
+	var status C.VL53L0X_Error
+	status = C.VL53L0X_ERROR_NONE
+
 	defer func() {
 		if status != C.VL53L0X_ERROR_NONE {
 			tof.Close()
@@ -140,12 +199,61 @@ func (p *TOFSensor) Close() error {
 	return nil
 }
 
-func (p *TOFSensor) Measure() (int, error) {
+func (p *TOFSensor) DoSingleMeasurement() (int, error) {
 	var meas C.VL53L0X_RangingMeasurementData_t
 	status := C.VL53L0X_PerformSingleRangingMeasurement(p.device, &meas)
 	if status != C.VL53L0X_ERROR_NONE {
 		return 0, ErrMeasurementFailed
 	}
+	if meas.RangeStatus != 0 {
+		return 0, ErrMeasurementInvalid
+	}
+	return int(meas.RangeMilliMeter), nil
+}
+
+func (p *TOFSensor) StartContinuousMeasurements() error {
+	status := C.VL53L0X_SetDeviceMode(p.device, C.VL53L0X_DEVICEMODE_CONTINUOUS_RANGING)
+	if status != C.VL53L0X_ERROR_NONE {
+		return ErrDataInitFailed
+	}
+	status = C.VL53L0X_StartMeasurement(p.device)
+	if status != C.VL53L0X_ERROR_NONE {
+		return ErrDataInitFailed
+	}
+	C.VL53L0X_ClearInterruptMask(p.device,
+		C.VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY)
+	return nil
+}
+
+var (
+	ErrWaitFailed = errors.New("failed to wait")
+	ErrTimeout = errors.New("timed out")
+)
+
+func (p *TOFSensor) GetNextContinuousMeasurement() (int, error) {
+	var ready C.uint8_t
+	start := time.Now()
+	for {
+		status := C.VL53L0X_GetMeasurementDataReady(p.device, &ready)
+		if status != C.VL53L0X_ERROR_NONE {
+			return 0, ErrWaitFailed
+		}
+		if ready == 1 {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+		if time.Since(start) > time.Second {
+			return 0, ErrTimeout
+		}
+	}
+
+	var meas C.VL53L0X_RangingMeasurementData_t
+	status := C.VL53L0X_GetRangingMeasurementData(p.device, &meas)
+	if status != C.VL53L0X_ERROR_NONE {
+		return 0, ErrMeasurementFailed
+	}
+	C.VL53L0X_ClearInterruptMask(p.device,
+		C.VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY)
 	if meas.RangeStatus != 0 {
 		return 0, ErrMeasurementInvalid
 	}
