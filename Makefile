@@ -17,12 +17,18 @@ controller-image.tar: metabotspin/mb3.binary python-controller/*
 	$(MAKE) controller-image
 	docker save tigerbot/controller:latest > controller-image.tar
 
-go-controller-image go-controller-image.tar go-controller/controller: $(ARCH_DEPS) metabotspin/mb3.binary $(shell find go-controller -name '*.go') go-controller/Dockerfile
-	docker build . -f go-controller/Dockerfile -t tigerbot/go-controller:latest
-	docker save tigerbot/go-controller:latest > go-controller-image.tar
+PHONY: go-phase-1-image
+go-phase-1-image go-controller/controller: $(ARCH_DEPS) metabotspin/mb3.binary $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
+	docker build . -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest
 	-docker rm -f tigerbot-build
-	docker create --name=tigerbot-build tigerbot/go-controller:latest
-	docker cp tigerbot-build:/controller go-controller/controller
+	docker create --name=tigerbot-build tigerbot/go-controller-phase-1:latest
+	docker cp tigerbot-build:/go/src/github.com/tigerbot-team/tigerbot/go-controller/controller go-controller/controller
+	-docker rm -f tigerbot-build
+
+PHONY: go-controller-image
+go-controller-image go-controller-image.tar: go-phase-1-image
+	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
+	docker save tigerbot/go-controller:latest > go-controller-image.tar
 
 go-install-to-pi: go-controller-image.tar
 	rsync -zv --progress go-controller-image.tar pi@$(BOT_HOST):go-controller-image.tar

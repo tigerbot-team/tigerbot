@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"syscall"
 	"log"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
 )
 
 type Mode interface {
@@ -92,6 +93,7 @@ func main() {
 
 	allModes := []Mode{
 		rcmode.New(prop),
+		mazemode.New(prop),
 		rainbowmode.New(prop),
 		&testmode.TestMode{Propeller: prop},
 		&pausemode.PauseMode{Propeller: prop},
