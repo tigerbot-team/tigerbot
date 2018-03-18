@@ -3,6 +3,7 @@ package propeller
 import (
 	"golang.org/x/exp/io/i2c"
 	"fmt"
+	"time"
 )
 
 // DEVICE_REG_MODE1 = 0x00
@@ -65,7 +66,13 @@ func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight in
 		frontRight = -127
 	}
 	data := []byte{RegMotor1, byte(-backLeft), byte(-frontLeft), byte(frontRight), byte(backRight)}
-	return p.dev.Write(data)
+	for {
+		err := p.dev.Write(data)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(10 * time.Microsecond)
+	}
 }
 
 type dummyPropeller struct {

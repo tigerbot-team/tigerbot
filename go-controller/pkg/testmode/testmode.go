@@ -159,7 +159,7 @@ func (t *TestMode) testSensors(ctx context.Context) {
 			}
 		}
 		fmt.Println()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

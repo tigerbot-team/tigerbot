@@ -39,26 +39,3 @@ COPY go-controller/ $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
              GOMAXPROCS=1 go build -p 1 -v controller.go"
-
-# Copy the shared libraries that the controlelr uses to a designated
-# directory so that they're easy to find in the next phase.
-RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
-             ./copy-libs"
-
-# Now build the container image that we actually ship by copying
-# across only the relevant files.  We start with alpins since it's
-# nice and small to start with but we'll be throwing in a lot
-# of glibc-linked binaries so the resulting system will be a bit
-# of a hybrid.
-
-FROM resin/raspberry-pi-alpine:latest
-
-RUN mkdir -p /usr/local/lib
-COPY --from=build /lib/ld-linux-armhf.so* /lib
-COPY --from=build /controller-libs/* /usr/local/lib/
-COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller /controller
-COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp/bin/* /usr/local/bin/
-ENV LD_LIBRARY_PATH=/usr/local/lib
-
-ENTRYPOINT []
-CMD /controller
