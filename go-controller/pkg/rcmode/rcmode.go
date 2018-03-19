@@ -46,7 +46,7 @@ func (m *RCMode) Stop() {
 func (m *RCMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
 
-	var stickX, stickY int16
+	var leftStickX, leftStickY, rightStickX, rightStickY int16
 
 
 	mx, err := mux.New("/dev/i2c-1")
@@ -100,14 +100,19 @@ func (m *RCMode) loop(ctx context.Context) {
 			}
 			fmt.Println()
 		case event := <-m.joystickEvents:
-			if event.Type == joystick.EventTypeAxis && event.Number == joystick.AxisLStickX {
-				stickX = event.Value
-			} else if event.Type == joystick.EventTypeAxis && event.Number == joystick.AxisLStickY {
-				stickY = event.Value
-			} else {
-				continue
+			if event.Type == joystick.EventTypeAxis {
+				switch event.Number {
+				case joystick.AxisLStickX:
+					leftStickX = event.Value
+				case joystick.AxisLStickY:
+					leftStickY = event.Value
+				case joystick.AxisRStickX:
+					rightStickX = event.Value
+				case joystick.AxisRStickY:
+					rightStickY = event.Value
+				}
 			}
-			fl, fr, bl, br := Mix(stickX, stickY)
+			fl, fr, bl, br := Mix(leftStickX, leftStickY, rightStickX, rightStickY)
 			for {
 				err := m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
 				if err == nil {
@@ -124,32 +129,42 @@ func (m *RCMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
-func Mix(stickX, stickY int16) (fl, fr, bl, br int8) {
-	yaw := float64(stickX) / 32767.0
-	throttle := float64(stickY) / -32767.0
-
-	yawAbs := math.Abs(yaw)
-	throttleAbs := math.Abs(throttle)
-
+func Mix(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int8) {
 	const expo = 2.0
-	yawAbsExpo := math.Pow(yawAbs, expo)
-	throttleAbsExpo := math.Pow(throttleAbs, expo)
+	_ = lStickY
 
-	yawExpo := math.Copysign(yawAbsExpo, yaw)
-	throttleExpo := math.Copysign(throttleAbsExpo, throttle)
+	// Put all the values into the range (-1, 1) and apply expo.
+	yawExpo := applyExpo(float64(lStickX) / 32767.0, expo)
+	throttleExpo := applyExpo(float64(rStickY) / -32767.0, expo)
+	translateExpo := applyExpo(float64(rStickX) / 32767.0, expo)
 
-	left := throttleExpo + yawExpo
-	right := throttleExpo - yawExpo
+	// Map the values to speeds for each motor.
+	frontLeft := throttleExpo + yawExpo + translateExpo
+	frontRight := throttleExpo - yawExpo - translateExpo
+	backLeft := throttleExpo + yawExpo - translateExpo
+	backRight := throttleExpo - yawExpo + translateExpo
 
-	scaledLF := int8(left * 127 / 2)
-	scaledRF := int8(right * 127 / 2)
-	scaledLB := int8(left * 80 / 2)
-	scaledRB := int8(right * 80 / 2)
-
-	stickY = stickY >> 9
-	fl = scaledLF
-	fr = scaledRF
-	bl = scaledLB
-	br = scaledRB
+	fl = scaleAndClamp(frontLeft, 127)
+	fr = scaleAndClamp(frontRight, 127)
+	bl = scaleAndClamp(backLeft, 127)
+	br = scaleAndClamp(backRight, 127)
 	return
+}
+
+func applyExpo(value float64, expo float64) float64 {
+	absVal := math.Abs(value)
+	absExpo := math.Pow(absVal, expo)
+	signedExpo := math.Copysign(absExpo, value)
+	return signedExpo
+}
+
+func scaleAndClamp(value, multiplier float64) int8 {
+	multiplied := value * multiplier
+	if multiplied <= math.MinInt8 {
+		return math.MinInt8
+	}
+	if multiplied >= math.MaxInt8 {
+		return math.MaxInt8
+	}
+	return int8(multiplied)
 }

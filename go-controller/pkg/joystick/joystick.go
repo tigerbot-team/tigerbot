@@ -60,8 +60,10 @@ const (
 	ButtonPS       = 12
 	ButtonPadClick = 13
 
-	AxisLStickY = 1
 	AxisLStickX = 0
+	AxisLStickY = 1
+	AxisRStickX = 2
+	AxisRStickY = 5
 )
 
 func (e EventType) String() string {
