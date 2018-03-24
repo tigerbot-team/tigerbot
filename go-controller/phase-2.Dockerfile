@@ -16,6 +16,8 @@ RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
 
 FROM resin/raspberry-pi-alpine:latest
 
+RUN apk --no-cache add util-linux strace
+
 RUN mkdir -p /usr/local/lib
 COPY metabotspin/mb3.binary /mb3.binary
 COPY --from=build /usr/bin/propman /usr/bin/propman
