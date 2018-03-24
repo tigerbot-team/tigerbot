@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"log"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
+	"runtime"
 )
 
 type Mode interface {
@@ -31,6 +32,7 @@ type JoystickUser interface {
 
 func main() {
 	fmt.Print("---- Tigerbot ----\n\n")
+	fmt.Println("GOMAXPROCS", runtime.GOMAXPROCS(0))
 
 	// Our global context, we cancel it to trigger shutdown.
 	ctx, cancel := context.WithCancel(context.Background())
