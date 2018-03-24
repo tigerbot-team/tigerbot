@@ -4,6 +4,7 @@ import (
 	"golang.org/x/exp/io/i2c"
 	"fmt"
 	"time"
+	"os"
 )
 
 // DEVICE_REG_MODE1 = 0x00
@@ -46,6 +47,26 @@ func New() (Interface, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Ask the kernel to give us control over the GPIO pin that is connected to the Propeller's reset pin.
+	export, err := os.OpenFile("/sys/class/gpio/export", os.O_WRONLY, 0666)
+	defer export.Close()
+	if err != nil {
+		return nil, err
+	}
+	_, _ = export.WriteString("17") // Propeller hat reset pin; ignore error, will fail if already exported
+
+	// Reset is active LOW, so we want to drive it HIGH to prevent the propeller from resetting.
+	// To do a glitch-free write to the pin, we write "high" to the direction control file.  This
+	// ensures that the pin is driven high as soon as it becomes an output.
+	dirn, err := os.OpenFile("/sys/class/gpio/gpio17/direction", os.O_WRONLY, 0666)
+	defer dirn.Close()
+	_, err = dirn.WriteString("high")
+	if err != nil {
+		fmt.Println("Failed to drive propeller reset pin")
+		return nil, err
+	}
+
 	return &Propeller{
 		dev: dev,
 	}, nil
