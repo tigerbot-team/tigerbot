@@ -17,6 +17,8 @@ RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
 FROM resin/raspberry-pi-alpine:latest
 
 RUN mkdir -p /usr/local/lib
+COPY metabotspin/mb3.binary /mb3.binary
+COPY --from=build /usr/bin/propman /usr/bin/propman
 COPY --from=build /lib/ld-linux-armhf.so* /lib
 COPY --from=build /controller-libs/* /usr/local/lib/
 COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller /controller

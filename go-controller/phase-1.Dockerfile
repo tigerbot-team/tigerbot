@@ -28,6 +28,12 @@ RUN bash -c "cd $GOPATH/src/gocv.io/x/gocv && \
              source ./env.sh && \
              go build -v ./cmd/saveimage/main.go"
 
+# Add the propeller IDE tools so we can extract the propman tool.
+RUN wget https://github.com/parallaxinc/PropellerIDE/releases/download/0.38.5/propelleride-0.38.5-armhf.deb
+RUN sh -c "dpkg -i propelleride-0.38.5-armhf.deb || true" && \
+    apt-get install -y -f && \
+    apt-get clean -y
+
 # Now add the controller code and build.
 
 COPY VL53L0X_1.0.2 $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_1.0.2
