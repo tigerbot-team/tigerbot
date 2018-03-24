@@ -166,7 +166,7 @@ func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight in
 		p.Reset()
 
 		// Then reflash it...
-		fmt.Println("Failed to program propeller after retries (%v)!!!  Rebooting it!!!", err)
+		fmt.Println("Failed to program propeller after retries!!!  Rebooting it!!!", err)
 		p.Flash()
 	}
 	panic("Failed to program or reflash the propeller")
