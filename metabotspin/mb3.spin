@@ -36,6 +36,7 @@ CON
   servo1 = 29
   servo2 = 30
   readready = 31
+  motorshutdowntime = 100
 
 OBJ
   quad :  "encoder"
@@ -70,6 +71,7 @@ VAR
   long  lastpos[4]
   long  debug[debuglim]
   long  actual_speed[4]
+  byte  time_at_zero[4]
   long  error_integral[4]
   long  error_derivative[4]
   long  millidiv
@@ -173,11 +175,23 @@ PRI pid | i, nextpos, error, last_error, nexttime, newspeed, desired_speed, maxi
       last_error := desired_speed - actual_speed[i] 
       actual_speed[i] := (nextpos - lastpos[i]) * 3
       lastpos[i] := nextpos
-      error := desired_speed - actual_speed[i] 
-      error_derivative[i] := error - last_error
-      error_integral[i] += error
-      error_integral[i] := -maxintegral #> error_integral[i] <# maxintegral
-      newspeed := Kp * error + Ki * error_integral[i] + Kd * error_derivative[i]
+
+      if desired_speed == 0
+        ' count how long we've been at zero speed
+        time_at_zero[i] := time_at_zero[i] + 1 <# motorshutdowntime
+      else
+        time_at_zero[i] := 0
+
+      if time_at_zero[i] < motorshutdowntime
+        error := desired_speed - actual_speed[i]
+        error_derivative[i] := error - last_error
+        error_integral[i] += error
+        error_integral[i] := -maxintegral #> error_integral[i] <# maxintegral
+        newspeed := Kp * error + Ki * error_integral[i] + Kd * error_derivative[i]
+      else
+        ' Motor has been at zero speed for some time, turn it off to avoid PID judder.
+        error_integral[i] := 0
+        newspeed := 0
       
       setMotorSpeed(i, newspeed)
       
