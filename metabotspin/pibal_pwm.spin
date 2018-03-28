@@ -8,11 +8,13 @@
 var
   long  duty[4]
   long  period
+  long  halfPeriod
   long  pwmstack1[12]                                           ' Stack size measured with Stack Length = 9 longs
   long  pwmstack2[12]
 
 pub start_pwm(p1, p2, p3, p4, freq) | i
   period := clkfreq / (1 #> freq <# 20_000)                     ' limit pwm frequency
+  halfPeriod := period / 2
   cognew(run_pwm(p1, p2, 0), @pwmstack1)                        ' launch 1st pwm cog
   cognew(run_pwm(p3, p4, 2), @pwmstack2)                        ' launch 2nd pwm cog
   
@@ -36,8 +38,14 @@ pri run_pwm(p1, p2, d) | t                                      ' start with cog
     frqb := 1
     phsb := 0
     dira[p2] := 1
-  t := cnt                                                      ' sync loop timing
+
+  if d > 0
+    waitcnt(halfPeriod/2 + cnt)  ' start cogs out of phase to spread motor load
+
+  t := cnt
+
   repeat
     phsa := duty[d]
+    waitcnt(t += halfPeriod)     ' split period in half to spread motor load
     phsb := duty[d+1]
-    waitcnt(t += period)      
+    waitcnt(t += halfPeriod)
