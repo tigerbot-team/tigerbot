@@ -129,7 +129,7 @@ func (t *TestMode) testSensors(ctx context.Context) {
 			tof.Close()
 		}
 	}()
-	for _, port := range []int{mux2.BusTOF1, mux2.BusTOF2, mux2.BusTOF3} {
+	for _, port := range []int{mux2.BusTOFFrontLeft, mux2.BusTOFForward, mux2.BusTOFFrontRight} {
 		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, m, port)
 		if err != nil {
 			fmt.Println("Failed to open sensor", err)

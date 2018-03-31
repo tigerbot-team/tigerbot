@@ -7,10 +7,7 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
-	"time"
 	"fmt"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 )
 
 type RCMode struct {
@@ -46,74 +43,43 @@ func (m *RCMode) Stop() {
 func (m *RCMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
 
-	var stickX, stickY int16
-
-
-	mx, err := mux.New("/dev/i2c-1")
-	if err != nil {
-		fmt.Println("Failed to open mux", err)
-		return
-	}
-
-	var tofs []tofsensor.Interface
-	defer func() {
-		for _, tof := range tofs {
-			tof.Close()
-		}
-	}()
-	for _, port := range []int{mux.BusTOF1, mux.BusTOF2, mux.BusTOF3} {
-		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
-		if err != nil {
-			fmt.Println("Failed to open sensor", err)
-			return
-		}
-		err = tof.StartContinuousMeasurements()
-		if err != nil {
-			fmt.Println("Failed to start continuous measurements", err)
-			return
-		}
-		tofs = append(tofs, tof)
-	}
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	var leftStickX, leftStickY, rightStickX, rightStickY int16
+	var mix = MixAggressive
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			for j, tof := range tofs {
-				reading := "-"
-				readingInMM, err := tof.GetNextContinuousMeasurement()
-				if err == tofsensor.ErrMeasurementInvalid {
-					reading = "<invalid>"
-				} else if err != nil {
-					reading = "<failed>"
-				} else {
-					reading = fmt.Sprintf("%dmm", readingInMM)
-				}
-				fmt.Printf("%d: %10s ", j, reading)
-				if ctx.Err() != nil {
-					return
-				}
-			}
-			fmt.Println()
 		case event := <-m.joystickEvents:
-			if event.Type == joystick.EventTypeAxis && event.Number == joystick.AxisLStickX {
-				stickX = event.Value
-			} else if event.Type == joystick.EventTypeAxis && event.Number == joystick.AxisLStickY {
-				stickY = event.Value
-			} else {
-				continue
-			}
-			fl, fr, bl, br := Mix(stickX, stickY)
-			for {
-				err := m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
-				if err == nil {
-					break
+			switch event.Type {
+			case joystick.EventTypeAxis:
+				switch event.Number {
+				case joystick.AxisLStickX:
+					leftStickX = event.Value
+				case joystick.AxisLStickY:
+					leftStickY = event.Value
+				case joystick.AxisRStickX:
+					rightStickX = event.Value
+				case joystick.AxisRStickY:
+					rightStickY = event.Value
 				}
-				time.Sleep(1 * time.Millisecond)
+			case joystick.EventTypeButton:
+				switch event.Number {
+				case joystick.ButtonR2:
+					if event.Value == 1 {
+						fmt.Println("Gentle mode")
+						mix = MixGentle
+					} else {
+						fmt.Println("Aggressive mode")
+						mix = MixAggressive
+					}
+				}
+			}
+
+			fl, fr, bl, br := mix(leftStickX, leftStickY, rightStickX, rightStickY)
+			err := m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+			if err != nil {
+				fmt.Println("Failed to set motor speeds!", err)
 			}
 		}
 
@@ -124,32 +90,80 @@ func (m *RCMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
-func Mix(stickX, stickY int16) (fl, fr, bl, br int8) {
-	yaw := float64(stickX) / 32767.0
-	throttle := float64(stickY) / -32767.0
+func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int8) {
+	const expo = 1.6
+	_ = lStickY
 
-	yawAbs := math.Abs(yaw)
-	throttleAbs := math.Abs(throttle)
+	// Put all the values into the range (-1, 1) and apply expo.
+	yawExpo := applyExpo(float64(lStickX)/32767.0, 2.5)
+	throttleExpo := applyExpo(float64(rStickY) / -32767.0, expo)
+	translateExpo := applyExpo(float64(rStickX)/32767.0, expo)
 
-	const expo = 2.0
-	yawAbsExpo := math.Pow(yawAbs, expo)
-	throttleAbsExpo := math.Pow(throttleAbs, expo)
+	// Map the values to speeds for each motor.
+	frontLeft := throttleExpo + yawExpo + translateExpo
+	frontRight := throttleExpo - yawExpo - translateExpo
+	backLeft := throttleExpo + yawExpo - translateExpo
+	backRight := throttleExpo - yawExpo + translateExpo
 
-	yawExpo := math.Copysign(yawAbsExpo, yaw)
-	throttleExpo := math.Copysign(throttleAbsExpo, throttle)
+	m1 := math.Max(frontLeft, frontRight)
+	m2 := math.Max(backLeft, backRight)
+	m := math.Max(m1, m2)
+	scale := 1.0
+	if m > 1 {
+		scale = 1.0 / m
+	}
 
-	left := throttleExpo + yawExpo
-	right := throttleExpo - yawExpo
-
-	scaledLF := int8(left * 127 / 2)
-	scaledRF := int8(right * 127 / 2)
-	scaledLB := int8(left * 80 / 2)
-	scaledRB := int8(right * 80 / 2)
-
-	stickY = stickY >> 9
-	fl = scaledLF
-	fr = scaledRF
-	bl = scaledLB
-	br = scaledRB
+	fl = scaleAndClamp(frontLeft*scale, 32)
+	fr = scaleAndClamp(frontRight*scale, 32)
+	bl = scaleAndClamp(backLeft*scale, 32)
+	br = scaleAndClamp(backRight*scale, 32)
 	return
+}
+
+func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int8) {
+	const expo = 1.6
+	_ = lStickY
+
+	// Put all the values into the range (-1, 1) and apply expo.
+	yawExpo := applyExpo(float64(lStickX)/32767.0, 2.5)
+	throttleExpo := applyExpo(float64(rStickY) / -32767.0, expo)
+	translateExpo := applyExpo(float64(rStickX)/32767.0, expo)
+
+	// Map the values to speeds for each motor.
+	frontLeft := throttleExpo + yawExpo + translateExpo
+	frontRight := throttleExpo - yawExpo - translateExpo
+	backLeft := throttleExpo + yawExpo - translateExpo
+	backRight := throttleExpo - yawExpo + translateExpo
+
+	m1 := math.Max(frontLeft, frontRight)
+	m2 := math.Max(backLeft, backRight)
+	m := math.Max(m1, m2)
+	scale := 1.0
+	if m > 1 {
+		scale = 1.0 / m
+	}
+
+	fl = scaleAndClamp(frontLeft*scale, 127)
+	fr = scaleAndClamp(frontRight*scale, 127)
+	bl = scaleAndClamp(backLeft*scale, 127)
+	br = scaleAndClamp(backRight*scale, 127)
+	return
+}
+
+func applyExpo(value float64, expo float64) float64 {
+	absVal := math.Abs(value)
+	absExpo := math.Pow(absVal, expo)
+	signedExpo := math.Copysign(absExpo, value)
+	return signedExpo
+}
+
+func scaleAndClamp(value, multiplier float64) int8 {
+	multiplied := value * multiplier
+	if multiplied <= math.MinInt8 {
+		return math.MinInt8
+	}
+	if multiplied >= math.MaxInt8 {
+		return math.MaxInt8
+	}
+	return int8(multiplied)
 }

@@ -1,6 +1,8 @@
-hash: 809affd207ffb852a63ca61b1f31966f2f9b69fa3a54bf72f46d78ca509b7444
-updated: 2018-03-01T12:37:45.953286606Z
+hash: 7e4ff0d981463aab736ec30785ce61531bfaf3a90372eec6be9e1091c0de20c6
+updated: 2018-03-24T19:14:00.483635341Z
 imports:
+- name: github.com/kr/pty
+  version: 282ce0e5322c82529687d609ee670fac7c7d917c
 - name: gocv.io/x/gocv
   version: 65d6ebdd323af342cc48ac0d146ef7ad16b33fbc
 - name: golang.org/x/exp

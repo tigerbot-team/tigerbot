@@ -110,7 +110,13 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			tof.Close()
 		}
 	}()
-	for _, port := range []int{mux.BusTOF1, mux.BusTOF2, mux.BusTOF3} {
+	for _, port := range []int{
+		mux.BusTOFFrontLeft,
+		mux.BusTOFForward,
+		mux.BusTOFFrontRight,
+		mux.BusTOFSideLeft,
+		mux.BusTOFSideRight,
+	} {
 		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
 		if err != nil {
 			fmt.Println("Failed to open sensor", err)
@@ -138,7 +144,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	)
 
 	var filters []*Filter
-	for i:=0; i < 3; i++ {
+	for i:=0; i < 5; i++ {
 		filters = append(filters, &Filter{})
 	}
 
@@ -160,11 +166,15 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		fmt.Println()
 	}
 
-	left := filters[0]
+	forwardLeft := filters[0]
 	forward := filters[1]
-	right := filters[2]
-	_ = right
-	_=left
+	forwardRight := filters[2]
+	sideLeft := filters[3]
+	sideRight := filters[4]
+	_ = forwardRight
+	_ = forwardLeft
+	_ = sideLeft
+	_ = sideRight
 
 	readSensors()
 	readSensors()
@@ -188,7 +198,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				if forwardGuess < 130 {
 					log.Println("Reached wall in front")
 					break
-				} else if forwardGuess < earlyTurnDist && right.BestGuess() < 50 {
+				} else if forwardGuess < earlyTurnDist && forwardRight.BestGuess() < 50 {
 					log.Println("right too close to wall, beginning turn...")
 					break
 				} else if forwardGuess < earlyTurnDist {
@@ -199,12 +209,12 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				}
 			}
 
-			if right.BestGuess() == 0 {
+			if forwardRight.BestGuess() == 0 {
 				log.Println("Lost right wall!")
 			}
 
 			// Otherwise, try to keep the right sensor the right distance from the wall.
-			errorInMM := float64(right.BestGuess()) - targetright
+			errorInMM := float64(forwardRight.BestGuess()) - targetright
 			errorInMMSq := math.Copysign(errorInMM*errorInMM, errorInMM)
 			clamped := math.Min(math.Max(-baseSpeed*0.6, errorInMMSq*0.05), baseSpeed*0.6)
 
@@ -221,7 +231,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		for ctx.Err() == nil {
 			m.sleepIfPaused(ctx)
 			readSensors()
-			if forward.IsFar() || forward.BestGuess() > 180 && float64(right.BestGuess()) > targetDiagonalDistance * 0.5 {
+			if forward.IsFar() || forward.BestGuess() > 180 && float64(forwardRight.BestGuess()) > targetDiagonalDistance * 0.5 {
 				break
 			}
 		}

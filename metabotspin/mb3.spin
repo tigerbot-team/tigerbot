@@ -36,6 +36,8 @@ CON
   servo1 = 29
   servo2 = 30
   readready = 31
+  motorshutdowntime = 100
+  maxpwmramp = 100
 
 OBJ
   quad :  "encoder"
@@ -70,6 +72,7 @@ VAR
   long  lastpos[4]
   long  debug[debuglim]
   long  actual_speed[4]
+  byte  time_at_zero[4]
   long  error_integral[4]
   long  error_derivative[4]
   long  millidiv
@@ -89,7 +92,7 @@ VAR
 PUB main
   millidiv := clkfreq / 1000
   Kp := 20
-  Ki := 2
+  Ki := 4
   Kd := 10
   timeout := 100
   lastping := cnt
@@ -101,7 +104,7 @@ PUB main
   cognew(@ThreeServos,0)                   'Start a new cog and run the assembly code starting at the "ThreeServos" cell         
 
   millioffset := negx / millidiv * -1
-  i2c.start(24,25,$42)                                ' (COG 2)  Start I2C using pins 24/25 at address 0x42
+  i2c.start(24,25,$42)                                ' (COG 2)  Start I2C using pins 24 CLK / 25 DAT at address 0x42
   quad.Start(@encoderPins)                            ' start the quadrature encoder reader (COG 3)
   resetMotors                                         ' reset the motors
   pwm.start_pwm(motorPWM[0], motorPWM[1], motorPWM[2], motorPWM[3], 20000)    ' start the pwm driver (COGS 4 & 5)
@@ -154,11 +157,15 @@ PRI autoPing | i
     else
       i2c.putw(pingbase+4, 0)                                      
  
-PRI pid | i, nextpos, error, last_error, nexttime, newspeed, desired_speed, maxintegral, servoval
+PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desired_speed, maxintegral, servoval
   nextpos := 0
   maxintegral := 1000 / Ki
   resetMotors    ' enables the direction ports control from this cog
   nexttime := millidiv + cnt
+  lastspeed[0] := 0
+  lastspeed[1] := 0
+  lastspeed[2] := 0
+  lastspeed[3] := 0
   repeat
     waitcnt(nexttime)
     nexttime += millidiv * 5
@@ -173,13 +180,27 @@ PRI pid | i, nextpos, error, last_error, nexttime, newspeed, desired_speed, maxi
       last_error := desired_speed - actual_speed[i] 
       actual_speed[i] := (nextpos - lastpos[i]) * 3
       lastpos[i] := nextpos
-      error := desired_speed - actual_speed[i] 
-      error_derivative[i] := error - last_error
-      error_integral[i] += error
-      error_integral[i] := -maxintegral #> error_integral[i] <# maxintegral
-      newspeed := Kp * error + Ki * error_integral[i] + Kd * error_derivative[i]
-      
+
+      if desired_speed == 0
+        ' count how long we've been at zero speed
+        time_at_zero[i] := time_at_zero[i] + 1 <# motorshutdowntime
+      else
+        time_at_zero[i] := 0
+
+      if time_at_zero[i] < motorshutdowntime
+        error := desired_speed - actual_speed[i]
+        error_derivative[i] := error - last_error
+        error_integral[i] := (error_integral[i] * 100 / 99) + error
+        error_integral[i] := -maxintegral #> error_integral[i] <# maxintegral
+        newspeed := Kp * error + Ki * error_integral[i] + Kd * error_derivative[i]
+      else
+        ' Desired speed has been at zero speed for some time, turn it off to avoid PID judder.
+        error_integral[i] := 0
+        newspeed := 0
+
+      newspeed := (lastspeed[i] - maxpwmramp) #> newspeed <# (lastspeed[i] + maxpwmramp)  ' set a maximum PWM ramp
       setMotorSpeed(i, newspeed)
+      lastspeed[i] := newspeed
       
     ' Update servo parameters  
     position1 := ((i2c.get(servo0hi) << 8) + i2c.get(servo0lo)) * 2 + 90_000

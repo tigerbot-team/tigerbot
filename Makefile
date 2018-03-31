@@ -18,7 +18,7 @@ controller-image.tar: metabotspin/mb3.binary python-controller/*
 	docker save tigerbot/controller:latest > controller-image.tar
 
 PHONY: go-phase-1-image
-go-phase-1-image go-controller/controller: $(ARCH_DEPS) metabotspin/mb3.binary $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
+go-phase-1-image go-controller/controller: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
 	docker build . -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest
 	-docker rm -f tigerbot-build
 	docker create --name=tigerbot-build tigerbot/go-controller-phase-1:latest
@@ -26,7 +26,7 @@ go-phase-1-image go-controller/controller: $(ARCH_DEPS) metabotspin/mb3.binary $
 	-docker rm -f tigerbot-build
 
 PHONY: go-controller-image
-go-controller-image go-controller-image.tar: go-phase-1-image
+go-controller-image go-controller-image.tar: go-phase-1-image metabotspin/mb3.binary
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
 	docker save tigerbot/go-controller:latest > go-controller-image.tar
 
@@ -34,9 +34,10 @@ go-install-to-pi: go-controller-image.tar
 	rsync -zv --progress go-controller-image.tar pi@$(BOT_HOST):go-controller-image.tar
 	ssh pi@$(BOT_HOST) docker load -i go-controller-image.tar
 
-go-patch: go-controller/controller
+go-patch: go-controller/controller metabotspin/mb3.binary
 	rsync -zv --progress go-controller/controller pi@$(BOT_HOST):controller
-	@echo 'Now run the image with -v `pwd`/controller:/controller'
+	rsync -zv --progress metabotspin/mb3.binary pi@$(BOT_HOST):mb3.binary
+	@echo 'Now run the image with -v `pwd`/controller:/controller -v `pwd`/mb3.binary:/mb3.binary'
 
 install-to-pi: controller-image.tar
 	rsync -zv --progress controller-image.tar pi@$(BOT_HOST):controller-image.tar
@@ -44,6 +45,7 @@ install-to-pi: controller-image.tar
 
 metabotspin/mb3.binary: metabotspin/*.spin
 	$(MAKE) build-image
+	rm -f metabotspin/mb3.binary
 	docker run --rm \
 	           -v "$(shell pwd):/tigerbot" \
 	           -w /tigerbot/metabotspin \
