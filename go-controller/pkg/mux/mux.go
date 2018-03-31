@@ -8,9 +8,11 @@ import (
 const (
 	MuxAddr = 0x70
 
-	BusTOF1 = 1
-	BusTOF2 = 2
-	BusTOF3 = 6
+	BusTOFForward    = 0
+	BusTOFFrontLeft  = 6
+	BusTOFFrontRight = 2
+	BusTOFSideLeft   = 7
+	BusTOFSideRight  = 1
 )
 
 type Interface interface {
