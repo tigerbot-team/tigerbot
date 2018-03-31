@@ -141,6 +141,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 	for m.targetBallIdx < len(targetSequence) && ctx.Err() == nil {
 		for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
+			m.Propeller.SetMotorSpeeds(0,0,0,0)
 			time.Sleep(100 * time.Millisecond)
 		}
 

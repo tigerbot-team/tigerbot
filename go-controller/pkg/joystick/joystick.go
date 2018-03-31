@@ -64,6 +64,8 @@ const (
 	AxisLStickY = 1
 	AxisRStickX = 2
 	AxisRStickY = 5
+	AxisDPadX = 6
+	AxisDPadY = 7
 )
 
 func (e EventType) String() string {
