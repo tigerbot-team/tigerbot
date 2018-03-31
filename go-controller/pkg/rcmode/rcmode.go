@@ -108,12 +108,15 @@ func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int8) {
 	m1 := math.Max(frontLeft, frontRight)
 	m2 := math.Max(backLeft, backRight)
 	m := math.Max(m1, m2)
-	scale := 1.0 / math.Min(1, m)
+	scale := 1.0
+	if m > 1 {
+		scale = 1.0 / m
+	}
 
-	fl = scaleAndClamp(frontLeft*scale, 64)
-	fr = scaleAndClamp(frontRight*scale, 64)
-	bl = scaleAndClamp(backLeft*scale, 64)
-	br = scaleAndClamp(backRight*scale, 64)
+	fl = scaleAndClamp(frontLeft*scale, 32)
+	fr = scaleAndClamp(frontRight*scale, 32)
+	bl = scaleAndClamp(backLeft*scale, 32)
+	br = scaleAndClamp(backRight*scale, 32)
 	return
 }
 
@@ -135,7 +138,10 @@ func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int
 	m1 := math.Max(frontLeft, frontRight)
 	m2 := math.Max(backLeft, backRight)
 	m := math.Max(m1, m2)
-	scale := 1.0 / math.Min(1, m)
+	scale := 1.0
+	if m > 1 {
+		scale = 1.0 / m
+	}
 
 	fl = scaleAndClamp(frontLeft*scale, 127)
 	fr = scaleAndClamp(frontRight*scale, 127)
