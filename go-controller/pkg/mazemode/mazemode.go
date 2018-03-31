@@ -282,6 +282,7 @@ func (f *Filter) BestGuess() int {
 
 func (m *MazeMode) sleepIfPaused(ctx context.Context) {
 	for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
+		m.Propeller.SetMotorSpeeds(0,0,0,0)
 		time.Sleep(100 * time.Millisecond)
 	}
 }
