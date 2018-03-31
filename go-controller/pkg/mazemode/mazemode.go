@@ -17,7 +17,7 @@ import (
 )
 
 type Tunable struct {
-	Name  string
+	Name string
 	Value int64
 }
 
@@ -31,13 +31,13 @@ func (t *Tunable) Get() int {
 }
 
 type Tunables struct {
-	All      []*Tunable
+	All []*Tunable
 	selected int
 }
 
 func (t *Tunables) Create(name string, value int) *Tunable {
 	newTunable := &Tunable{
-		Name:  name,
+		Name: name,
 		Value: int64(value),
 	}
 	t.All = append(t.All, newTunable)
@@ -79,9 +79,13 @@ type MazeMode struct {
 	tunables Tunables
 
 	turnSameFrontOffset *Tunable
-	turnOppFrontOffset  *Tunable
-	turnSameRearOffset  *Tunable
-	turnOppRearOffset   *Tunable
+	turnOppFrontOffset *Tunable
+	turnSameRearOffset *Tunable
+	turnOppRearOffset *Tunable
+
+	cornerSensorOffset *Tunable
+	cornerSensorAngleOffset *Tunable
+	clearanceReturnFactor *Tunable
 }
 
 func New(propeller propeller.Interface) *MazeMode {
@@ -94,6 +98,9 @@ func New(propeller propeller.Interface) *MazeMode {
 	mm.turnOppFrontOffset = mm.tunables.Create("Turn opp side front offset", 9)
 	mm.turnSameRearOffset = mm.tunables.Create("Turn same side rear offset", -1)
 	mm.turnOppRearOffset = mm.tunables.Create("Turn opp side rear offset", 0)
+	mm.cornerSensorOffset = mm.tunables.Create("Corner sensor offset", -12)
+	mm.cornerSensorAngleOffset = mm.tunables.Create("Corner sensor angle offset", -8)
+	mm.clearanceReturnFactor = mm.tunables.Create("Clearance return factor", 80)
 
 	return mm
 }
@@ -112,6 +119,10 @@ func (m *MazeMode) Start(ctx context.Context) {
 func (m *MazeMode) Stop() {
 	m.cancel()
 	m.stopWG.Wait()
+
+	for _, t := range m.tunables.All {
+		fmt.Println("Tunable:", t.Name, "=", t.Value)
+	}
 }
 
 func (m *MazeMode) loop(ctx context.Context) {
@@ -260,8 +271,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		wallSeparationMMs    = 350
 		botWidthMMs          = 200
 		sensorInsetMMs       = 20
-		clearanceMMs         = 90
-		diagonalClearanceMMs = (clearanceMMs + sensorInsetMMs) * math.Sqrt2 /* sensor at 45 degrees */
+		clearanceMMs         = (wallSeparationMMs - botWidthMMs) / 2
 
 		baseSpeed = 12
 	)
@@ -275,11 +285,6 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		// making turns.
 
 		fmt.Println("Following the walls...")
-
-		var rotErrIntegral, translationErrIntegral float64
-		var lastRotErr, lastTransErr float64
-		first := true
-
 		for ctx.Err() == nil {
 			m.sleepIfPaused(ctx)
 
@@ -294,82 +299,77 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				}
 			}
 
+			cornerSensorOffset := m.cornerSensorOffset.Get()
+			cornerSensorAngleOffset := float64(m.cornerSensorAngleOffset.Get())
+			frontLeftHorizEstMMs := float64(forwardLeft.BestGuess()+cornerSensorOffset) *
+				(100.0 + cornerSensorAngleOffset) / 100 / math.Sqrt2
+			frontRightHorizEstMMs := float64(forwardRight.BestGuess()+cornerSensorOffset)*
+				(100.0 + cornerSensorAngleOffset) / 100 / math.Sqrt2
+			clearandReturnFactor := float64(m.clearanceReturnFactor.Get())
+
 			// Calculate our translational error.  We do our best to deal with missing sensor readings.
-			// TODO: add in readings from front left/right
 			if sideLeft.IsGood() && sideRight.IsGood() {
 				// We have readings from both sides of the bot, try to stay in the middle.
-				leftGuess := sideLeft.BestGuess()
-				rightGuess := sideRight.BestGuess()
+				leftGuess := float64(sideLeft.BestGuess())
+				if forwardLeft.IsGood() {
+					leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
+				}
+				rightGuess := float64(sideRight.BestGuess())
+				if forwardRight.IsGood() {
+					rightGuess = math.Min( rightGuess, frontRightHorizEstMMs)
+				}
 
 				// Since we know we're in the middle, update the target clearance with actual measured values.
 				translationErrorMMs = float64(leftGuess - rightGuess)
 				actualClearance := float64(leftGuess+rightGuess) / 2
 				targetSideClearance = targetSideClearance*0.95 + actualClearance*0.05
 			} else if sideLeft.IsGood() {
-				translationErrorMMs = float64(sideLeft.BestGuess()) - targetSideClearance
+				leftGuess := float64(sideLeft.BestGuess())
+				if forwardLeft.IsGood() {
+					leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
+				}
+				translationErrorMMs = leftGuess - targetSideClearance
 
 				// Since we're not sure where we are, slowly go back to the default clearance.
-				targetSideClearance = targetSideClearance*0.9 + clearanceMMs*0.1
+				targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor))/100
 			} else if sideRight.IsGood() {
-				translationErrorMMs = targetSideClearance - float64(sideRight.BestGuess())
+				rightGuess := float64(sideRight.BestGuess())
+				if forwardRight.IsGood() {
+					rightGuess = math.Min( rightGuess, frontRightHorizEstMMs)
+				}
+				translationErrorMMs = targetSideClearance - rightGuess
 
 				// Since we're not sure where we are, slowly go back to the default clearance.
-				targetSideClearance = targetSideClearance*0.9 + clearanceMMs*0.1
+				targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor))/100
 			} else {
 				// No idea, dissipate the error so we don't.
 				translationErrorMMs = translationErrorMMs * 0.8
 			}
-			fmt.Printf("Target side clearance %.1f \n", targetSideClearance)
 
 			var leftRotErr, rightRotError float64
 			rotErrGood := false
-			const cornerSensorOffset = -15
 			if forwardLeft.IsGood() && sideLeft.IsGood() {
-				frontDist := float64(forwardLeft.BestGuess()+cornerSensorOffset) / math.Sqrt2
-				leftRotErr = frontDist - float64(sideLeft.BestGuess())
+				leftRotErr = frontLeftHorizEstMMs - float64(sideLeft.BestGuess())
 				rotErrGood = true
 			}
 			if forwardRight.IsGood() && sideRight.IsGood() {
-				frontDist := float64(forwardRight.BestGuess()+cornerSensorOffset) / math.Sqrt2
-				rightRotError = frontDist - float64(sideRight.BestGuess())
+				rightRotError = frontRightHorizEstMMs - float64(sideRight.BestGuess())
 				rotErrGood = true
 			}
 			if rotErrGood {
-				rotationErrorMMs = (leftRotErr - rightRotError) / 2
+				rotationErrorMMs = (leftRotErr - rightRotError)/2
 			} else {
 				rotationErrorMMs *= 0.9
 			}
-			fmt.Printf("Translation error %.1f Rotation error %.1f good: %v\n", translationErrorMMs, rotationErrorMMs, rotErrGood)
+			fmt.Printf("Translation error %.1f Rotation error %.1f\n", translationErrorMMs, rotationErrorMMs)
 
-			var deltaRot, deltaTrans float64
-			if !first {
-				deltaRot = rotationErrorMMs - lastRotErr
-				deltaTrans = translationErrorMMs - lastTransErr
-			}
-			first = false
+			// positive if we're too far right
+			txErrorSq := math.Copysign(translationErrorMMs*translationErrorMMs, translationErrorMMs)
+			// positive if we're rotated too far clockwise
+			rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
 
-			scaledTxErr := baseSpeed *
-				(translationErrorMMs*0.005 +
-					translationErrIntegral*0.0005 +
-					deltaTrans*-0.01)
-			scaledRotErr := baseSpeed *
-				(rotationErrorMMs*0.006 +
-					rotErrIntegral*0.001 +
-					deltaRot*-0.01)
-			rotErrIntegral += rotationErrorMMs
-			if rotErrIntegral > 600 {
-				rotErrIntegral = 600
-			} else if rotErrIntegral < -600 {
-				rotErrIntegral = -600
-			}
-			translationErrIntegral += translationErrorMMs
-			if translationErrIntegral > 600 {
-				translationErrIntegral = 600
-			} else if translationErrIntegral < -600 {
-				translationErrIntegral = -600
-			}
-			lastRotErr = rotationErrorMMs
-			lastTransErr = translationErrorMMs
+			scaledTxErr := txErrorSq * baseSpeed / 10000
+			scaledRotErr := rotErrorSq * baseSpeed / 1000
 
 			fl := clamp(baseSpeed-scaledTxErr-scaledRotErr, baseSpeed*2)
 			fr := clamp(baseSpeed+scaledTxErr+scaledRotErr, baseSpeed*2)
@@ -403,14 +403,14 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			rightTurnConfidence += sideRight.BestGuess()
 		}
 
-		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence)
+		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence	)
 		if leftTurnConfidence > rightTurnConfidence {
 			fmt.Println("Turning left...")
 			m.Propeller.SetMotorSpeeds(
-				int8(-baseSpeed+m.turnSameFrontOffset.Get()),
-				int8(baseSpeed+m.turnOppFrontOffset.Get()),
-				int8(-baseSpeed+m.turnSameRearOffset.Get()),
-				int8(baseSpeed+m.turnOppRearOffset.Get()),
+				int8(-baseSpeed + m.turnSameFrontOffset.Get()),
+				int8(baseSpeed + m.turnOppFrontOffset.Get()),
+				int8(-baseSpeed + m.turnSameRearOffset.Get()),
+				int8(baseSpeed + m.turnOppRearOffset.Get()),
 			)
 			for ctx.Err() == nil {
 				m.sleepIfPaused(ctx)
@@ -424,10 +424,10 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		} else {
 			fmt.Println("Turning right...")
 			m.Propeller.SetMotorSpeeds(
-				int8(baseSpeed+m.turnOppFrontOffset.Get()),
-				int8(-baseSpeed+m.turnSameFrontOffset.Get()),
-				int8(baseSpeed+m.turnOppRearOffset.Get()),
-				int8(-baseSpeed+m.turnSameRearOffset.Get()),
+				int8(baseSpeed + m.turnOppFrontOffset.Get()),
+				int8(-baseSpeed + m.turnSameFrontOffset.Get()),
+				int8(baseSpeed + m.turnOppRearOffset.Get()),
+				int8(-baseSpeed + m.turnSameRearOffset.Get()),
 			)
 			for ctx.Err() == nil {
 				m.sleepIfPaused(ctx)
