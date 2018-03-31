@@ -37,6 +37,7 @@ CON
   servo2 = 30
   readready = 31
   motorshutdowntime = 100
+  maxpwmramp = 100
 
 OBJ
   quad :  "encoder"
@@ -156,11 +157,15 @@ PRI autoPing | i
     else
       i2c.putw(pingbase+4, 0)                                      
  
-PRI pid | i, nextpos, error, last_error, nexttime, newspeed, desired_speed, maxintegral, servoval
+PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desired_speed, maxintegral, servoval
   nextpos := 0
   maxintegral := 1000 / Ki
   resetMotors    ' enables the direction ports control from this cog
   nexttime := millidiv + cnt
+  lastspeed[0] := 0
+  lastspeed[1] := 0
+  lastspeed[2] := 0
+  lastspeed[3] := 0
   repeat
     waitcnt(nexttime)
     nexttime += millidiv * 5
@@ -192,8 +197,10 @@ PRI pid | i, nextpos, error, last_error, nexttime, newspeed, desired_speed, maxi
         ' Desired speed has been at zero speed for some time, turn it off to avoid PID judder.
         error_integral[i] := 0
         newspeed := 0
-      
+
+      newspeed := (lastspeed[i] - maxpwmramp) #> newspeed <# (lastspeed[i] + maxpwmramp)  ' set a maximum PWM ramp
       setMotorSpeed(i, newspeed)
+      lastspeed[i] := newspeed
       
     ' Update servo parameters  
     position1 := ((i2c.get(servo0hi) << 8) + i2c.get(servo0lo)) * 2 + 90_000
