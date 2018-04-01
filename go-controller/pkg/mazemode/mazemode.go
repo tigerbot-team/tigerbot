@@ -82,10 +82,20 @@ type MazeMode struct {
 	turnOppFrontOffset *Tunable
 	turnSameRearOffset *Tunable
 	turnOppRearOffset *Tunable
+	turnEntryThresh *Tunable
+	turnExitThresh *Tunable
+	turnExitRatioThresh *Tunable
 
 	cornerSensorOffset *Tunable
 	cornerSensorAngleOffset *Tunable
 	clearanceReturnFactor *Tunable
+
+	frontDistanceSpeedUpThresh *Tunable
+	cornerDistanceSpeedUpThresh *Tunable
+	baseSpeed *Tunable
+	topSpeed *Tunable
+	speedRampUp *Tunable
+	speedRampDown *Tunable
 }
 
 func New(propeller propeller.Interface) *MazeMode {
@@ -94,13 +104,23 @@ func New(propeller propeller.Interface) *MazeMode {
 		joystickEvents: make(chan *joystick.Event),
 	}
 
-	mm.turnSameFrontOffset = mm.tunables.Create("Turn same side front offset", -1)
-	mm.turnOppFrontOffset = mm.tunables.Create("Turn opp side front offset", 9)
-	mm.turnSameRearOffset = mm.tunables.Create("Turn same side rear offset", -1)
-	mm.turnOppRearOffset = mm.tunables.Create("Turn opp side rear offset", 0)
+	mm.turnEntryThresh = mm.tunables.Create("Turn entry threshold", 130)
+	mm.turnSameFrontOffset = mm.tunables.Create("Turn same side front offset", -7)
+	mm.turnOppFrontOffset = mm.tunables.Create("Turn opp side front offset", 14)
+	mm.turnSameRearOffset = mm.tunables.Create("Turn same side rear offset", -2)
+	mm.turnOppRearOffset = mm.tunables.Create("Turn opp side rear offset", 6)
 	mm.cornerSensorOffset = mm.tunables.Create("Corner sensor offset", -12)
 	mm.cornerSensorAngleOffset = mm.tunables.Create("Corner sensor angle offset", -8)
-	mm.clearanceReturnFactor = mm.tunables.Create("Clearance return factor", 80)
+	mm.clearanceReturnFactor = mm.tunables.Create("Clearance return factor", 90)
+	mm.turnExitThresh = mm.tunables.Create("Turn exit threshold", 170)
+	mm.turnExitRatioThresh = mm.tunables.Create("Turn exit ratio threshold", 180)
+
+	mm.frontDistanceSpeedUpThresh = mm.tunables.Create("Front distance speed up thresh", 350)
+	mm.cornerDistanceSpeedUpThresh = mm.tunables.Create("Corner distance speed up thresh", 80)
+	mm.baseSpeed = mm.tunables.Create("Base speed", 35)
+	mm.topSpeed = mm.tunables.Create("Top speed", 80)
+	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 6)
+	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 10)
 
 	return mm
 }
@@ -275,8 +295,6 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		wallSeparationMMs    = 400
 		botWidthMMs          = 200
 		clearanceMMs         = (wallSeparationMMs - botWidthMMs) / 2
-
-		baseSpeed = 20
 	)
 
 	var targetSideClearance float64 = clearanceMMs
@@ -287,31 +305,33 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		// Main loop, alternates between following the walls until we detect a wall in front, and then
 		// making turns.
 
-		var speed float64 = baseSpeed
+		var speed float64 = float64(m.baseSpeed.Get())
 
 		fmt.Println("Following the walls...")
 		for ctx.Err() == nil {
 			m.sleepIfPaused(ctx)
-
+			baseSpeed := float64(m.baseSpeed.Get())
 			readSensors()
 
 			// If we reach a wall in front, break out and do the turn.
 			if !forward.IsFar() {
 				forwardGuess := forward.BestGuess()
-				if forwardGuess < 120 {
+				if forwardGuess < m.turnEntryThresh.Get() {
 					log.Println("Reached wall in front")
 					break
 				}
 			}
 
 			// Ramp up the speed on the straights...
-			if forward.IsFar() || forward.BestGuess() > 300 {
-				if speed < 40 {
-					speed+=1
+			if ((forward.IsFar() || forward.BestGuess() > m.frontDistanceSpeedUpThresh.Get()) &&
+				(forwardLeft.IsFar() || forwardLeft.BestGuess() > m.cornerDistanceSpeedUpThresh.Get()) &&
+				(forwardRight.IsFar() || forwardRight.BestGuess() > m.cornerDistanceSpeedUpThresh.Get())){
+				if speed < float64(m.topSpeed.Get()) {
+					speed+=float64(m.speedRampUp.Get())
 				}
 			} else {
 				if speed > baseSpeed {
-					speed-=2
+					speed-=float64(m.speedRampDown.Get())
 				}
 			}
 
@@ -426,8 +446,10 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		}
 
 		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence	)
+
 		if leftTurnConfidence > rightTurnConfidence {
 			fmt.Println("Turning left...")
+			baseSpeed := m.baseSpeed.Get()
 			m.Propeller.SetMotorSpeeds(
 				int8(-baseSpeed + m.turnSameFrontOffset.Get()),
 				int8(baseSpeed + m.turnOppFrontOffset.Get()),
@@ -438,13 +460,14 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				m.sleepIfPaused(ctx)
 				readSensors()
 
-				if (forward.IsFar() || forward.BestGuess() > 180) &&
-					10*forward.BestGuess() > 22*sideRight.BestGuess() {
+				if (forward.IsFar() || forward.BestGuess() > m.turnExitThresh.Get()) &&
+					m.turnExitRatioThresh.Get()*forward.BestGuess() > 220*sideRight.BestGuess() {
 					break
 				}
 			}
 		} else {
 			fmt.Println("Turning right...")
+			baseSpeed := m.baseSpeed.Get()
 			m.Propeller.SetMotorSpeeds(
 				int8(baseSpeed + m.turnOppFrontOffset.Get()),
 				int8(-baseSpeed + m.turnSameFrontOffset.Get()),
@@ -455,8 +478,8 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				m.sleepIfPaused(ctx)
 				readSensors()
 
-				if (forward.IsFar() || forward.BestGuess() > 180) &&
-					10*forward.BestGuess() > 22*sideLeft.BestGuess() {
+				if (forward.IsFar() || forward.BestGuess() > m.turnExitThresh.Get()) &&
+					m.turnExitRatioThresh.Get()*forward.BestGuess() > 220*sideLeft.BestGuess() {
 					break
 				}
 			}
@@ -489,7 +512,7 @@ type Filter struct {
 
 func (f *Filter) Accumulate(sample int) {
 	f.samples = append(f.samples, sample)
-	if len(f.samples) > 5 {
+	if len(f.samples) > 3 {
 		f.samples = f.samples[1:]
 	}
 }
@@ -510,7 +533,7 @@ func (f *Filter) IsFar() bool {
 }
 
 func (f *Filter) IsGood() bool {
-	return f.BestGuess() > 0 && f.BestGuess() < 250
+	return f.BestGuess() > 0 && f.BestGuess() < 200
 }
 
 func (f *Filter) BestGuess() int {
