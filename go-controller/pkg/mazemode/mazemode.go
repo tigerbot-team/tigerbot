@@ -128,6 +128,8 @@ func (m *MazeMode) Stop() {
 func (m *MazeMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
 
+	var startTime time.Time
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -138,9 +140,11 @@ func (m *MazeMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
+						startTime = time.Now()
 						m.startSequence()
 					case joystick.ButtonSquare:
 						m.stopSequence()
+						fmt.Println("Run time:", time.Since(startTime))
 					case joystick.ButtonTriangle:
 						m.pauseOrResumeSequence()
 					}
@@ -268,12 +272,11 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	readSensors()
 
 	const (
-		wallSeparationMMs    = 350
+		wallSeparationMMs    = 400
 		botWidthMMs          = 200
-		sensorInsetMMs       = 20
 		clearanceMMs         = (wallSeparationMMs - botWidthMMs) / 2
 
-		baseSpeed = 12
+		baseSpeed = 20
 	)
 
 	var targetSideClearance float64 = clearanceMMs
@@ -284,6 +287,8 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		// Main loop, alternates between following the walls until we detect a wall in front, and then
 		// making turns.
 
+		var speed float64 = baseSpeed
+
 		fmt.Println("Following the walls...")
 		for ctx.Err() == nil {
 			m.sleepIfPaused(ctx)
@@ -293,9 +298,20 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			// If we reach a wall in front, break out and do the turn.
 			if !forward.IsFar() {
 				forwardGuess := forward.BestGuess()
-				if forwardGuess < clearanceMMs {
+				if forwardGuess < 120 {
 					log.Println("Reached wall in front")
 					break
+				}
+			}
+
+			// Ramp up the speed on the straights...
+			if forward.IsFar() || forward.BestGuess() > 300 {
+				if speed < 40 {
+					speed+=1
+				}
+			} else {
+				if speed > baseSpeed {
+					speed-=2
 				}
 			}
 
@@ -321,6 +337,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 				// Since we know we're in the middle, update the target clearance with actual measured values.
 				translationErrorMMs = float64(leftGuess - rightGuess)
+
 				actualClearance := float64(leftGuess+rightGuess) / 2
 				targetSideClearance = targetSideClearance*0.95 + actualClearance*0.05
 			} else if sideLeft.IsGood() {
@@ -357,7 +374,12 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				rotErrGood = true
 			}
 			if rotErrGood {
-				rotationErrorMMs = (leftRotErr - rightRotError)/2
+				// Prefer the smaller magnitude error to avoid problems where one of the walls falls away...
+				if math.Abs(leftRotErr) < math.Abs(rightRotError) {
+					rotationErrorMMs = leftRotErr * 0.8 - rightRotError * 0.2
+				} else {
+					rotationErrorMMs = -rightRotError * 0.8 + leftRotErr * 0.2
+				}
 			} else {
 				rotationErrorMMs *= 0.9
 			}
@@ -368,13 +390,13 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			// positive if we're rotated too far clockwise
 			rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
 
-			scaledTxErr := txErrorSq * baseSpeed / 10000
-			scaledRotErr := rotErrorSq * baseSpeed / 1000
+			scaledTxErr := txErrorSq * speed / 10000
+			scaledRotErr := rotErrorSq * speed / 1000
 
-			fl := clamp(baseSpeed-scaledTxErr-scaledRotErr, baseSpeed*2)
-			fr := clamp(baseSpeed+scaledTxErr+scaledRotErr, baseSpeed*2)
-			bl := clamp(baseSpeed+scaledTxErr-scaledRotErr, baseSpeed*2)
-			br := clamp(baseSpeed-scaledTxErr+scaledRotErr, baseSpeed*2)
+			fl := clamp(speed-scaledTxErr-scaledRotErr, speed*2)
+			fr := clamp(speed+scaledTxErr+scaledRotErr, speed*2)
+			bl := clamp(speed+scaledTxErr-scaledRotErr, speed*2)
+			br := clamp(speed-scaledTxErr+scaledRotErr, speed*2)
 
 			fmt.Printf("Speeds: FL=%d FR=%d BL=%d BR=%d\n", fl, fr, bl, br)
 			m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
