@@ -6,18 +6,20 @@ import (
 
 	"context"
 
+	"log"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
-	"os"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbowmode"
-	"os/signal"
-	"syscall"
-	"log"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
-	"runtime"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/slstmode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 )
 
 type Mode interface {
@@ -77,7 +79,7 @@ func main() {
 		if os.Getenv("IGNORE_MISSING_PROPELLER") == "true" {
 			fmt.Printf("Using dummy propeller\n")
 			prop = propeller.Dummy()
-		}else {
+		} else {
 			cancel()
 			return
 		}
@@ -96,6 +98,7 @@ func main() {
 	allModes := []Mode{
 		rcmode.New(prop),
 		mazemode.New(prop),
+		slstmode.New(prop),
 		rainbowmode.New(prop),
 		&testmode.TestMode{Propeller: prop},
 		&pausemode.PauseMode{Propeller: prop},
