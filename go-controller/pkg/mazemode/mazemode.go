@@ -6,63 +6,17 @@ import (
 	"sync"
 
 	"fmt"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	"log"
 	"sort"
 	"sync/atomic"
 	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
+	. "github.com/tigerbot-team/tigerbot/go-controller/pkg/tunable"
 )
-
-type Tunable struct {
-	Name  string
-	Value int64
-}
-
-func (t *Tunable) Add(delta int) {
-	newV := atomic.AddInt64(&t.Value, int64(delta))
-	fmt.Println("Tunable", t.Name, "=", newV)
-}
-
-func (t *Tunable) Get() int {
-	return int(atomic.LoadInt64(&t.Value))
-}
-
-type Tunables struct {
-	All      []*Tunable
-	selected int
-}
-
-func (t *Tunables) Create(name string, value int) *Tunable {
-	newTunable := &Tunable{
-		Name:  name,
-		Value: int64(value),
-	}
-	t.All = append(t.All, newTunable)
-	return newTunable
-}
-
-func (t *Tunables) SelectNext() {
-	t.selected++
-	if t.selected >= len(t.All) {
-		t.selected = 0
-	}
-	fmt.Println("Tunable", t.Current().Name, "selected")
-}
-
-func (t *Tunables) SelectPrev() {
-	t.selected--
-	if t.selected < 0 {
-		t.selected = len(t.All) - 1
-	}
-	fmt.Println("Tunable", t.Current().Name, "selected")
-}
-
-func (t *Tunables) Current() *Tunable {
-	return t.All[t.selected]
-}
 
 type MazeMode struct {
 	Propeller      propeller.Interface
