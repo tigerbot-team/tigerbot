@@ -41,6 +41,13 @@ type SLSTMode struct {
 	topSpeed                    *Tunable
 	speedRampUp                 *Tunable
 	speedRampDown               *Tunable
+
+	tnKp  *Tunable
+	tnKi  *Tunable
+	tnKd  *Tunable
+	rotKp *Tunable
+	rotKi *Tunable
+	rotKd *Tunable
 }
 
 func New(propeller propeller.Interface) *SLSTMode {
@@ -57,8 +64,15 @@ func New(propeller propeller.Interface) *SLSTMode {
 	mm.cornerDistanceSpeedUpThresh = mm.tunables.Create("Corner distance speed up thresh", 70)
 	mm.baseSpeed = mm.tunables.Create("Base speed", 35)
 	mm.topSpeed = mm.tunables.Create("Top speed", 127)
-	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 10)
-	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 10)
+	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 3)
+	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 2)
+
+	mm.tnKp = mm.tunables.Create("Translation Kp (thousandths)", 330)
+	mm.tnKi = mm.tunables.Create("Translation Ki (ten-thousandths)", 120)
+	mm.tnKd = mm.tunables.Create("Translation Kd (ten-thousandths)", -144)
+	mm.rotKp = mm.tunables.Create("Rotation Kp (thousandths)", 90)
+	mm.rotKi = mm.tunables.Create("Rotation Ki (ten-thousandths)", 0)
+	mm.rotKd = mm.tunables.Create("Rotation Kd (ten-thousandths)", -20)
 
 	return mm
 }
@@ -150,6 +164,7 @@ func (m *SLSTMode) startSequence() {
 
 func (m *SLSTMode) runSequence(ctx context.Context) {
 	defer close(m.sequenceDone)
+	defer m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
 
 	mx, err := mux.New("/dev/i2c-1")
 	if err != nil {
@@ -210,16 +225,16 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 	sideLeft := filters[0]
 	sideLeft.Name = "L"
-	forwardLeft := filters[1]
-	forwardLeft.Name = "FL"
-	forward := filters[2]
-	forward.Name = "F"
-	forwardRight := filters[3]
-	forwardRight.Name = "FR"
+	frontLeft := filters[1]
+	frontLeft.Name = "FL"
+	front := filters[2]
+	front.Name = "F"
+	frontRight := filters[3]
+	frontRight.Name = "FR"
 	sideRight := filters[4]
 	sideRight.Name = "R"
-	_ = forwardRight
-	_ = forwardLeft
+	_ = frontRight
+	_ = frontLeft
 	_ = sideLeft
 	_ = sideRight
 
@@ -235,9 +250,11 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 		clearanceMMs      = (wallSeparationMMs - botWidthMMs) / 2
 	)
 
-	var targetSideClearance float64 = clearanceMMs
-	var translationErrorMMs float64 // positive if we're too far right
-	var rotationErrorMMs float64    // positive if we're rotated too far clockwise
+	var lastTnError float64  // positive if we're too far right
+	var lastRotError float64 // positive if we're rotated too far clockwise
+	var tnErrorInt float64
+	var rotErrorInt float64
+	var lastReadingTime = time.Now()
 
 	var speed float64 = float64(m.baseSpeed.Get())
 
@@ -246,15 +263,18 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 		m.sleepIfPaused(ctx)
 		baseSpeed := float64(m.baseSpeed.Get())
+
+		var readingTime = time.Now()
 		readSensors()
-		//
+
+		// FIXME: spurious triggers if there's a speck of something reflective on the floor!
 		//// If we reach a wall in front, stop!
-		//if !forward.IsFar() {
-		//	forwardGuess := forward.BestGuess()
-		//	if forwardGuess < m.frontDistanceStopThresh.Get() &&
+		//if !front.IsFar() {
+		//	frontGuess := front.BestGuess()
+		//	if frontGuess < m.frontDistanceStopThresh.Get() &&
 		//		// In case of spurious reading from front sensor, check the others too
-		//		(forwardLeft.BestGuess() < m.frontDistanceStopThresh.Get() ||
-		//			forwardRight.BestGuess() < m.frontDistanceStopThresh.Get()) {
+		//		(frontLeft.BestGuess() < m.frontDistanceStopThresh.Get() ||
+		//			frontRight.BestGuess() < m.frontDistanceStopThresh.Get()) {
 		//		log.Println("Reached wall in front")
 		//		break
 		//	}
@@ -262,105 +282,86 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 		cornerSensorOffset := m.cornerSensorOffset.Get()
 		cornerSensorAngleOffset := float64(m.cornerSensorAngleOffset.Get())
-		frontLeftHorizEstMMs := float64(forwardLeft.BestGuess()+cornerSensorOffset) *
-			(100.0 + cornerSensorAngleOffset) / 100 / math.Sqrt2
-		frontRightHorizEstMMs := float64(forwardRight.BestGuess()+cornerSensorOffset) *
-			(100.0 + cornerSensorAngleOffset) / 100 / math.Sqrt2
-		clearandReturnFactor := float64(m.clearanceReturnFactor.Get())
+		frontLeftHorizEstMMs := float64(frontLeft.BestGuess()+cornerSensorOffset) *
+			(100.0 + cornerSensorAngleOffset) / 100 / 1.8
+		frontRightHorizEstMMs := float64(frontRight.BestGuess()+cornerSensorOffset) *
+			(100.0 + cornerSensorAngleOffset) / 100 / 1.8
 
-		// Calculate our translational error.  We do our best to deal with missing sensor readings.
+		var frontTnError, sideTnError, tnError, rotError float64
+		var sideGuess, frontGuess bool
 		if sideLeft.IsGood() && sideRight.IsGood() {
-			// We have readings from both sides of the bot, try to stay in the middle.
 			leftGuess := float64(sideLeft.BestGuess())
-			if forwardLeft.IsGood() {
-				leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
-			}
 			rightGuess := float64(sideRight.BestGuess())
-			if forwardRight.IsGood() {
-				rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
+			sideTnError = float64(leftGuess - rightGuess)
+			sideGuess = true
+			tnError = sideTnError
+		}
+		if frontLeft.IsGood() && frontRight.IsGood() {
+			frontTnError = frontLeftHorizEstMMs - frontRightHorizEstMMs
+			frontGuess = true
+			tnError += frontTnError
+			if sideGuess {
+				tnError /= 2
 			}
-
-			// Since we know we're in the middle, update the target clearance with actual measured values.
-			translationErrorMMs = float64(leftGuess - rightGuess)
-
-			actualClearance := float64(leftGuess+rightGuess) / 2
-			targetSideClearance = targetSideClearance*0.95 + actualClearance*0.05
-		} else if sideLeft.IsGood() {
-			leftGuess := float64(sideLeft.BestGuess())
-			if forwardLeft.IsGood() {
-				leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
-			}
-			translationErrorMMs = leftGuess - targetSideClearance
-
-			// Since we're not sure where we are, slowly go back to the default clearance.
-			targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
-		} else if sideRight.IsGood() {
-			rightGuess := float64(sideRight.BestGuess())
-			if forwardRight.IsGood() {
-				rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
-			}
-			translationErrorMMs = targetSideClearance - rightGuess
-
-			// Since we're not sure where we are, slowly go back to the default clearance.
-			targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
-		} else {
-			// No idea, dissipate the error so we don't.
-			translationErrorMMs = translationErrorMMs * 0.8
 		}
 
-		var leftRotErr, rightRotError float64
-		rotErrGood := false
-		if forwardLeft.IsGood() && sideLeft.IsGood() {
-			leftRotErr = frontLeftHorizEstMMs - float64(sideLeft.BestGuess())
-			rotErrGood = true
+		if frontGuess && sideGuess {
+			rotError = frontTnError - sideTnError
 		}
-		if forwardRight.IsGood() && sideRight.IsGood() {
-			rightRotError = frontRightHorizEstMMs - float64(sideRight.BestGuess())
-			rotErrGood = true
-		}
-		if rotErrGood {
-			// Prefer the smaller magnitude error to avoid problems where one of the walls falls away...
-			if math.Abs(leftRotErr) < math.Abs(rightRotError) {
-				rotationErrorMMs = leftRotErr*0.8 - rightRotError*0.2
-			} else {
-				rotationErrorMMs = -rightRotError*0.8 + leftRotErr*0.2
+
+		fmt.Printf("Translation error %.1f %.1f ->  %.1f Rotation error %.1f\n", frontTnError, sideTnError, tnError, rotError)
+
+		// Only calculate integral and differential terms if time delay was sane.
+		timeSinceLastReading := readingTime.Sub(lastReadingTime)
+		var dTnError, dRotError float64
+		if timeSinceLastReading < 200*time.Millisecond {
+			timeSinceLastSecs := timeSinceLastReading.Seconds()
+			tnErrorInt += timeSinceLastSecs * tnError
+			rotErrorInt += timeSinceLastSecs * rotError
+			if timeSinceLastReading > 0 && lastTnError != 0 {
+				dTnError = tnError - lastTnError/timeSinceLastSecs
+				dRotError = rotError - lastRotError/timeSinceLastSecs
 			}
-		} else {
-			rotationErrorMMs *= 0.9
 		}
-		fmt.Printf("Translation error %.1f Rotation error %.1f\n", translationErrorMMs, rotationErrorMMs)
 
-		// positive if we're too far right
-		txErrorSq := math.Copysign(translationErrorMMs*translationErrorMMs, translationErrorMMs)
-		// positive if we're rotated too far clockwise
-		rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
+		tnKp := float64(m.tnKp.Get()) / 1000
+		tnKi := float64(m.tnKi.Get()) / 10000
+		tnKd := float64(m.tnKd.Get()) / 10000
+		rotKp := float64(m.rotKp.Get()) / 1000
+		rotKi := float64(m.rotKi.Get()) / 10000
+		rotKd := float64(m.rotKd.Get()) / 10000
 
-		if -40 < translationErrorMMs && translationErrorMMs < 40 &&
-			-20 < rotationErrorMMs && rotationErrorMMs < 20 {
+		scaledTxErr := tnKp*tnError + tnKi*tnErrorInt + tnKd*dTnError
+		scaledRotErr := rotKp*rotError + rotKi*rotErrorInt + rotKd*dRotError
+
+		if -40 < tnError && tnError < 40 &&
+			-20 < rotError && rotError < 20 {
+			// Only speed up if we're in the middle...
 			if speed < float64(m.topSpeed.Get()) {
 				speed += float64(m.speedRampUp.Get())
 			}
-		} else if -80 > translationErrorMMs || translationErrorMMs > 80 ||
-			-40 > rotationErrorMMs || rotationErrorMMs > 40 {
+		} else if -80 > tnError || tnError > 80 ||
+			-40 > rotError || rotError > 40 {
+			// Slow down if we get too close to the wall
 			if speed > baseSpeed {
 				speed -= float64(m.speedRampDown.Get())
 			}
 		}
-
-		scaledTxErr := txErrorSq * speed / 10000
-		scaledRotErr := rotErrorSq * speed / 10000
 
 		fl := clamp(speed-scaledTxErr-scaledRotErr, speed*2)
 		fr := clamp(speed+scaledTxErr+scaledRotErr, speed*2)
 		bl := clamp(speed+scaledTxErr-scaledRotErr, speed*2)
 		br := clamp(speed-scaledTxErr+scaledRotErr, speed*2)
 
-		fmt.Printf("Speeds: FL=%d FR=%d BL=%d BR=%d\n", fl, fr, bl, br)
+		fmt.Printf("%v Speeds: FL=%d FR=%d BL=%d BR=%d\n", timeSinceLastReading, fl, fr, bl, br)
 		m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+
+		lastReadingTime = readingTime
+		lastTnError = tnError
+		lastRotError = rotError
 	}
 
 	fmt.Println("Stopping...")
-	m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
 }
 
 func clamp(v float64, limit float64) int8 {
@@ -386,7 +387,7 @@ type Filter struct {
 
 func (f *Filter) Accumulate(sample int) {
 	f.samples = append(f.samples, sample)
-	if len(f.samples) > 5 {
+	if len(f.samples) > 3 {
 		f.samples = f.samples[1:]
 	}
 }
