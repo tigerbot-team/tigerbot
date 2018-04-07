@@ -15,7 +15,8 @@
 //      24 :    Target Motor 2 Speed (1 byte)
 //      25 :    Target Motor 3 Speed (1 byte)
 //      26 :    Options (low bit = autoping on / off)
-//      27, 28 : Ball Thrower Motor Speed
+//      27 :    Ball Thrower Motor Speed 1
+//      28 :    Ball Thrower Motor Speed 2
 //      29 :    Ball Thrower Servo 1
 //      30 :    Ball Thrower Servo 2
 //      31 :    Read Ready (master sets to 1 when ready to read, slave sets to zero when multi-byte values updated
@@ -31,8 +32,8 @@ CON
   pingbase = 16
   speedbase = 22
   options = 26
-  servo0hi = 27
-  servo0lo = 28
+  ballmotor1 = 27
+  ballmotor2 = 28
   servo1 = 29
   servo2 = 30
   readready = 31
@@ -76,6 +77,7 @@ VAR
   long  error_integral[4]
   long  error_derivative[4]
   long  millidiv
+  long  servofactor
   long  millioffset
   long  Kp
   long  Ki
@@ -86,11 +88,12 @@ VAR
   long  pingcog
   
   ' vars for servo program      
-  long  position1, position2, position3    'The assembly program will read these variables from the main Hub RAM to determine
+  long  position1, position2, position3, position4    'The assembly program will read these variables from the main Hub RAM to determine
                                            ' the high pulse durations of the three servo signals                 
   
 PUB main
   millidiv := clkfreq / 1000
+  servofactor := millidiv / 256 ' Scale factor from servo units to pulse time.
   Kp := 20
   Ki := 4
   Kd := 10
@@ -98,9 +101,15 @@ PUB main
   lastping := cnt
 
   ' Start Servos
+  position1 := millidiv * 1.5
+  position2 := millidiv * 1.5
+  position3 := millidiv * 1.5
+  position4 := millidiv * 1.5
+
   p1:=@position1                           'Stores the address of the "position1" variable in the main Hub RAM as "p1"
   p2:=@position2                           'Stores the address of the "position2" variable in the main Hub RAM as "p2"
   p3:=@position3                           'Stores the address of the "position3" variable in the main Hub RAM as "p3"
+  p4:=@position4                           'Stores the address of the "position4" variable in the main Hub RAM as "p3"
   cognew(@ThreeServos,0)                   'Start a new cog and run the assembly code starting at the "ThreeServos" cell         
 
   millioffset := negx / millidiv * -1
@@ -203,9 +212,10 @@ PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desir
       lastspeed[i] := newspeed
       
     ' Update servo parameters  
-    position1 := ((i2c.get(servo0hi) << 8) + i2c.get(servo0lo)) * 2 + 90_000
-    position2 := (i2c.get(servo1) * 550) + 40_000
-    position3 := (i2c.get(servo2) * 550) + 40_000
+    position1 := (i2c.get(ballmotor1) * servofactor) + millidiv
+    position2 := (i2c.get(ballmotor2) * servofactor) + millidiv
+    position3 := (i2c.get(servo1) * servofactor) + millidiv
+    position4 := (i2c.get(servo2) * servofactor) + millidiv
       
 PRI setMotorSpeed(motor, speed)
   pwm.set_duty(motor, speed)
@@ -224,7 +234,11 @@ DAT
 ' each pulse is outputed) and sends a 10ms low part of the pulse. It repeats this signal continuously and changes the width
 ' of the high pulses as the "position1", "position2" and "position3" variables are changed by other cogs.
 
-ThreeServos   org                         'Assembles the next command to the first cell (cell 0) in the new cog's RAM                                                                                                                     
+ThreeServos   org                         'Assembles the next command to the first cell (cell 0) in the new cog's RAM
+
+              mov       loopcounter,cnt
+              add       loopcounter,LoopTime
+
 Loop          mov       dira,ServoPin1    'Set the direction of the "ServoPin1" to be an output (and all others to be inputs)  
               rdlong    HighTime,p1       'Read the "position1" variable from Main RAM and store it as "HighTime"
               mov       counter,cnt       'Store the current system clock count in the "counter" cell's address 
@@ -240,16 +254,24 @@ Loop          mov       dira,ServoPin1    'Set the direction of the "ServoPin1" 
               add       counter,HighTime  'Add "HighTime" value to "counter" value
               waitcnt   counter,0         'Wait until cnt matches counter (adds 0 to "counter" afterwards)
               mov       outa,#0           'Set all pins on this cog low (really only sets ServoPin2 low b/c rest are inputs)
-              
-              mov       dira,ServoPin3    'Set the direction of the "ServoPin3" to be an output (and all others to be inputs)  
-              mov       dira,ServoPin4    'Set the direction of the "ServoPin3" to be an output (and all others to be inputs)
+
+              mov       dira,ServoPin3    'Set the direction of the "ServoPin3" to be an output (and all others to be inputs)
               rdlong    HighTime,p3       'Read the "position3" variable from Main RAM and store it as "HighTime"
-              mov       counter,cnt       'Store the current system clock count in the "counter" cell's address    
-              mov       outa,AllOn        'Set all pins on this cog high (really only sets ServoPin3/4 high b/c rest are inputs)
+              mov       counter,cnt       'Store the current system clock count in the "counter" cell's address
+              mov       outa,AllOn        'Set all pins on this cog high (really only sets ServoPin3 high b/c rest are inputs)
               add       counter,HighTime  'Add "HighTime" value to "counter" value
-              waitcnt   counter,LowTime   'Wait until "cnt" matches "counter" then add a 10ms delay to "counter" value 
-              mov       outa,#0           'Set all pins on this cog low (really only sets ServoPin3/4 low b/c rest are inputs)
               waitcnt   counter,0         'Wait until cnt matches counter (adds 0 to "counter" afterwards)
+              mov       outa,#0           'Set all pins on this cog low (really only sets ServoPin3 low b/c rest are inputs)
+
+              mov       dira,ServoPin4    'Set the direction of the "ServoPin2" to be an output (and all others to be inputs)
+              rdlong    HighTime,p4       'Read the "position4" variable from Main RAM and store it as "HighTime"
+              mov       counter,cnt       'Store the current system clock count in the "counter" cell's address
+              mov       outa,AllOn        'Set all pins on this cog high (really only sets ServoPin4 high b/c rest are inputs)
+              add       counter,HighTime  'Add "HighTime" value to "counter" value
+              waitcnt   counter,0         'Wait until cnt matches counter (adds 0 to "counter" afterwards)
+              mov       outa,#0           'Set all pins on this cog low (really only sets ServoPin4 low b/c rest are inputs)
+
+              waitcnt   loopcounter,LoopTime   ' Wait for new loop (and auto-add LoopTime to the counter)
               jmp       #Loop             'Jump back up to the cell labled "Loop"                                      
                                                                                                                     
 'Constants and Variables:
@@ -261,12 +283,14 @@ ServoPin3     long      |<      21 '<------- This sets the pin that outputs the 
 ServoPin4     long      |<      22 '<------- This sets the pin that outputs a duplicate of the third servo signal (could be 0-31).
 p1            long      0                 'Used to store the address of the "position1" variable in the main RAM
 p2            long      0                 'Used to store the address of the "position2" variable in the main RAM  
-p3            long      0                 'Used to store the address of the "position2" variable in the main RAM
+p3            long      0                 'Used to store the address of the "position3" variable in the main RAM
+p4            long      0                 'Used to store the address of the "position4" variable in the main RAM
 AllOn         long      $FFFFFFFF         'This will be used to set all of the pins high (this number is 32 ones in binary)
 'LowTime       long      800_000          'This works out to be a 10ms pause time with an 80MHz system clock. If the
                                           ' servo behaves erratically, this value can be changed to 1_600_000 (20ms pause)                                  
-LowTime       long      1_200_000         ' Clock is actually 96MHz, this equates to 12.5ms.  If the positions are all at max, this gives a cycle time of 20ms
-counter       res                         'Reserve one long of cog RAM for this "counter" variable                     
+LoopTime      long      1_920_000         ' 20ms
+counter       res                         'Reserve one long of cog RAM for this "counter" variable
+loopcounter   res
 HighTime      res                         'Reserve one long of cog RAM for this "HighTime" variable
               fit                         'Makes sure the preceding code fits within cells 0-495 of the cog's RAM
 
