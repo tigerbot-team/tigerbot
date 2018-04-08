@@ -77,6 +77,7 @@ VAR
   long  error_integral[4]
   long  error_derivative[4]
   long  millidiv
+  long  servozero
   long  servofactor
   long  millioffset
   long  Kp
@@ -93,7 +94,11 @@ VAR
   
 PUB main
   millidiv := clkfreq / 1000
-  servofactor := millidiv / 256 ' Scale factor from servo units to pulse time.
+
+  servozero := millidiv * 80 / 100      ' Minimum servo pulse width.  This should be 1ms but we stretch it a little
+                                        ' for slightly greater travel.
+  servofactor := millidiv * 140 / 25600 ' Scale factor from servo units to pulse time.
+
   Kp := 20
   Ki := 4
   Kd := 10
@@ -101,17 +106,17 @@ PUB main
   lastping := cnt
 
   ' Since we pre-calculate the servo delays in this thread we need to set them before we start the servo control cog.
-  position1 := millidiv + (127 * servofactor)
-  position2 := millidiv + (127 * servofactor)
-  position3 := millidiv + (127 * servofactor)
-  position4 := millidiv + (127 * servofactor)
+  position1 := servozero + (127 * servofactor)
+  position2 := servozero + (127 * servofactor)
+  position3 := servozero + (127 * servofactor)
+  position4 := servozero + (127 * servofactor)
 
   p1:=@position1                           'Stores the address of the "position1" variable in the main Hub RAM as "p1"
   p2:=@position2                           'Stores the address of the "position2" variable in the main Hub RAM as "p2"
   p3:=@position3                           'Stores the address of the "position3" variable in the main Hub RAM as "p3"
   p4:=@position4                           'Stores the address of the "position4" variable in the main Hub RAM as "p3"
 
-  waitcnt(millidiv + cnt) 
+  waitcnt(millidiv + cnt)
 
   cognew(@ThreeServos,0)                   'Start a new cog and run the assembly code starting at the "ThreeServos" cell         
 
