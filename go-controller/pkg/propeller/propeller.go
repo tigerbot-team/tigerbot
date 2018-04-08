@@ -2,12 +2,13 @@ package propeller
 
 import (
 	"fmt"
-	"golang.org/x/exp/io/i2c"
+	"io"
 	"os"
 	"os/exec"
 	"time"
+
 	"github.com/kr/pty"
-	"io"
+	"golang.org/x/exp/io/i2c"
 )
 
 // DEVICE_REG_MODE1 = 0x00
@@ -27,6 +28,11 @@ import (
 const (
 	PropAddr = 0x42
 
+	RegServo1 = 27
+	RegServo2 = 28
+	RegServo3 = 29
+	RegServo4 = 30
+
 	RegMotor1 = 22
 	RegMotor2 = 23
 	RegMotor3 = 24
@@ -35,6 +41,7 @@ const (
 
 type Interface interface {
 	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error
+	SetServo(n int, value uint8) error
 }
 
 type Propeller struct {
@@ -82,12 +89,12 @@ func (p *Propeller) Flash() error {
 	if err != nil {
 		return err
 	}
-	err =  p.enableResetPin()
+	err = p.enableResetPin()
 	if err != nil {
 		return err
 	}
 	// Give propeller time to boot...
-	time.Sleep(25*time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
 	return nil
 }
 
@@ -143,6 +150,32 @@ func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight in
 		frontRight = -127
 	}
 	data := []byte{RegMotor1, byte(-backLeft), byte(-frontLeft), byte(frontRight), byte(backRight)}
+	return p.writeWithRetries(data)
+}
+
+func (p *Propeller) SetServo(n int, value uint8) error {
+	var reg byte
+
+	switch n {
+	case 1:
+		reg = RegServo1
+	case 2:
+		reg = RegServo2
+	case 3:
+		reg = RegServo3
+	case 4:
+		reg = RegServo4
+	default:
+		panic(fmt.Errorf("Unknown servo %d", n))
+	}
+
+	fmt.Println("Setting servo", n, "to", value)
+
+	data := []byte{reg, byte(value)}
+	return p.writeWithRetries(data)
+}
+
+func (p *Propeller) writeWithRetries(data []byte) error {
 	var err error
 	for flashTries := 0; flashTries < 3; flashTries++ {
 		for tries := 0; tries < 20; tries++ {
@@ -177,5 +210,10 @@ type dummyPropeller struct {
 
 func (p *dummyPropeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error {
 	fmt.Printf("Dummy propeller setting motors: fl=%v fr=%v bl=%v br=%v\n", frontLeft, frontRight, backLeft, backRight)
+	return nil
+}
+
+func (p *dummyPropeller) SetServo(n int, value uint8) error {
+	fmt.Printf("Dummy propeller setting servo %d to %d\n", n, value)
 	return nil
 }
