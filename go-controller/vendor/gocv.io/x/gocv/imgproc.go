@@ -54,7 +54,7 @@ func ApproxPolyDP(curve []image.Point, epsilon float64, closed bool) (approxCurv
 
 	cApproxCurve := C.ApproxPolyDP(cCurve, C.double(epsilon), C.bool(closed))
 	defer C.Points_Close(cApproxCurve)
-	cApproxCurvePoints := (*[1 << 30]C.Point)(unsafe.Pointer(cApproxCurve.points))[:cApproxCurve.length:cApproxCurve.length]
+	cApproxCurvePoints := (*[1 << 27]C.Point)(unsafe.Pointer(cApproxCurve.points))[:cApproxCurve.length:cApproxCurve.length]
 
 	approxCurve = make([]image.Point, cApproxCurve.length)
 	for i, cPoint := range cApproxCurvePoints {

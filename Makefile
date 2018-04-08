@@ -52,3 +52,39 @@ metabotspin/mb3.binary: metabotspin/*.spin
 	           tigerbot/build:latest \
 	           openspin mb3.spin
 
+# Building and using a container image with Go, OpenCV and GOCV.
+
+GOCV_DEV_IMAGE = tigerbot/go-dev
+TIGERBOT = /go/src/github.com/tigerbot-team/tigerbot
+GOCV = /go/src/gocv.io/x/gocv
+
+gocv-dev-image: $(ARCH_DEPS)
+	docker build -f go-controller/Dockerfile-dev -t $(GOCV_DEV_IMAGE) .
+
+go-controller/cvtest: go-controller/cvtest.go
+	sudo docker run --rm \
+	    -v /root/.cache:/root/.cache \
+	    -v `pwd`:$(TIGERBOT) \
+	    -w $(TIGERBOT)/go-controller \
+	    $(GOCV_DEV_IMAGE) \
+	    bash -c "source $(GOCV)/env.sh && GOMAXPROCS=1 go build -p 1 -v cvtest.go"
+
+run-cvtest: go-controller/cvtest
+	docker run --rm \
+	    --net=host \
+	    -v /home/pi/.Xauthority:/.Xauthority -e XAUTHORITY=/.Xauthority \
+	    -e DISPLAY=127.0.0.1:10.0 -v /tmp/.X11-unix:/tmp/.X11-unix \
+	    -v `pwd`:$(TIGERBOT) \
+	    -w $(TIGERBOT)/go-controller \
+	    $(GOCV_DEV_IMAGE) \
+	    ./cvtest $(CVTEST_ARGS)
+
+enter-dev-image:
+	docker run --rm -it \
+	    --net=host \
+	    -v /home/pi/.Xauthority:/.Xauthority -e XAUTHORITY=/.Xauthority \
+	    -e DISPLAY=127.0.0.1:10.0 -v /tmp/.X11-unix:/tmp/.X11-unix \
+	    -v `pwd`:$(TIGERBOT) \
+	    -w $(TIGERBOT)/go-controller \
+	    $(GOCV_DEV_IMAGE) \
+	    bash
