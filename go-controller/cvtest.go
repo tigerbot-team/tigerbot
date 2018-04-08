@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"runtime"
 
@@ -18,15 +19,22 @@ func main() {
 	// Read that file, as BGR.
 	img := gocv.IMRead(filename, gocv.IMReadColor)
 
-	//	// Resize to a width of 600.
-	//	width := img.Cols()
-	//	scaleFactor := float64(600) / width
-	//	gocv.Resize(img, img, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
+	// Resize to a width of 600.
+	fmt.Printf("Input size = %v x %v\n", img.Cols(), img.Rows())
+	width := img.Cols()
+	scaleFactor := float64(600) / float64(width)
+	fmt.Printf("Scaling by %v\n", scaleFactor)
+	smaller := gocv.NewMat()
+	gocv.Resize(img, smaller, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
+	fmt.Printf("Scaled size = %v x %v\n", smaller.Cols(), smaller.Rows())
 
 	window := gocv.NewWindow("Hello")
+	window.ResizeWindow(smaller.Cols(), smaller.Rows())
 	for {
-		window.IMShow(img)
-		if window.WaitKey(1) >= 0 {
+		window.IMShow(smaller)
+		key := window.WaitKey(0)
+		fmt.Printf("Key = %v\n", key)
+		if key == 110 {
 			break
 		}
 	}
