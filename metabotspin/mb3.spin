@@ -100,16 +100,19 @@ PUB main
   timeout := 100
   lastping := cnt
 
-  ' Start Servos
-  position1 := millidiv * 1.5
-  position2 := millidiv * 1.5
-  position3 := millidiv * 1.5
-  position4 := millidiv * 1.5
+  ' Since we pre-calculate the servo delays in this thread we need to set them before we start the servo control cog.
+  position1 := millidiv + (127 * servofactor)
+  position2 := millidiv + (127 * servofactor)
+  position3 := millidiv + (127 * servofactor)
+  position4 := millidiv + (127 * servofactor)
 
   p1:=@position1                           'Stores the address of the "position1" variable in the main Hub RAM as "p1"
   p2:=@position2                           'Stores the address of the "position2" variable in the main Hub RAM as "p2"
   p3:=@position3                           'Stores the address of the "position3" variable in the main Hub RAM as "p3"
   p4:=@position4                           'Stores the address of the "position4" variable in the main Hub RAM as "p3"
+
+  waitcnt(millidiv + cnt) 
+
   cognew(@ThreeServos,0)                   'Start a new cog and run the assembly code starting at the "ThreeServos" cell         
 
   millioffset := negx / millidiv * -1
@@ -280,15 +283,13 @@ ServoPin1     long      |<      19 '<------- This sets the pin that outputs the 
                                           ' to another number to specify another pin (0-31).
 ServoPin2     long      |<      20 '<------- This sets the pin that outputs the second servo signal (could be 0-31).
 ServoPin3     long      |<      21 '<------- This sets the pin that outputs the third servo signal (could be 0-31).
-ServoPin4     long      |<      22 '<------- This sets the pin that outputs a duplicate of the third servo signal (could be 0-31).
+ServoPin4     long      |<      22 '<------- This sets the pin that outputs the fourth servo signal.
 p1            long      0                 'Used to store the address of the "position1" variable in the main RAM
 p2            long      0                 'Used to store the address of the "position2" variable in the main RAM  
 p3            long      0                 'Used to store the address of the "position3" variable in the main RAM
 p4            long      0                 'Used to store the address of the "position4" variable in the main RAM
 AllOn         long      $FFFFFFFF         'This will be used to set all of the pins high (this number is 32 ones in binary)
-'LowTime       long      800_000          'This works out to be a 10ms pause time with an 80MHz system clock. If the
-                                          ' servo behaves erratically, this value can be changed to 1_600_000 (20ms pause)                                  
-LoopTime      long      1_920_000         ' 20ms
+LoopTime      long      1_920_000         '20ms
 counter       res                         'Reserve one long of cog RAM for this "counter" variable
 loopcounter   res
 HighTime      res                         'Reserve one long of cog RAM for this "HighTime" variable
