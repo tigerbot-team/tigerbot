@@ -18,6 +18,8 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbowmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/golf"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/slstmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 )
@@ -96,7 +98,8 @@ func main() {
 	}()
 
 	allModes := []Mode{
-		rcmode.New("Duck shoot mode", prop, rcmode.NewDuckShootServoController()),
+		rcmode.New("Golf mode", prop, golf.NewServoController()),
+		rcmode.New("Duck shoot mode", prop, duckshoot.NewServoController()),
 		mazemode.New(prop),
 		slstmode.New(prop),
 		rainbowmode.New(prop),

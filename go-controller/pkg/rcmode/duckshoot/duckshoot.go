@@ -1,4 +1,4 @@
-package rcmode
+package duckshoot
 
 import (
 	"context"
@@ -25,12 +25,12 @@ const (
 	ServoValuePitchDefault  = 127
 	ServoMaxPitch           = 255
 	ServoMinPitch           = 0
-	PitchAutoRepeatInterval = 50 * time.Millisecond
+	PitchAutoRepeatInterval = 10 * time.Millisecond
 
 	MotorStopTime = time.Second
 )
 
-type DuckShootServoController struct {
+type ServoController struct {
 	propLock  *sync.Mutex // Guards access to the propeller
 	propeller propeller.Interface
 
@@ -40,13 +40,13 @@ type DuckShootServoController struct {
 	joystickEvents chan *joystick.Event
 }
 
-func NewDuckShootServoController() *DuckShootServoController {
-	return &DuckShootServoController{
+func NewServoController() *ServoController {
+	return &ServoController{
 		joystickEvents: make(chan *joystick.Event),
 	}
 }
 
-func (d *DuckShootServoController) Start(propLock *sync.Mutex, propeller propeller.Interface) {
+func (d *ServoController) Start(propLock *sync.Mutex, propeller propeller.Interface) {
 	d.propLock = propLock
 	d.propeller = propeller
 	d.stopC = make(chan struct{})
@@ -55,15 +55,15 @@ func (d *DuckShootServoController) Start(propLock *sync.Mutex, propeller propell
 	go d.loop()
 }
 
-func (d *DuckShootServoController) Stop() {
+func (d *ServoController) Stop() {
 	close(d.stopC)
 	d.doneWg.Wait()
 }
 
-func (d *DuckShootServoController) loop() {
+func (d *ServoController) loop() {
 	defer d.doneWg.Done()
 
-	fmt.Println("DuckShootServoController loop started")
+	fmt.Println("ServoController loop started")
 
 	var dPadY int16
 	var ballThrowerPitch uint8 = ServoValuePitchDefault
@@ -112,7 +112,7 @@ func (d *DuckShootServoController) loop() {
 	for {
 		select {
 		case <-d.stopC:
-			fmt.Println("DuckShootServoController loop stopping")
+			fmt.Println("ServoController loop stopping")
 			return
 		case <-autoRepeatC:
 			updatePitch()
@@ -149,7 +149,7 @@ func (d *DuckShootServoController) loop() {
 	}
 }
 
-func (d *DuckShootServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGroup, triggerDownC chan bool) {
+func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGroup, triggerDownC chan bool) {
 	defer func() {
 		fmt.Println("Fire control loop done")
 		wg.Done()
@@ -229,6 +229,6 @@ func (d *DuckShootServoController) fireControlLoop(ctx context.Context, wg *sync
 	}
 }
 
-func (d *DuckShootServoController) OnJoystickEvent(event *joystick.Event) {
+func (d *ServoController) OnJoystickEvent(event *joystick.Event) {
 	d.joystickEvents <- event
 }
