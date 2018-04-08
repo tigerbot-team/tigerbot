@@ -96,7 +96,7 @@ func main() {
 	}()
 
 	allModes := []Mode{
-		rcmode.New(prop),
+		rcmode.New("Duck shoot mode", prop, rcmode.NewDuckShootServoController()),
 		mazemode.New(prop),
 		slstmode.New(prop),
 		rainbowmode.New(prop),
