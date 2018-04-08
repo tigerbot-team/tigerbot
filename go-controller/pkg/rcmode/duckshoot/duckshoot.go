@@ -25,7 +25,7 @@ const (
 	ServoValuePitchDefault  = 127
 	ServoMaxPitch           = 255
 	ServoMinPitch           = 0
-	PitchAutoRepeatInterval = 10 * time.Millisecond
+	PitchAutoRepeatInterval = 20 * time.Millisecond
 
 	MotorStopTime = time.Second
 )
@@ -89,14 +89,18 @@ func (d *ServoController) loop() {
 	var autoRepeatC <-chan time.Time
 
 	// Function to do one iteration of updating the pitch of the ball flinger.
+	var autoRepeatStart time.Time
+	var autoRepeatFactor int
 	updatePitch := func() {
-		if dPadY > 0 {
-			if ballThrowerPitch < ServoMaxPitch {
-				ballThrowerPitch++ // If changing to bigger increment, be careful of wrap-around
-			}
-		} else if dPadY < 0 {
-			if ballThrowerPitch > ServoMinPitch {
-				ballThrowerPitch--
+		for i := 0; i < autoRepeatFactor; i++ {
+			if dPadY > 0 {
+				if ballThrowerPitch < ServoMaxPitch {
+					ballThrowerPitch++ // If changing to bigger increment, be careful of wrap-around
+				}
+			} else if dPadY < 0 {
+				if ballThrowerPitch > ServoMinPitch {
+					ballThrowerPitch--
+				}
 			}
 		}
 
@@ -104,6 +108,13 @@ func (d *ServoController) loop() {
 		d.propLock.Lock()
 		d.propeller.SetServo(ServoPitch, ballThrowerPitch)
 		d.propLock.Unlock()
+
+		if time.Since(autoRepeatStart) > 250*time.Millisecond {
+			autoRepeatFactor += 1
+			if autoRepeatFactor > 20 {
+				autoRepeatFactor = 20
+			}
+		}
 	}
 
 	// Set initial pitch of ball flinger.
@@ -132,6 +143,8 @@ func (d *ServoController) loop() {
 					} else {
 						autoRepeatC = nil
 					}
+					autoRepeatFactor = 1
+					autoRepeatStart = time.Now()
 				}
 			case joystick.EventTypeButton:
 				switch event.Number {

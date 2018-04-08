@@ -20,7 +20,7 @@ const (
 	ServoMaxPitch = 255
 	ServoMinPitch = 0
 
-	PitchAutoRepeatInterval = 25 * time.Millisecond
+	PitchAutoRepeatInterval = 20 * time.Millisecond
 )
 
 type ServoController struct {
@@ -68,6 +68,7 @@ func (d *ServoController) loop() {
 	var autoRepeatC <-chan time.Time
 
 	// Function to do one iteration of updating the pitch of the ball flinger.
+	var autoRepeatStart time.Time
 	var autoRepeatFactor int
 	updatePitch := func() {
 		for i := 0; i < autoRepeatFactor; i++ {
@@ -88,9 +89,11 @@ func (d *ServoController) loop() {
 		d.propeller.SetServo(ServoRight, math.MaxUint8-armPitch)
 		d.propLock.Unlock()
 
-		autoRepeatFactor++
-		if autoRepeatFactor > 10 {
-			autoRepeatFactor = 10
+		if time.Since(autoRepeatStart) > 250*time.Millisecond {
+			autoRepeatFactor += 1
+			if autoRepeatFactor > 15 {
+				autoRepeatFactor = 15
+			}
 		}
 	}
 
@@ -120,7 +123,8 @@ func (d *ServoController) loop() {
 					} else {
 						autoRepeatC = nil
 					}
-					autoRepeatFactor = 1
+					autoRepeatFactor = 5
+					autoRepeatStart = time.Now()
 				}
 			}
 		}
