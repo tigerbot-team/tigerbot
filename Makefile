@@ -62,7 +62,8 @@ gocv-dev-image: $(ARCH_DEPS)
 	docker build -f go-controller/Dockerfile-dev -t $(GOCV_DEV_IMAGE) .
 
 go-controller/cvtest: go-controller/cvtest.go
-	docker run --rm \
+	sudo docker run --rm \
+	    -v /root/.cache:/root/.cache \
 	    -v `pwd`:$(TIGERBOT) \
 	    -w $(TIGERBOT)/go-controller \
 	    $(GOCV_DEV_IMAGE) \
@@ -77,3 +78,13 @@ run-cvtest: go-controller/cvtest
 	    -w $(TIGERBOT)/go-controller \
 	    $(GOCV_DEV_IMAGE) \
 	    ./cvtest $(CVTEST_ARGS)
+
+enter-dev-image:
+	docker run --rm -it \
+	    --net=host \
+	    -v /home/pi/.Xauthority:/.Xauthority -e XAUTHORITY=/.Xauthority \
+	    -e DISPLAY=127.0.0.1:10.0 -v /tmp/.X11-unix:/tmp/.X11-unix \
+	    -v `pwd`:$(TIGERBOT) \
+	    -w $(TIGERBOT)/go-controller \
+	    $(GOCV_DEV_IMAGE) \
+	    bash
