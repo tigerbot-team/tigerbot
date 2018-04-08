@@ -72,6 +72,7 @@ go-controller/cvtest: go-controller/cvtest.go
 run-cvtest: go-controller/cvtest
 	docker run --rm \
 	    --net=host \
+	    -v /dev:/dev --privileged \
 	    -v /home/pi/.Xauthority:/.Xauthority -e XAUTHORITY=/.Xauthority \
 	    -e DISPLAY=127.0.0.1:10.0 -v /tmp/.X11-unix:/tmp/.X11-unix \
 	    -v `pwd`:$(TIGERBOT) \
