@@ -149,7 +149,7 @@ func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight in
 	if frontRight == -128 {
 		frontRight = -127
 	}
-	data := []byte{RegMotor1, byte(-backLeft), byte(-frontLeft), byte(frontRight), byte(backRight)}
+	data := []byte{RegMotor1, byte(-frontLeft), byte(-backLeft), byte(backRight), byte(frontRight)}
 	return p.writeWithRetries(data)
 }
 
