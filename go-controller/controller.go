@@ -111,6 +111,19 @@ func main() {
 	activeMode.Start(ctx)
 	activeModeIdx := 0
 
+	switchMode := func(delta int) {
+		activeMode.Stop()
+		err = prop.SetMotorSpeeds(0, 0, 0, 0)
+		if err != nil {
+			panic(err)
+		}
+		activeModeIdx += delta
+		activeModeIdx = (activeModeIdx + len(allModes)) % len(allModes)
+		activeMode = allModes[activeModeIdx]
+		fmt.Printf("----- %s -----\n", activeMode.Name())
+		activeMode.Start(ctx)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -131,17 +144,14 @@ func main() {
 			if event.Type == joystick.EventTypeButton &&
 				event.Number == joystick.ButtonOptions &&
 				event.Value == 1 {
-				fmt.Printf("Options pressed: switching modes.\n")
-				activeMode.Stop()
-				err = prop.SetMotorSpeeds(0, 0, 0, 0)
-				if err != nil {
-					panic(err)
-				}
-				activeModeIdx++
-				activeModeIdx = activeModeIdx % len(allModes)
-				activeMode = allModes[activeModeIdx]
-				fmt.Printf("----- %s -----\n", activeMode.Name())
-				activeMode.Start(ctx)
+				fmt.Printf("Options pressed: switching modes >>\n")
+				switchMode(1)
+				continue
+			} else if event.Type == joystick.EventTypeButton &&
+				event.Number == joystick.ButtonShare &&
+				event.Value == 1 {
+				fmt.Printf("Share pressed: switching modes <<\n")
+				switchMode(-1)
 				continue
 			}
 			// Pass other joystick events through if this mode requires them.
