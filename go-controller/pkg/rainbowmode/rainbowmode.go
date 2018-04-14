@@ -274,11 +274,15 @@ func (m *RainbowMode) processImage(img gocv.Mat) {
 		rainbow.Balls[m.targetColour.String()],
 	)
 	if err == nil {
+		fmt.Printf("Found at %#v\n", pos)
 		m.ballX = pos.X
 		m.perceivedSize = pos.Radius
 		if m.ballX >= m.ballXMin && m.ballX <= m.ballXMax {
+			fmt.Printf("Ball seen roughly ahead\n", pos)
 			m.roughDirectionCount++
 		}
+	} else {
+		fmt.Printf("Not found: %v\n", err)
 	}
 }
 
