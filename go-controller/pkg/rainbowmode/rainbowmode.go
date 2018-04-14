@@ -176,6 +176,9 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 	}
 	defer webcam.Close()
 
+	// Capture 15 frames per second.
+	webcam.Set(gocv.VideoCaptureFPS, float64(15))
+
 	img := gocv.NewMat()
 	defer img.Close()
 
