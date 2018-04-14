@@ -273,22 +273,25 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 		if m.phase == Advancing {
 			fmt.Println("Advancing")
-			if !m.ballFixed {
-				m.phase = Reversing
-				m.setSpeeds(-FORWARD_SPEED, 0, 0)
-				continue
-			}
-			if !m.nowCloseEnough() {
+			if m.ballFixed && !m.nowCloseEnough() {
+				// We're approaching the ball but not yet close enough.
 				sideways := m.getTOFDifference()
 				rotation := m.getDirectionAdjust()
 				m.setSpeeds(FORWARD_SPEED, sideways, rotation)
 				continue
+			} else {
+				// Either we've lost the ball, or we're close enough, so we should
+				// switch to reversing.
+				m.phase = Reversing
+				m.advanceDuration = time.Since(m.advanceReverseStartTime)
+				m.advanceReverseStartTime = time.Now()
+				m.setSpeeds(-FORWARD_SPEED, 0, 0)
+				if !m.ballFixed {
+					// We haven't found the current ball yet.
+					continue
+				}
+				// Fall through (=> we're close enough).
 			}
-			m.phase = Reversing
-			m.advanceDuration = time.Since(m.advanceReverseStartTime)
-			m.advanceReverseStartTime = time.Now()
-			m.setSpeeds(-FORWARD_SPEED, 0, 0)
-			// Fall through.
 		}
 
 		fmt.Println("Reached target ball:", m.targetColour, "in", time.Since(startTime))
