@@ -6,16 +6,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/imu"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
-	"gocv.io/x/gocv"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	mux2 "github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
+	"gocv.io/x/gocv"
 )
 
 type TestMode struct {
 	Propeller propeller.Interface
-	context context.Context
+	context   context.Context
 	cancel    context.CancelFunc
 	stopWG    sync.WaitGroup
 }
@@ -112,6 +113,10 @@ func (t *TestMode) OnJoystickEvent(event *joystick.Event) {
 			fmt.Println("TestMode: triangle pushed, testing sensors")
 			t.stopWG.Add(1)
 			go t.testMotors(t.context)
+		case joystick.ButtonCross:
+			fmt.Println("TestMode: cross pushed, testing IMU")
+			t.stopWG.Add(1)
+			go t.testIMU(t.context)
 		}
 	}
 }
@@ -160,6 +165,31 @@ func (t *TestMode) testSensors(ctx context.Context) {
 		}
 		fmt.Println()
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (t *TestMode) testIMU(ctx context.Context) {
+	defer t.stopWG.Done()
+	m, err := imu.New("/dev/i2c-1")
+	if err != nil {
+		fmt.Println("Failed to open IMU", err)
+		return
+	}
+
+	m.Configure()
+
+	m.Calibrate()
+
+	m.ResetFIFO()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		<-ticker.C
+		x := m.ReadFIFO()
+		if len(x) > 0 {
+			fmt.Println("Gyro Xs", len(x), x[0])
+		}
 	}
 }
 
@@ -215,5 +245,5 @@ func (t *TestMode) benchmarkPicture() {
 		}
 	}
 
-	fmt.Printf("TestMode: time per image %v\n", time.Since(startTime) / 100)
+	fmt.Printf("TestMode: time per image %v\n", time.Since(startTime)/100)
 }
