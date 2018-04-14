@@ -23,9 +23,9 @@ const (
 	ServoValuePlungerActive  = 255
 
 	ServoValuePitchDefault  = 127
-	ServoMaxPitch           = 255
-	ServoMinPitch           = 0
-	PitchAutoRepeatInterval = 20 * time.Millisecond
+	ServoMaxPitch           = 178
+	ServoMinPitch           = 124
+	PitchAutoRepeatInterval = 40 * time.Millisecond
 
 	MotorStopTime = time.Second
 )
@@ -93,11 +93,11 @@ func (d *ServoController) loop() {
 	var autoRepeatFactor int
 	updatePitch := func() {
 		for i := 0; i < autoRepeatFactor; i++ {
-			if dPadY > 0 {
+			if dPadY < 0 {
 				if ballThrowerPitch < ServoMaxPitch {
 					ballThrowerPitch++ // If changing to bigger increment, be careful of wrap-around
 				}
-			} else if dPadY < 0 {
+			} else if dPadY > 0 {
 				if ballThrowerPitch > ServoMinPitch {
 					ballThrowerPitch--
 				}

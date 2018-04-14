@@ -79,6 +79,7 @@ VAR
   long  millidiv
   long  servozero
   long  servofactor
+  long  motorfactor
   long  millioffset
   long  Kp
   long  Ki
@@ -98,6 +99,7 @@ PUB main
   servozero := millidiv * 80 / 100      ' Minimum servo pulse width.  This should be 1ms but we stretch it a little
                                         ' for slightly greater travel.
   servofactor := millidiv * 140 / 25600 ' Scale factor from servo units to pulse time.
+  motorfactor := millidiv / 256         ' Scale factor from servo units to motor pulse time.
 
   Kp := 20
   Ki := 4
@@ -106,8 +108,8 @@ PUB main
   lastping := cnt
 
   ' Since we pre-calculate the servo delays in this thread we need to set them before we start the servo control cog.
-  position1 := servozero + (127 * servofactor)
-  position2 := servozero + (127 * servofactor)
+  position1 := millidiv
+  position2 := millidiv
   position3 := servozero + (127 * servofactor)
   position4 := servozero + (127 * servofactor)
 
@@ -220,10 +222,10 @@ PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desir
       lastspeed[i] := newspeed
       
     ' Update servo parameters  
-    position1 := (i2c.get(ballmotor1) * servofactor) + millidiv
-    position2 := (i2c.get(ballmotor2) * servofactor) + millidiv
-    position3 := (i2c.get(servo1) * servofactor) + millidiv
-    position4 := (i2c.get(servo2) * servofactor) + millidiv
+    position1 := (i2c.get(ballmotor1) * motorfactor) + millidiv
+    position2 := (i2c.get(ballmotor2) * motorfactor) + millidiv
+    position3 := (i2c.get(servo1) * servofactor) + servozero
+    position4 := (i2c.get(servo2) * servofactor) + servozero
       
 PRI setMotorSpeed(motor, speed)
   pwm.set_duty(motor, speed)
