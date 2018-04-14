@@ -70,6 +70,8 @@ type RainbowMode struct {
 	ballFixed               bool
 	advanceReverseStartTime time.Time
 	advanceDuration         time.Duration
+	savePicture             int32
+	pictureIndex            int
 }
 
 func New(propeller propeller.Interface) *RainbowMode {
@@ -117,6 +119,8 @@ func (m *RainbowMode) loop(ctx context.Context) {
 					m.stopSequence()
 				case joystick.ButtonTriangle:
 					m.pauseOrResumeSequence()
+				case joystick.ButtonCircle:
+					atomic.StoreInt32(&m.savePicture, 1)
 				}
 			}
 		}
@@ -320,6 +324,15 @@ func (m *RainbowMode) processImage(img gocv.Mat) {
 	if w != 640 || h != 480 {
 		fmt.Printf("Read image %v x %v\n", img.Cols(), img.Rows())
 	}
+
+	if atomic.LoadInt32(&m.savePicture) == 1 {
+		m.pictureIndex++
+		saveFile := fmt.Sprintf("/tmp/image-%v.jpg", m.pictureIndex)
+		success := gocv.IMWrite(saveFile, img)
+		fmt.Printf("TestMode: wrote %v? %v\n", saveFile, success)
+		atomic.StoreInt32(&m.savePicture, 0)
+	}
+
 	hsv := gocv.NewMat()
 	defer hsv.Close()
 	gocv.CvtColor(img, hsv, gocv.ColorBGRToHSV)
