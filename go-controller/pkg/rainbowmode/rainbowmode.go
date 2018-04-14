@@ -210,6 +210,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.processImage(img)
 
 		if m.phase == Reversing {
+			fmt.Print("Reversing\n")
 			m.forwardCycles--
 			if m.forwardCycles > 0 {
 				continue
@@ -220,6 +221,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		if m.phase == Rotating {
+			fmt.Print("Rotating\n")
 			if !m.roughDirectionKnown() {
 				// Continue rotating.
 				m.setSpeeds(0, 0, 20)
@@ -231,6 +233,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		if m.phase == Advancing {
+			fmt.Print("Advancing\n")
 			if !m.nowCloseEnough() {
 				sideways := m.getTOFDifference()
 				rotation := m.getDirectionAdjust()
