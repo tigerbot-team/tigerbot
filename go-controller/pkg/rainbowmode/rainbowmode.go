@@ -161,7 +161,7 @@ const (
 	ROTATE_SPEED            = 8
 	LIMIT_SPEED             = 80
 	FORWARD_SPEED           = 5
-	X_STRAIGHT_AHEAD        = 300
+	X_STRAIGHT_AHEAD        = 320
 	X_PLUS_OR_MINUS         = 40
 	DIRECTION_ADJUST_FACTOR = 0.08
 )
@@ -312,8 +312,14 @@ func (m *RainbowMode) reset() {
 }
 
 func (m *RainbowMode) processImage(img gocv.Mat) {
-	hsv := rainbow.ScaleAndConvertToHSV(img, 600)
+	w := img.Cols()
+	h := img.Rows()
+	if w != 640 || h != 480 {
+		fmt.Printf("Read image %v x %v\n", img.Cols(), img.Rows())
+	}
+	hsv := gocv.NewMat()
 	defer hsv.Close()
+	gocv.CvtColor(img, hsv, gocv.ColorBGRToHSV)
 	pos, err := rainbow.FindBallPosition(
 		hsv,
 		rainbow.Balls[m.targetColour.String()],
