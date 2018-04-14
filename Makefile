@@ -19,7 +19,7 @@ controller-image.tar: metabotspin/mb3.binary python-controller/*
 
 PHONY: go-phase-1-image
 go-phase-1-image go-controller/controller: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
-	docker build . -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest
+	docker build -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest .
 	-docker rm -f tigerbot-build
 	docker create --name=tigerbot-build tigerbot/go-controller-phase-1:latest
 	docker cp tigerbot-build:/go/src/github.com/tigerbot-team/tigerbot/go-controller/controller go-controller/controller

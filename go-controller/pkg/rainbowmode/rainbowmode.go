@@ -11,6 +11,7 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbow"
 	"gocv.io/x/gocv"
 )
 
@@ -61,7 +62,13 @@ type RainbowMode struct {
 	paused int32
 
 	// State of balls searching.
-	phase Phase
+	phase               Phase
+	targetColour        Colour
+	forwardCycles       int
+	perceivedSize       int
+	ballX               int
+	roughDirectionCount int
+	ballXMin, ballXMax  int
 }
 
 func New(propeller propeller.Interface) *RainbowMode {
@@ -196,7 +203,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			continue
 		}
 
-		targetColour := targetSequence[m.targetBallIdx]
+		m.targetColour = targetSequence[m.targetBallIdx]
 		m.processImage(img)
 
 		if m.phase == Reversing {
@@ -212,7 +219,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		if m.phase == Rotating {
 			if !m.roughDirectionKnown() {
 				// Continue rotating.
-				m.SetSpeeds(0, 0, 20)
+				m.setSpeeds(0, 0, 20)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
@@ -224,7 +231,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			if !m.nowCloseEnough() {
 				sideways := m.getTOFDifference()
 				rotation := m.getDirectionAdjust()
-				m.SetSpeeds(20, sideways, rotation)
+				m.setSpeeds(20, sideways, rotation)
 				m.forwardCycles++
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -233,7 +240,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			// Fall through.
 		}
 
-		fmt.Println("Reached target ball:", targetColour, "in", time.Since(startTime))
+		fmt.Println("Reached target ball:", m.targetColour, "in", time.Since(startTime))
 		m.targetBallIdx++
 		if m.targetBallIdx < len(targetSequence) {
 			fmt.Println("Next target ball: ", targetSequence[m.targetBallIdx])
@@ -256,7 +263,7 @@ func (m *RainbowMode) processImage(img gocv.Mat) {
 	hsv := rainbow.ScaleAndConvertToHSV(img, 600)
 	pos, err := rainbow.FindBallPosition(
 		hsv,
-		rainbow.Balls[targetColour.String()],
+		rainbow.Balls[m.targetColour.String()],
 	)
 	if err == nil {
 		m.ballX = pos.X
