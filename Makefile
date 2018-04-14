@@ -70,7 +70,8 @@ go-controller/cvtest: go-controller/cvtest.go
 	    bash -c "source $(GOCV)/env.sh && GOMAXPROCS=1 go build -p 1 -v cvtest.go"
 
 run-cvtest: go-controller/cvtest
-	docker run --rm \
+	sudo modprobe bcm2835-v4l2
+	docker run --rm -it \
 	    --net=host \
 	    -v /dev:/dev --privileged \
 	    -v /home/pi/.Xauthority:/.Xauthority -e XAUTHORITY=/.Xauthority \
