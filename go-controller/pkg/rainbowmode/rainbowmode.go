@@ -62,13 +62,14 @@ type RainbowMode struct {
 	paused int32
 
 	// State of balls searching.
-	phase               Phase
-	targetColour        Colour
-	forwardCycles       int
-	perceivedSize       int
-	ballX               int
-	roughDirectionCount int
-	ballFixed           bool
+	phase                   Phase
+	targetColour            Colour
+	perceivedSize           int
+	ballX                   int
+	roughDirectionCount     int
+	ballFixed               bool
+	advanceReverseStartTime time.Time
+	advanceDuration         time.Duration
 }
 
 func New(propeller propeller.Interface) *RainbowMode {
@@ -250,8 +251,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 		if m.phase == Reversing {
 			fmt.Println("Reversing")
-			m.forwardCycles--
-			if m.forwardCycles > 0 {
+			if time.Since(m.advanceReverseStartTime) < m.advanceDuration {
 				continue
 			}
 			m.reset()
@@ -267,6 +267,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 				continue
 			}
 			m.phase = Advancing
+			m.advanceReverseStartTime = time.Now()
 			// Fall through.
 		}
 
@@ -281,10 +282,11 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 				sideways := m.getTOFDifference()
 				rotation := m.getDirectionAdjust()
 				m.setSpeeds(FORWARD_SPEED, sideways, rotation)
-				m.forwardCycles++
 				continue
 			}
 			m.phase = Reversing
+			m.advanceDuration = time.Since(m.advanceReverseStartTime)
+			m.advanceReverseStartTime = time.Now()
 			m.setSpeeds(-FORWARD_SPEED, 0, 0)
 			// Fall through.
 		}
@@ -305,7 +307,6 @@ func (m *RainbowMode) reset() {
 	m.perceivedSize = 0
 	m.ballX = 0
 	m.roughDirectionCount = 0
-	m.forwardCycles = 0
 	m.phase = Rotating
 	m.ballFixed = false
 }
