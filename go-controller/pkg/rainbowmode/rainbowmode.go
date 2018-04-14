@@ -202,7 +202,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 	var (
 		lastFrameTime time.Time
-		numIterations int
+		numFramesRead int
 	)
 
 	for m.targetBallIdx < len(targetSequence) && ctx.Err() == nil {
@@ -211,7 +211,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		if numIterations > 0 {
+		if numFramesRead > 0 {
 			timeSinceLastFrame := time.Since(lastFrameTime)
 			skipFrames := int(timeSinceLastFrame / (time.Second / FPS))
 			if skipFrames > 0 {
@@ -232,7 +232,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			fmt.Printf("Code running too fast: %v\n", codeTime)
 		}
 		lastFrameTime = thisFrameTime
-		numIterations++
+		numFramesRead++
 
 		if img.Empty() {
 			fmt.Printf("no image on device\n")
@@ -245,7 +245,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 		// Don't do anything for the first second, to allow the code to synchronize with the
 		// camera frame rate.
-		if numIterations <= FPS {
+		if numFramesRead <= FPS {
 			continue
 		}
 
