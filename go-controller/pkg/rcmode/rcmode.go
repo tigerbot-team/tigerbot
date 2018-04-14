@@ -118,7 +118,7 @@ func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int8) {
 	_ = lStickY
 
 	// Put all the values into the range (-1, 1) and apply expo.
-	yawExpo := applyExpo(float64(lStickX)/32767.0, 2.5)
+	yawExpo := applyExpo(float64(lStickX)/32767.0, 2.5) * 0.5
 	throttleExpo := applyExpo(float64(rStickY)/-32767.0, expo)
 	translateExpo := applyExpo(float64(rStickX)/32767.0, expo)
 
