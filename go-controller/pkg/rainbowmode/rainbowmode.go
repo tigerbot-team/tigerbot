@@ -46,7 +46,7 @@ func (c Colour) String() string {
 	return fmt.Sprintf("Colour(%d)", int(c))
 }
 
-var targetSequence = []Colour{Red, Blue, Yellow, Green}
+var targetSequence = []Colour{Red, Yellow, Green, Blue}
 
 type RainbowMode struct {
 	Propeller      propeller.Interface
@@ -68,7 +68,7 @@ type RainbowMode struct {
 	perceivedSize       int
 	ballX               int
 	roughDirectionCount int
-	ballXMin, ballXMax  int
+	ballFixed           bool
 }
 
 func New(propeller propeller.Interface) *RainbowMode {
@@ -155,11 +155,21 @@ func clamp(v float64, limit float64) int8 {
 	return int8(v)
 }
 
+const (
+	FPS                     = 15
+	ROTATE_SPEED            = 8
+	LIMIT_SPEED             = 80
+	FORWARD_SPEED           = 5
+	X_STRAIGHT_AHEAD        = 300
+	X_PLUS_OR_MINUS         = 40
+	DIRECTION_ADJUST_FACTOR = 0.08
+)
+
 func (m *RainbowMode) setSpeeds(forwards, sideways, rotation float64) {
-	fl := clamp(forwards-sideways-rotation, 100)
-	fr := clamp(forwards+sideways+rotation, 100)
-	bl := clamp(forwards+sideways-rotation, 100)
-	br := clamp(forwards-sideways+rotation, 100)
+	fl := clamp(forwards-sideways-rotation, LIMIT_SPEED)
+	fr := clamp(forwards+sideways+rotation, LIMIT_SPEED)
+	bl := clamp(forwards+sideways-rotation, LIMIT_SPEED)
+	br := clamp(forwards-sideways+rotation, LIMIT_SPEED)
 
 	fmt.Printf("Speeds: FL=%d FR=%d BL=%d BR=%d\n", fl, fr, bl, br)
 	m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
@@ -177,16 +187,23 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 	defer webcam.Close()
 
 	// Capture 15 frames per second.
-	webcam.Set(gocv.VideoCaptureFPS, float64(15))
+	webcam.Set(gocv.VideoCaptureFPS, float64(FPS))
 
 	img := gocv.NewMat()
 	defer img.Close()
 
 	startTime := time.Now()
 
+	m.reset()
 	fmt.Println("Next target ball: ", targetSequence[m.targetBallIdx])
 
 	defer fmt.Println("Exiting sequence loop")
+
+	var (
+		lastFrameRead time.Time
+		codeTime      time.Duration
+		numIterations int
+	)
 
 	for m.targetBallIdx < len(targetSequence) && ctx.Err() == nil {
 		for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
@@ -195,6 +212,18 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		// This blocks until the next frame is ready.
+		if numIterations > 0 {
+			codeTime = time.Since(lastFrameRead)
+			if codeTime > 1*time.Second/(FPS-2) {
+				fmt.Printf("Code falling behind camera: %v\n", codeTime)
+			}
+			if codeTime < 1*time.Second/(FPS+2) {
+				fmt.Printf("Code running faster than expected FPS: %v\n", codeTime)
+			}
+		}
+		lastFrameRead = time.Now()
+		numIterations++
+
 		if ok := webcam.Read(img); !ok {
 			fmt.Printf("cannot read device\n")
 			time.Sleep(1 * time.Millisecond)
@@ -209,8 +238,14 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.targetColour = targetSequence[m.targetBallIdx]
 		m.processImage(img)
 
+		// Don't do anything for the first second, to allow the code to synchronize with the
+		// camera frame rate.
+		if numIterations <= FPS {
+			continue
+		}
+
 		if m.phase == Reversing {
-			fmt.Print("Reversing\n")
+			fmt.Println("Reversing")
 			m.forwardCycles--
 			if m.forwardCycles > 0 {
 				continue
@@ -221,11 +256,10 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		if m.phase == Rotating {
-			fmt.Print("Rotating\n")
+			fmt.Println("Rotating")
 			if !m.roughDirectionKnown() {
 				// Continue rotating.
-				m.setSpeeds(0, 0, 20)
-				time.Sleep(100 * time.Millisecond)
+				m.setSpeeds(0, 0, ROTATE_SPEED)
 				continue
 			}
 			m.phase = Advancing
@@ -233,16 +267,21 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		if m.phase == Advancing {
-			fmt.Print("Advancing\n")
+			fmt.Println("Advancing")
+			if !m.ballFixed {
+				m.phase = Reversing
+				m.setSpeeds(-FORWARD_SPEED, 0, 0)
+				continue
+			}
 			if !m.nowCloseEnough() {
 				sideways := m.getTOFDifference()
 				rotation := m.getDirectionAdjust()
-				m.setSpeeds(20, sideways, rotation)
+				m.setSpeeds(FORWARD_SPEED, sideways, rotation)
 				m.forwardCycles++
-				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			m.phase = Reversing
+			m.setSpeeds(-FORWARD_SPEED, 0, 0)
 			// Fall through.
 		}
 
@@ -262,9 +301,9 @@ func (m *RainbowMode) reset() {
 	m.perceivedSize = 0
 	m.ballX = 0
 	m.roughDirectionCount = 0
-	m.ballXMin = 300 - 30
-	m.ballXMax = 300 + 30
 	m.forwardCycles = 0
+	m.phase = Rotating
+	m.ballFixed = false
 }
 
 func (m *RainbowMode) processImage(img gocv.Mat) {
@@ -277,17 +316,20 @@ func (m *RainbowMode) processImage(img gocv.Mat) {
 		fmt.Printf("Found at %#v\n", pos)
 		m.ballX = pos.X
 		m.perceivedSize = pos.Radius
-		if m.ballX >= m.ballXMin && m.ballX <= m.ballXMax {
-			fmt.Printf("Ball seen roughly ahead\n", pos)
+		if m.ballX >= (X_STRAIGHT_AHEAD-X_PLUS_OR_MINUS) && m.ballX <= (X_STRAIGHT_AHEAD+X_PLUS_OR_MINUS) {
+			fmt.Println("Ball seen roughly ahead")
 			m.roughDirectionCount++
+			m.ballFixed = true
 		}
 	} else {
 		fmt.Printf("Not found: %v\n", err)
+		m.roughDirectionCount = 0
+		m.ballFixed = false
 	}
 }
 
 func (m *RainbowMode) roughDirectionKnown() bool {
-	return m.roughDirectionCount >= 10
+	return m.roughDirectionCount >= 2
 }
 
 func (m *RainbowMode) nowCloseEnough() bool {
@@ -295,9 +337,7 @@ func (m *RainbowMode) nowCloseEnough() bool {
 }
 
 func (m *RainbowMode) getDirectionAdjust() float64 {
-	const factor = float64(1)
-	const centreX = 300
-	return factor * float64(m.ballX-centreX)
+	return DIRECTION_ADJUST_FACTOR * float64(X_STRAIGHT_AHEAD-m.ballX)
 }
 
 func (m *RainbowMode) getTOFDifference() float64 {
