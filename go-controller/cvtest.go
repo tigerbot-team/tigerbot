@@ -51,6 +51,15 @@ func loopReadingCamera() {
 			fmt.Printf("Video prop %v (%v) = %v\n", desc, prop, param)
 		}
 	}
+	webcam.Set(gocv.VideoCaptureFPS, float64(15))
+	for i := 0; i <= 39; i++ {
+		desc, ok := supportedProps[i]
+		if ok {
+			prop := gocv.VideoCaptureProperties(i)
+			param := webcam.Get(prop)
+			fmt.Printf("Video prop %v (%v) = %v\n", desc, prop, param)
+		}
+	}
 
 	img := gocv.NewMat()
 	defer img.Close()
