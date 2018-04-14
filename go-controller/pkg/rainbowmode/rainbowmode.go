@@ -254,6 +254,8 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			fmt.Println("Done!!")
 		}
 	}
+
+	m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
 }
 
 func (m *RainbowMode) reset() {
