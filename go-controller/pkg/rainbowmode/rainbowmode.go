@@ -200,8 +200,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 	defer fmt.Println("Exiting sequence loop")
 
 	var (
-		lastFrameRead time.Time
-		codeTime      time.Duration
+		lastFrameTime time.Time
 		numIterations int
 	)
 
@@ -211,24 +210,29 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		// This blocks until the next frame is ready.
 		if numIterations > 0 {
-			codeTime = time.Since(lastFrameRead)
-			if codeTime > 1*time.Second/(FPS-2) {
-				fmt.Printf("Code falling behind camera: %v\n", codeTime)
-			}
-			if codeTime < 1*time.Second/(FPS+2) {
-				fmt.Printf("Code running faster than expected FPS: %v\n", codeTime)
+			timeSinceLastFrame := time.Since(lastFrameTime)
+			skipFrames := int(timeSinceLastFrame / (time.Second / FPS))
+			if skipFrames > 0 {
+				fmt.Printf("Skipping %v frames\n", skipFrames)
+				webcam.Grab(skipFrames)
 			}
 		}
-		lastFrameRead = time.Now()
-		numIterations++
 
+		// This blocks until the next frame is ready.
 		if ok := webcam.Read(img); !ok {
 			fmt.Printf("cannot read device\n")
 			time.Sleep(1 * time.Millisecond)
 			continue
 		}
+		thisFrameTime := time.Now()
+		codeTime := time.Since(lastFrameTime)
+		if codeTime < 1*time.Second/(FPS+1) {
+			fmt.Printf("Code running too fast: %v\n", codeTime)
+		}
+		lastFrameTime = thisFrameTime
+		numIterations++
+
 		if img.Empty() {
 			fmt.Printf("no image on device\n")
 			time.Sleep(1 * time.Millisecond)
