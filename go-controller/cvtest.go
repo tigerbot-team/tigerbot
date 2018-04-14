@@ -72,7 +72,7 @@ func loopReadingCamera() {
 		// Convert to HSV and Resize to a width of 600.
 		hsv := rainbow.ScaleAndConvertToHSV(img, 600)
 
-		if pos, err := rainbow.FindBallPosition(hsv, rainbow.Balls["orange"]); err == nil {
+		if pos, err := rainbow.FindBallPosition(hsv, rainbow.Balls["red"]); err == nil {
 			fmt.Printf("Found at %#v\n", pos)
 		} else {
 			fmt.Printf("Not found: %v\n", err)
