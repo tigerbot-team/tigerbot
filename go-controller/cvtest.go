@@ -28,6 +28,30 @@ func loopReadingCamera() {
 	}
 	defer webcam.Close()
 
+	var supportedProps = map[int]string{
+		0:  "PosMsec",
+		3:  "FrameWidth",
+		4:  "FrameHeight",
+		5:  "FPS",
+		6:  "FOURCC",
+		8:  "Format",
+		9:  "Mode",
+		10: "Brightness",
+		11: "Contrast",
+		12: "Saturation",
+		15: "Exposure",
+		21: "AutoExposure",
+	}
+
+	for i := 0; i <= 39; i++ {
+		desc, ok := supportedProps[i]
+		if ok {
+			prop := gocv.VideoCaptureProperties(i)
+			param := webcam.Get(prop)
+			fmt.Printf("Video prop %v (%v) = %v\n", desc, prop, param)
+		}
+	}
+
 	img := gocv.NewMat()
 	defer img.Close()
 
