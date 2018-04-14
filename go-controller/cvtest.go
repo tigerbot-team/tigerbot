@@ -53,6 +53,8 @@ func loopReadingCamera() {
 		} else {
 			fmt.Printf("Not found: %v\n", err)
 		}
+
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
