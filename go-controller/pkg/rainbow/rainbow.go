@@ -33,6 +33,7 @@ func ScaleAndConvertToHSV(img gocv.Mat, desiredWidth int) (hsv gocv.Mat) {
 	scaleFactor := float64(desiredWidth) / float64(width)
 	scaled := gocv.NewMat()
 	gocv.Resize(img, scaled, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
+	defer scaled.Close()
 
 	// Convert to HSV.
 	hsv = gocv.NewMat()
@@ -47,11 +48,13 @@ func HSVMaskNoWrapAround(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
 		hsvRange.SatMin,
 		hsvRange.ValMin,
 	})
+	defer lb.Close()
 	ub := gocv.NewMatFromBytes(1, 3, gocv.MatTypeCV8U, []byte{
 		hsvRange.HueMax,
 		hsvRange.SatMax,
 		hsvRange.ValMax,
 	})
+	defer ub.Close()
 	mask := gocv.NewMatWithSize(hsv.Rows(), hsv.Cols(), gocv.MatTypeCV8U)
 	gocv.InRange(hsv, lb, ub, mask)
 	return mask
@@ -75,9 +78,11 @@ func HSVMask(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
 
 func FindBallPosition(hsv gocv.Mat, hsvRange *HSVRange) (pos BallPosition, err error) {
 	mask := HSVMask(hsv, hsvRange)
+	defer mask.Close()
 
 	// Apply two iterations each of erosion and dilation, to remove noise.
 	nullMat := gocv.NewMat()
+	defer nullMat.Close()
 	gocv.Erode(mask, mask, nullMat)
 	gocv.Erode(mask, mask, nullMat)
 	gocv.Dilate(mask, mask, nullMat)

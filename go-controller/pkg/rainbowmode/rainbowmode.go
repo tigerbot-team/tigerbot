@@ -308,6 +308,7 @@ func (m *RainbowMode) reset() {
 
 func (m *RainbowMode) processImage(img gocv.Mat) {
 	hsv := rainbow.ScaleAndConvertToHSV(img, 600)
+	defer hsv.Close()
 	pos, err := rainbow.FindBallPosition(
 		hsv,
 		rainbow.Balls[m.targetColour.String()],
