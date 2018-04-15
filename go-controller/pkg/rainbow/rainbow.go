@@ -67,9 +67,11 @@ func HSVMask(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
 		range1 := *hsvRange
 		range1.HueMax = 180
 		mask1 := HSVMaskNoWrapAround(hsv, &range1)
+		defer mask1.Close()
 		range2 := *hsvRange
 		range2.HueMin = 0
 		mask2 := HSVMaskNoWrapAround(hsv, &range2)
+		defer mask2.Close()
 		mask := gocv.NewMatWithSize(hsv.Rows(), hsv.Cols(), gocv.MatTypeCV8U)
 		gocv.BitwiseOr(mask1, mask2, mask)
 		return mask
