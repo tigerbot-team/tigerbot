@@ -46,7 +46,7 @@ func (c Colour) String() string {
 	return fmt.Sprintf("Colour(%d)", int(c))
 }
 
-var targetSequence = []Colour{Red, Yellow, Green, Blue}
+var targetSequence = []Colour{Red, Blue, Yellow, Green}
 
 type RainbowMode struct {
 	Propeller      propeller.Interface
