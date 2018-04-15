@@ -1,5 +1,5 @@
-hash: 7e4ff0d981463aab736ec30785ce61531bfaf3a90372eec6be9e1091c0de20c6
-updated: 2018-03-24T19:14:00.483635341Z
+hash: e7f8671ac8102129f247bdc3aef3e1708b60bca93ddb0f0be8280467abfb9a60
+updated: 2018-04-15T14:37:55.541808884+01:00
 imports:
 - name: github.com/kr/pty
   version: 282ce0e5322c82529687d609ee670fac7c7d917c
@@ -10,4 +10,6 @@ imports:
   subpackages:
   - io/i2c
   - io/i2c/driver
+- name: gopkg.in/yaml.v2
+  version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
 testImports: []
