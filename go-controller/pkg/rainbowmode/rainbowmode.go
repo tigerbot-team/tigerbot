@@ -226,6 +226,12 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			}
 		}
 
+		if m.phase == Rotating {
+			// Stop moving before taking picture.
+			m.setSpeeds(0, 0, 0)
+			webcam.Grab(1)
+		}
+
 		// This blocks until the next frame is ready.
 		if ok := webcam.Read(img); !ok {
 			fmt.Printf("cannot read device\n")
