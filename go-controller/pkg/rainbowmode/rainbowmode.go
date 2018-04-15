@@ -76,6 +76,7 @@ type RainbowMode struct {
 	advanceDuration         time.Duration
 	savePicture             int32
 	pictureIndex            int
+	ballInView              bool
 }
 
 func New(propeller propeller.Interface) *RainbowMode {
@@ -166,11 +167,12 @@ func clamp(v float64, limit float64) int8 {
 
 const (
 	FPS                     = 15
-	ROTATE_SPEED            = 5
+	ROTATE_SPEED            = 8
+	SLOW_ROTATE_SPEED       = 5
 	LIMIT_SPEED             = 80
 	FORWARD_SPEED           = 5
 	X_STRAIGHT_AHEAD        = 320
-	X_PLUS_OR_MINUS         = 40
+	X_PLUS_OR_MINUS         = 80
 	DIRECTION_ADJUST_FACTOR = 0.08
 )
 
@@ -343,7 +345,11 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			fmt.Println("Target:", m.targetColour, "Rotating")
 			if !m.roughDirectionKnown() {
 				// Continue rotating.
-				m.setSpeeds(0, 0, ROTATE_SPEED)
+				if m.ballInView {
+					m.setSpeeds(0, 0, SLOW_ROTATE_SPEED)
+				} else {
+					m.setSpeeds(0, 0, ROTATE_SPEED)
+				}
 				continue
 			}
 			m.phase = Advancing
@@ -430,10 +436,12 @@ func (m *RainbowMode) processImage(img gocv.Mat) {
 			m.roughDirectionCount++
 			m.ballFixed = true
 		}
+		m.ballInView = true
 	} else {
 		fmt.Printf("Not found: %v\n", err)
 		m.roughDirectionCount = 0
 		m.ballFixed = false
+		m.ballInView = false
 	}
 }
 
