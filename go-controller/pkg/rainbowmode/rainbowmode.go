@@ -162,7 +162,7 @@ func clamp(v float64, limit float64) int8 {
 
 const (
 	FPS                     = 15
-	ROTATE_SPEED            = 8
+	ROTATE_SPEED            = 5
 	LIMIT_SPEED             = 80
 	FORWARD_SPEED           = 5
 	X_STRAIGHT_AHEAD        = 320
@@ -254,7 +254,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		if m.phase == Reversing {
-			fmt.Println("Reversing")
+			fmt.Println("Target:", m.targetColour, "Reversing")
 			if time.Since(m.advanceReverseStartTime) < m.advanceDuration {
 				continue
 			}
@@ -264,7 +264,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		if m.phase == Rotating {
-			fmt.Println("Rotating")
+			fmt.Println("Target:", m.targetColour, "Rotating")
 			if !m.roughDirectionKnown() {
 				// Continue rotating.
 				m.setSpeeds(0, 0, ROTATE_SPEED)
@@ -276,7 +276,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		if m.phase == Advancing {
-			fmt.Println("Advancing")
+			fmt.Println("Target:", m.targetColour, "Advancing")
 			if m.ballFixed && !m.nowCloseEnough() {
 				// We're approaching the ball but not yet close enough.
 				sideways := m.getTOFDifference()

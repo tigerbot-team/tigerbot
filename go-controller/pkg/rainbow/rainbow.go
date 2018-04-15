@@ -15,10 +15,10 @@ type HSVRange struct {
 }
 
 var Balls = map[string]*HSVRange{
-	"yellow": &HSVRange{21, 42, 0, 255, 0, 255},
-	"green":  &HSVRange{60, 100, 60, 255, 0, 255},
+	"yellow": &HSVRange{22, 42, 100, 255, 130, 255},
+	"green":  &HSVRange{45, 100, 10, 255, 0, 255},
 	"blue":   &HSVRange{100, 120, 90, 255, 80, 255},
-	"red":    &HSVRange{165, 10, 120, 255, 60, 255},
+	"red":    &HSVRange{165, 10, 100, 255, 60, 255},
 }
 
 type BallPosition struct {
