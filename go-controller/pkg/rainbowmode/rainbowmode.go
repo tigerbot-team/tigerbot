@@ -87,11 +87,11 @@ func New(propeller propeller.Interface) *RainbowMode {
 		phase:          Rotating,
 		config: RainbowConfig{
 			FPS:                   15,
-			RotateSpeed:           8,
+			RotateSpeed:           16,
 			SlowRotateSpeed:       5,
 			LimitSpeed:            80,
-			ForwardSpeed:          15,
-			ForwardSlowSpeed:      8,
+			ForwardSpeed:          35,
+			ForwardSlowSpeed:      6,
 			XStraightAhead:        320,
 			XPlusOrMinus:          80,
 			DirectionAdjustFactor: 0.03,
@@ -99,11 +99,11 @@ func New(propeller propeller.Interface) *RainbowMode {
 			Sequence:              []string{"red", "blue", "yellow", "green"},
 			Balls:                 map[string]rainbow.HSVRange{},
 
-			ForwardCornerDetectionThreshold:   130,
-			ForwardLRCornerDetectionThreshold: 95,
-			CornerSlowDownThresh:              15,
+			ForwardCornerDetectionThreshold:   120,
+			ForwardLRCornerDetectionThreshold: 78,
+			CornerSlowDownThresh:              60,
 
-			ForwardReverseThreshold: 400,
+			ForwardReverseThreshold: 450,
 		},
 	}
 	for _, colour := range m.config.Sequence {
@@ -369,8 +369,8 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		if m.phase == Reversing {
 			fmt.Println("Target:", m.targetColour, "Reversing")
 
-			farEnough := forward.BestGuess() > m.config.ForwardReverseThreshold &&
-				forwardRight.BestGuess() > m.config.ForwardReverseThreshold &&
+			farEnough := forward.BestGuess() > m.config.ForwardReverseThreshold ||
+				forwardRight.BestGuess() > m.config.ForwardReverseThreshold ||
 				forwardLeft.BestGuess() > m.config.ForwardReverseThreshold
 
 			if farEnough {
