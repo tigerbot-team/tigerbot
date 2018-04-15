@@ -58,6 +58,8 @@ type RainbowConfig struct {
 	// Vertical field of view factor as tan(theta), where theta is the angle that the camera
 	// captures (in 640x480 video mode) above and below its centreline.
 	TanTheta float64
+	// Whether to filter out apparent 'balls' that aren't in the expected Y range.
+	FilterYCoord bool
 }
 
 type RainbowMode struct {
@@ -120,7 +122,8 @@ func New(propeller propeller.Interface) *RainbowMode {
 			// tan(24.4 degrees) * 480 / 1232, following
 			// https://www.raspberrypi.org/documentation/hardware/camera/README.md and
 			// https://github.com/waveform80/picamera/blob/master/docs/fov.rst
-			TanTheta: 0.177,
+			TanTheta:     0.177,
+			FilterYCoord: false,
 		},
 	}
 	for _, colour := range m.config.Sequence {
@@ -512,8 +515,14 @@ func (m *RainbowMode) processImage(img gocv.Mat, distanceSensor *Filter) {
 				yMax := int(240 * (1 - float64(m.config.DeltaHMinMM)/(float64(distanceMM)*m.config.TanTheta)))
 				if pos.Y < yMin {
 					fmt.Printf("Ball above expected Y range: %v < %v\n", pos.Y, yMin)
+					if m.config.FilterYCoord {
+						m.ballFixed = false
+					}
 				} else if pos.Y > yMax {
 					fmt.Printf("Ball below expected Y range: %v > %v\n", pos.Y, yMax)
+					if m.config.FilterYCoord {
+						m.ballFixed = false
+					}
 				} else {
 					fmt.Printf("Ball within expected Y range: %v < %v < %v\n", yMin, pos.Y, yMax)
 				}
