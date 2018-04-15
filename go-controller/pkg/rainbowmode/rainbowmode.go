@@ -170,6 +170,7 @@ const (
 	X_STRAIGHT_AHEAD        = 320
 	X_PLUS_OR_MINUS         = 80
 	DIRECTION_ADJUST_FACTOR = 0.08
+	CLOSE_ENOUGH_SIZE       = 150
 )
 
 func (m *RainbowMode) setSpeeds(forwards, sideways, rotation float64) {
@@ -375,7 +376,7 @@ func (m *RainbowMode) roughDirectionKnown() bool {
 }
 
 func (m *RainbowMode) nowCloseEnough() bool {
-	return m.perceivedSize > 120
+	return m.perceivedSize > CLOSE_ENOUGH_SIZE
 }
 
 func (m *RainbowMode) getDirectionAdjust() float64 {
