@@ -35,12 +35,19 @@ type RainbowConfig struct {
 	SlowRotateSpeed       float64
 	LimitSpeed            float64
 	ForwardSpeed          float64
+	ForwardSlowSpeed      float64
 	XStraightAhead        int
 	XPlusOrMinus          int
 	DirectionAdjustFactor float64
 	CloseEnoughSize       int
 	Sequence              []string
 	Balls                 map[string]rainbow.HSVRange
+
+	ForwardCornerDetectionThreshold   int
+	ForwardLRCornerDetectionThreshold int
+	CornerSlowDownThresh              int
+
+	ForwardReverseThreshold int
 }
 
 type RainbowMode struct {
@@ -80,16 +87,23 @@ func New(propeller propeller.Interface) *RainbowMode {
 		phase:          Rotating,
 		config: RainbowConfig{
 			FPS:                   15,
-			RotateSpeed:           8,
+			RotateSpeed:           16,
 			SlowRotateSpeed:       5,
 			LimitSpeed:            80,
-			ForwardSpeed:          5,
+			ForwardSpeed:          35,
+			ForwardSlowSpeed:      6,
 			XStraightAhead:        320,
 			XPlusOrMinus:          80,
-			DirectionAdjustFactor: 0.08,
+			DirectionAdjustFactor: 0.03,
 			CloseEnoughSize:       150,
 			Sequence:              []string{"red", "blue", "yellow", "green"},
 			Balls:                 map[string]rainbow.HSVRange{},
+
+			ForwardCornerDetectionThreshold:   120,
+			ForwardLRCornerDetectionThreshold: 78,
+			CornerSlowDownThresh:              60,
+
+			ForwardReverseThreshold: 450,
 		},
 	}
 	for _, colour := range m.config.Sequence {
@@ -354,7 +368,15 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 		if m.phase == Reversing {
 			fmt.Println("Target:", m.targetColour, "Reversing")
-			if time.Since(m.advanceReverseStartTime) < m.advanceDuration {
+
+			farEnough := forward.BestGuess() > m.config.ForwardReverseThreshold ||
+				forwardRight.BestGuess() > m.config.ForwardReverseThreshold ||
+				forwardLeft.BestGuess() > m.config.ForwardReverseThreshold
+
+			if farEnough {
+				fmt.Println("Far enough away from wall, stopping reversing")
+			}
+			if !farEnough && time.Since(m.advanceReverseStartTime) < m.advanceDuration {
 				continue
 			}
 			m.reset()
@@ -381,15 +403,24 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		if m.phase == Advancing {
 			fmt.Println("Target:", m.targetColour, "Advancing")
 
-			closeEnough := !forward.IsFar() && forward.BestGuess() <= 110 &&
-				!forwardRight.IsFar() && forwardRight.BestGuess() <= 70 &&
-				!forwardLeft.IsFar() && forwardLeft.BestGuess() <= 70
+			closeEnough := !forward.IsFar() && forward.BestGuess() <= m.config.ForwardCornerDetectionThreshold &&
+				!forwardRight.IsFar() && forwardRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold &&
+				!forwardLeft.IsFar() && forwardLeft.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold
+
+			closeEnoughToSlowDown := !forward.IsFar() && forward.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh ||
+				!forwardRight.IsFar() && forwardRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh ||
+				!forwardLeft.IsFar() && forwardLeft.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh
 
 			if m.ballFixed && !closeEnough {
 				// We're approaching the ball but not yet close enough.
 				sideways := m.getTOFDifference()
 				rotation := m.getDirectionAdjust()
-				m.setSpeeds(m.config.ForwardSpeed, sideways, rotation)
+				if closeEnoughToSlowDown {
+					fmt.Println("Slowing...")
+					m.setSpeeds(m.config.ForwardSlowSpeed, sideways, rotation)
+				} else {
+					m.setSpeeds(m.config.ForwardSpeed, sideways, rotation)
+				}
 				continue
 			} else {
 				// Either we've lost the ball, or we're close enough, so we should
