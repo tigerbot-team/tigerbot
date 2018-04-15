@@ -9,9 +9,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"sort"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbow"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	"gocv.io/x/gocv"
 )
 
@@ -184,6 +188,76 @@ func (m *RainbowMode) setSpeeds(forwards, sideways, rotation float64) {
 func (m *RainbowMode) runSequence(ctx context.Context) {
 	defer close(m.sequenceDone)
 
+	mx, err := mux.New("/dev/i2c-1")
+	if err != nil {
+		fmt.Println("Failed to open mux", err)
+		return
+	}
+
+	var tofs []tofsensor.Interface
+	defer func() {
+		for _, tof := range tofs {
+			tof.Close()
+		}
+	}()
+	for _, port := range []int{
+		mux.BusTOFSideLeft,
+		mux.BusTOFFrontLeft,
+		mux.BusTOFForward,
+		mux.BusTOFFrontRight,
+		mux.BusTOFSideRight,
+	} {
+		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
+		if err != nil {
+			fmt.Println("Failed to open sensor", err)
+			return
+		}
+		err = tof.StartContinuousMeasurements()
+		if err != nil {
+			fmt.Println("Failed to start continuous measurements", err)
+			return
+		}
+		tofs = append(tofs, tof)
+	}
+
+	var filters []*Filter
+	for i := 0; i < 5; i++ {
+		filters = append(filters, &Filter{})
+	}
+
+	readSensors := func() {
+		// Read the sensors
+		for j, tof := range tofs {
+			reading := "-"
+			readingInMM, err := tof.GetNextContinuousMeasurement()
+			filters[j].Accumulate(readingInMM)
+			if err == tofsensor.ErrMeasurementInvalid {
+				reading = "<invalid>"
+			} else if err != nil {
+				reading = "<failed>"
+			} else {
+				reading = fmt.Sprintf("%dmm", readingInMM)
+			}
+			fmt.Printf("%s:=%5s/%5dmm ", filters[j].Name, reading, filters[j].BestGuess())
+		}
+		fmt.Println()
+	}
+
+	sideLeft := filters[0]
+	sideLeft.Name = "L"
+	forwardLeft := filters[1]
+	forwardLeft.Name = "FL"
+	forward := filters[2]
+	forward.Name = "F"
+	forwardRight := filters[3]
+	forwardRight.Name = "FR"
+	sideRight := filters[4]
+	sideRight.Name = "R"
+
+	for i := 0; i < 5; i++ {
+		readSensors()
+	}
+
 	webcam, err := gocv.VideoCaptureDevice(0)
 	if err != nil {
 		fmt.Printf("error opening video capture device: %v\n", 0)
@@ -253,6 +327,8 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 			continue
 		}
 
+		readSensors()
+
 		if m.phase == Reversing {
 			fmt.Println("Target:", m.targetColour, "Reversing")
 			if time.Since(m.advanceReverseStartTime) < m.advanceDuration {
@@ -277,7 +353,12 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 		if m.phase == Advancing {
 			fmt.Println("Target:", m.targetColour, "Advancing")
-			if m.ballFixed && !m.nowCloseEnough() {
+
+			closeEnough := !forward.IsFar() && forward.BestGuess() <= 110 &&
+				!forwardRight.IsFar() && forwardRight.BestGuess() <= 70 &&
+				!forwardLeft.IsFar() && forwardLeft.BestGuess() <= 70
+
+			if m.ballFixed && !closeEnough {
 				// We're approaching the ball but not yet close enough.
 				sideways := m.getTOFDifference()
 				rotation := m.getDirectionAdjust()
@@ -399,4 +480,49 @@ func (m *RainbowMode) pauseOrResumeSequence() {
 
 func (m *RainbowMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
+}
+
+type Filter struct {
+	Name    string
+	samples []int
+}
+
+func (f *Filter) Accumulate(sample int) {
+	f.samples = append(f.samples, sample)
+	if len(f.samples) > 3 {
+		f.samples = f.samples[1:]
+	}
+}
+
+func (f *Filter) IsFar() bool {
+	// Look backwards in the samples
+	for i := len(f.samples) - 1; i >= 0; i-- {
+		if f.samples[i] > 400 {
+			// 400mm is far by definition.
+			return true
+		}
+		if f.samples[i] > 0 {
+			// any recent non-far sample means we're not far.
+			return false
+		}
+	}
+	return true
+}
+
+func (f *Filter) IsGood() bool {
+	return f.BestGuess() > 0 && f.BestGuess() < 200
+}
+
+func (f *Filter) BestGuess() int {
+	var goodSamples []int
+	for _, s := range f.samples {
+		if s != 0 {
+			goodSamples = append(goodSamples, s)
+		}
+	}
+	if len(goodSamples) == 0 {
+		return 0
+	}
+	sort.Ints(goodSamples)
+	return goodSamples[len(goodSamples)/2]
 }
