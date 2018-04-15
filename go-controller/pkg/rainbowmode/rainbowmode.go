@@ -48,6 +48,16 @@ type RainbowConfig struct {
 	CornerSlowDownThresh              int
 
 	ForwardReverseThreshold int
+
+	// Height offset in mm from the camera centreline to the lowest reasonable ball centre
+	// height; positive/negative if that ball centre height is above/below the camera height.
+	DeltaHMinMM int
+	// Height offset in mm from the camera centreline to the highest reasonable ball centre
+	// height; positive/negative if that ball centre height is above/below the camera height.
+	DeltaHMaxMM int
+	// Vertical field of view factor as tan(theta), where theta is the angle that the camera
+	// captures (in 640x480 video mode) above and below its centreline.
+	TanTheta float64
 }
 
 type RainbowMode struct {
@@ -104,6 +114,13 @@ func New(propeller propeller.Interface) *RainbowMode {
 			CornerSlowDownThresh:              60,
 
 			ForwardReverseThreshold: 450,
+
+			DeltaHMinMM: -28,
+			DeltaHMaxMM: 17,
+			// tan(24.4 degrees) * 480 / 1232, following
+			// https://www.raspberrypi.org/documentation/hardware/camera/README.md and
+			// https://github.com/waveform80/picamera/blob/master/docs/fov.rst
+			TanTheta: 0.177,
 		},
 	}
 	for _, colour := range m.config.Sequence {
@@ -360,7 +377,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		m.targetColour = m.config.Sequence[m.targetBallIdx]
-		m.processImage(img)
+		m.processImage(img, forward)
 
 		// Don't do anything for the first second, to allow the code to synchronize with the
 		// camera frame rate.
@@ -461,7 +478,7 @@ func (m *RainbowMode) reset() {
 	m.ballFixed = false
 }
 
-func (m *RainbowMode) processImage(img gocv.Mat) {
+func (m *RainbowMode) processImage(img gocv.Mat, distanceSensor *Filter) {
 	w := img.Cols()
 	h := img.Rows()
 	if w != 640 || h != 480 {
@@ -489,6 +506,18 @@ func (m *RainbowMode) processImage(img gocv.Mat) {
 			fmt.Println("Ball seen roughly ahead")
 			m.roughDirectionCount++
 			m.ballFixed = true
+			if !distanceSensor.IsFar() {
+				distanceMM := distanceSensor.BestGuess()
+				yMin := int(240 * (1 - float64(m.config.DeltaHMaxMM)/(float64(distanceMM)*m.config.TanTheta)))
+				yMax := int(240 * (1 - float64(m.config.DeltaHMinMM)/(float64(distanceMM)*m.config.TanTheta)))
+				if pos.Y < yMin {
+					fmt.Printf("Ball above expected Y range: %v < %v\n", pos.Y, yMin)
+				} else if pos.Y > yMax {
+					fmt.Printf("Ball below expected Y range: %v > %v\n", pos.Y, yMax)
+				} else {
+					fmt.Printf("Ball within expected Y range: %v < %v < %v\n", yMin, pos.Y, yMax)
+				}
+			}
 		}
 		m.ballInView = true
 	} else {
