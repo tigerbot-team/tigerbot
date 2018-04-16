@@ -29,6 +29,7 @@ type Interface interface {
 	ReadGyroX() int16
 	ReadFIFO() []int16
 	ResetFIFO()
+	DegreesPerLSB() float64
 }
 
 type IMU struct {
@@ -64,6 +65,10 @@ func (m *IMU) Configure() error {
 	// Enable write of gyro X to FIFO
 	err = m.dev.WriteReg(RegFIFOEnable, []byte{1 << 6})
 	return err
+}
+
+func (m *IMU) DegreesPerLSB() float64 {
+	return 1000.0 / math.MaxInt16
 }
 
 func (m *IMU) Calibrate() error {

@@ -33,7 +33,7 @@ type RCMode struct {
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
-	yawMaintainer *YawMaintainer
+	headingHolder *HeadingHolder
 }
 
 func New(name string, propeller propeller.Interface, servoController ServoController) *RCMode {
@@ -43,7 +43,7 @@ func New(name string, propeller propeller.Interface, servoController ServoContro
 		servoController: servoController,
 		name:            name,
 	}
-	r.yawMaintainer = &YawMaintainer{
+	r.headingHolder = &HeadingHolder{
 		Propeller: propeller,
 		i2cLock:   &r.propLock,
 	}
@@ -59,7 +59,7 @@ func (m *RCMode) Start(ctx context.Context) {
 	var loopCtx context.Context
 	loopCtx, m.cancel = context.WithCancel(ctx)
 	go m.loop(loopCtx)
-	go m.yawMaintainer.loop(loopCtx, &m.stopWG)
+	go m.headingHolder.loop(loopCtx, &m.stopWG)
 }
 
 func (m *RCMode) Stop() {
@@ -107,14 +107,8 @@ func (m *RCMode) loop(ctx context.Context) {
 			}
 
 			m.servoController.OnJoystickEvent(event)
-
-			fl, fr, bl, br := mix(leftStickX, leftStickY, rightStickX, rightStickY)
-			m.propLock.Lock()
-			err := m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
-			m.propLock.Unlock()
-			if err != nil {
-				fmt.Println("Failed to set motor speeds!", err)
-			}
+			yaw, throttle, translate := mix(leftStickX, leftStickY, rightStickX, rightStickY)
+			m.headingHolder.SetControlInputs(yaw, throttle, translate)
 		}
 
 	}
@@ -124,63 +118,26 @@ func (m *RCMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
-func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int8) {
+func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translate float64) {
 	const expo = 1.6
 	_ = lStickY
 
 	// Put all the values into the range (-1, 1) and apply expo.
-	yawExpo := applyExpo(float64(lStickX)/32767.0, 2.5) * 0.5
-	throttleExpo := applyExpo(float64(rStickY)/-32767.0, expo)
-	translateExpo := applyExpo(float64(rStickX)/32767.0, expo)
-
-	// Map the values to speeds for each motor.
-	frontLeft := throttleExpo + yawExpo + translateExpo
-	frontRight := throttleExpo - yawExpo - translateExpo
-	backLeft := throttleExpo + yawExpo - translateExpo
-	backRight := throttleExpo - yawExpo + translateExpo
-
-	m1 := math.Max(frontLeft, frontRight)
-	m2 := math.Max(backLeft, backRight)
-	m := math.Max(m1, m2)
-	scale := 1.0
-	if m > 1 {
-		scale = 1.0 / m
-	}
-
-	fl = scaleAndClamp(frontLeft*scale, 32)
-	fr = scaleAndClamp(frontRight*scale, 32)
-	bl = scaleAndClamp(backLeft*scale, 32)
-	br = scaleAndClamp(backRight*scale, 32)
+	yaw = applyExpo(float64(lStickX)/32767.0, 2.5) / 8
+	throttle = applyExpo(float64(rStickY)/-32767.0, expo) / 8
+	translate = applyExpo(float64(rStickX)/32767.0, expo) / 8
 	return
 }
 
-func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (fl, fr, bl, br int8) {
+func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translate float64) {
 	const expo = 1.6
 	_ = lStickY
 
 	// Put all the values into the range (-1, 1) and apply expo.
-	yawExpo := applyExpo(float64(lStickX)/32767.0, 2.5)
-	throttleExpo := applyExpo(float64(rStickY)/-32767.0, expo)
-	translateExpo := applyExpo(float64(rStickX)/32767.0, expo)
+	yaw = applyExpo(float64(lStickX)/32767.0, 2.5)
+	throttle = applyExpo(float64(rStickY)/-32767.0, expo)
+	translate = applyExpo(float64(rStickX)/32767.0, expo)
 
-	// Map the values to speeds for each motor.
-	frontLeft := throttleExpo + yawExpo + translateExpo
-	frontRight := throttleExpo - yawExpo - translateExpo
-	backLeft := throttleExpo + yawExpo - translateExpo
-	backRight := throttleExpo - yawExpo + translateExpo
-
-	m1 := math.Max(frontLeft, frontRight)
-	m2 := math.Max(backLeft, backRight)
-	m := math.Max(m1, m2)
-	scale := 1.0
-	if m > 1 {
-		scale = 1.0 / m
-	}
-
-	fl = scaleAndClamp(frontLeft*scale, 127)
-	fr = scaleAndClamp(frontRight*scale, 127)
-	bl = scaleAndClamp(backLeft*scale, 127)
-	br = scaleAndClamp(backRight*scale, 127)
 	return
 }
 
@@ -202,7 +159,7 @@ func scaleAndClamp(value, multiplier float64) int8 {
 	return int8(multiplied)
 }
 
-type YawMaintainer struct {
+type HeadingHolder struct {
 	i2cLock   *sync.Mutex // Guards access to the propeller
 	Propeller propeller.Interface
 
@@ -210,7 +167,7 @@ type YawMaintainer struct {
 	yaw, throttle, translation float64
 }
 
-func (y *YawMaintainer) SetControlInputs(yaw, throttle, translation float64) {
+func (y *HeadingHolder) SetControlInputs(yaw, throttle, translation float64) {
 	y.controlLock.Lock()
 	defer y.controlLock.Unlock()
 
@@ -219,8 +176,9 @@ func (y *YawMaintainer) SetControlInputs(yaw, throttle, translation float64) {
 	y.translation = translation
 }
 
-func (y *YawMaintainer) loop(cxt context.Context, wg *sync.WaitGroup) {
+func (y *HeadingHolder) loop(cxt context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer fmt.Println("Heading holder loop exited")
 
 	y.i2cLock.Lock()
 	m, err := imu.New("/dev/i2c-1")
@@ -235,29 +193,77 @@ func (y *YawMaintainer) loop(cxt context.Context, wg *sync.WaitGroup) {
 	m.ResetFIFO()
 	y.i2cLock.Unlock()
 
-	ticker := time.NewTimer(50 * time.Millisecond)
+	const imuDT = 10 * time.Millisecond
+	const loopDT = 50 * time.Millisecond
+
+	ticker := time.NewTicker(loopDT)
 	defer ticker.Stop()
+
+	var headingEstimate float64
+	var targetHeading float64
+	var motorRotationSpeed float64
+	var lastHeadingError float64
+	var iHeadingError float64
+
+	const (
+		kp            = 0.020
+		ki            = 0.0
+		kd            = -0.002
+		maxIntegral   = 10
+		maxMotorSpeed = 1.0
+	)
 
 	for cxt.Err() == nil {
 		<-ticker.C
 
+		// Integrate the output from the IMU to get our heading estimate.
 		y.i2cLock.Lock()
-		yawReading := m.ReadGyroX()
+		yawReadings := m.ReadFIFO()
 		y.i2cLock.Unlock()
+		for _, yaw := range yawReadings {
+			yawDegreesPerSec := float64(yaw) * m.DegreesPerLSB()
+			headingEstimate -= imuDT.Seconds() * yawDegreesPerSec
+		}
 
+		// Grab the current control values.
 		y.controlLock.Lock()
 		targetYaw := y.yaw
 		targetThrottle := y.throttle
 		targetTranslation := y.translation
 		y.controlLock.Unlock()
 
-		yawError := targetYaw - float64(yawReading)/32768
+		// Update our target heading accordingly.
+		targetHeading += loopDT.Seconds() * targetYaw * 300
+
+		// Calculate the error/derivative/integral.
+		headingError := targetHeading - headingEstimate
+		dHeadingError := headingError - lastHeadingError
+		iHeadingError += headingError
+		if iHeadingError > maxIntegral {
+			iHeadingError = maxIntegral
+		} else if iHeadingError < -maxIntegral {
+			iHeadingError = -maxIntegral
+		}
+
+		// Calculate the correction to apply.
+		rotationCorrection := kp*headingError + ki*iHeadingError + kd*dHeadingError
+
+		// Add the correction to the current speed.  We want 0 correction to mean "hold the same motor speed".
+		motorRotationSpeed = rotationCorrection
+		if motorRotationSpeed > maxMotorSpeed {
+			motorRotationSpeed = maxMotorSpeed
+		} else if motorRotationSpeed < -maxMotorSpeed {
+			motorRotationSpeed = -maxMotorSpeed
+		}
+
+		fmt.Printf("Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f delta: %.1f\n",
+			headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed, rotationCorrection)
 
 		// Map the values to speeds for each motor.
-		frontLeft := targetThrottle + yawError + targetTranslation
-		frontRight := targetThrottle - yawError - targetTranslation
-		backLeft := targetThrottle + yawError - targetTranslation
-		backRight := targetThrottle - yawError + targetTranslation
+		frontLeft := targetThrottle + motorRotationSpeed + targetTranslation
+		frontRight := targetThrottle - motorRotationSpeed - targetTranslation
+		backLeft := targetThrottle + motorRotationSpeed - targetTranslation
+		backRight := targetThrottle - motorRotationSpeed + targetTranslation
 
 		m1 := math.Max(frontLeft, frontRight)
 		m2 := math.Max(backLeft, backRight)
@@ -275,5 +281,11 @@ func (y *YawMaintainer) loop(cxt context.Context, wg *sync.WaitGroup) {
 		y.i2cLock.Lock()
 		y.Propeller.SetMotorSpeeds(fl, fr, bl, br)
 		y.i2cLock.Unlock()
+
+		lastHeadingError = headingError
 	}
+	y.i2cLock.Lock()
+	y.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+	y.i2cLock.Unlock()
+
 }
