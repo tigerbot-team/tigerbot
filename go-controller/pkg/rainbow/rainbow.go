@@ -15,10 +15,10 @@ type HSVRange struct {
 }
 
 var Balls = map[string]*HSVRange{
-	"yellow": &HSVRange{21, 42, 0, 255, 0, 255},
-	"green":  &HSVRange{60, 100, 60, 255, 0, 255},
+	"yellow": &HSVRange{22, 42, 100, 255, 130, 255},
+	"green":  &HSVRange{45, 100, 10, 255, 0, 255},
 	"blue":   &HSVRange{100, 120, 90, 255, 80, 255},
-	"orange": &HSVRange{165, 10, 120, 255, 60, 255},
+	"red":    &HSVRange{165, 10, 100, 255, 60, 255},
 }
 
 type BallPosition struct {
@@ -33,6 +33,7 @@ func ScaleAndConvertToHSV(img gocv.Mat, desiredWidth int) (hsv gocv.Mat) {
 	scaleFactor := float64(desiredWidth) / float64(width)
 	scaled := gocv.NewMat()
 	gocv.Resize(img, scaled, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
+	defer scaled.Close()
 
 	// Convert to HSV.
 	hsv = gocv.NewMat()
@@ -47,11 +48,13 @@ func HSVMaskNoWrapAround(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
 		hsvRange.SatMin,
 		hsvRange.ValMin,
 	})
+	defer lb.Close()
 	ub := gocv.NewMatFromBytes(1, 3, gocv.MatTypeCV8U, []byte{
 		hsvRange.HueMax,
 		hsvRange.SatMax,
 		hsvRange.ValMax,
 	})
+	defer ub.Close()
 	mask := gocv.NewMatWithSize(hsv.Rows(), hsv.Cols(), gocv.MatTypeCV8U)
 	gocv.InRange(hsv, lb, ub, mask)
 	return mask
@@ -64,9 +67,11 @@ func HSVMask(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
 		range1 := *hsvRange
 		range1.HueMax = 180
 		mask1 := HSVMaskNoWrapAround(hsv, &range1)
+		defer mask1.Close()
 		range2 := *hsvRange
 		range2.HueMin = 0
 		mask2 := HSVMaskNoWrapAround(hsv, &range2)
+		defer mask2.Close()
 		mask := gocv.NewMatWithSize(hsv.Rows(), hsv.Cols(), gocv.MatTypeCV8U)
 		gocv.BitwiseOr(mask1, mask2, mask)
 		return mask
@@ -75,9 +80,11 @@ func HSVMask(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
 
 func FindBallPosition(hsv gocv.Mat, hsvRange *HSVRange) (pos BallPosition, err error) {
 	mask := HSVMask(hsv, hsvRange)
+	defer mask.Close()
 
 	// Apply two iterations each of erosion and dilation, to remove noise.
 	nullMat := gocv.NewMat()
+	defer nullMat.Close()
 	gocv.Erode(mask, mask, nullMat)
 	gocv.Erode(mask, mask, nullMat)
 	gocv.Dilate(mask, mask, nullMat)

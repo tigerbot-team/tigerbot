@@ -1,18 +1,19 @@
 package mux
 
 import (
-	"golang.org/x/exp/io/i2c"
 	"fmt"
+
+	"golang.org/x/exp/io/i2c"
 )
 
 const (
 	MuxAddr = 0x70
 
 	BusTOFForward    = 0
-	BusTOFFrontLeft  = 6
-	BusTOFFrontRight = 2
-	BusTOFSideLeft   = 7
-	BusTOFSideRight  = 1
+	BusTOFFrontLeft  = 2
+	BusTOFFrontRight = 6
+	BusTOFSideLeft   = 1
+	BusTOFSideRight  = 7
 )
 
 type Interface interface {

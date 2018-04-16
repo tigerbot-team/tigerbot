@@ -19,7 +19,7 @@ controller-image.tar: metabotspin/mb3.binary python-controller/*
 
 PHONY: go-phase-1-image
 go-phase-1-image go-controller/controller: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
-	docker build . -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest
+	docker build -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest .
 	-docker rm -f tigerbot-build
 	docker create --name=tigerbot-build tigerbot/go-controller-phase-1:latest
 	docker cp tigerbot-build:/go/src/github.com/tigerbot-team/tigerbot/go-controller/controller go-controller/controller
@@ -70,8 +70,10 @@ go-controller/cvtest: go-controller/cvtest.go
 	    bash -c "source $(GOCV)/env.sh && GOMAXPROCS=1 go build -p 1 -v cvtest.go"
 
 run-cvtest: go-controller/cvtest
-	docker run --rm \
+	sudo modprobe bcm2835-v4l2
+	docker run --rm -it \
 	    --net=host \
+	    -v /dev:/dev --privileged \
 	    -v /home/pi/.Xauthority:/.Xauthority -e XAUTHORITY=/.Xauthority \
 	    -e DISPLAY=127.0.0.1:10.0 -v /tmp/.X11-unix:/tmp/.X11-unix \
 	    -v `pwd`:$(TIGERBOT) \
