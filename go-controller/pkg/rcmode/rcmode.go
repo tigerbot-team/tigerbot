@@ -194,32 +194,40 @@ func (y *HeadingHolder) loop(cxt context.Context, wg *sync.WaitGroup) {
 	y.i2cLock.Unlock()
 
 	const imuDT = 10 * time.Millisecond
-	const loopDT = 50 * time.Millisecond
+	const targetLoopDT = 20 * time.Millisecond
 
-	ticker := time.NewTicker(loopDT)
+	ticker := time.NewTicker(targetLoopDT)
 	defer ticker.Stop()
 
 	var headingEstimate float64
 	var targetHeading float64
+	var filteredTranslation float64
 	var motorRotationSpeed float64
 	var lastHeadingError float64
 	var iHeadingError float64
 
 	const (
-		kp            = 0.020
-		ki            = 0.0
-		kd            = -0.002
-		maxIntegral   = 10
-		maxMotorSpeed = 1.0
+		kp                        = 0.020
+		ki                        = 0.0
+		kd                        = -0.00008
+		maxIntegral               = 1
+		maxMotorSpeed             = 2.0
+		maxTranslationDeltaPerSec = 1
 	)
+	maxTranslationDelta := maxTranslationDeltaPerSec * targetLoopDT.Seconds()
+	var lastLoopStart = time.Now()
 
 	for cxt.Err() == nil {
 		<-ticker.C
+		now := time.Now()
+		loopTime := now.Sub(lastLoopStart)
+		lastLoopStart = now
 
 		// Integrate the output from the IMU to get our heading estimate.
 		y.i2cLock.Lock()
 		yawReadings := m.ReadFIFO()
 		y.i2cLock.Unlock()
+
 		for _, yaw := range yawReadings {
 			yawDegreesPerSec := float64(yaw) * m.DegreesPerLSB()
 			headingEstimate -= imuDT.Seconds() * yawDegreesPerSec
@@ -233,12 +241,17 @@ func (y *HeadingHolder) loop(cxt context.Context, wg *sync.WaitGroup) {
 		y.controlLock.Unlock()
 
 		// Update our target heading accordingly.
-		targetHeading += loopDT.Seconds() * targetYaw * 300
+		loopTimeSecs := loopTime.Seconds()
+
+		// Avoid letting the yaw lead the heading too much.
+		if math.Abs(targetHeading-headingEstimate) < 40 {
+			targetHeading += loopTimeSecs * targetYaw * 300
+		}
 
 		// Calculate the error/derivative/integral.
 		headingError := targetHeading - headingEstimate
-		dHeadingError := headingError - lastHeadingError
-		iHeadingError += headingError
+		dHeadingError := (headingError - lastHeadingError) / loopTimeSecs
+		iHeadingError += headingError * loopTimeSecs
 		if iHeadingError > maxIntegral {
 			iHeadingError = maxIntegral
 		} else if iHeadingError < -maxIntegral {
@@ -256,14 +269,24 @@ func (y *HeadingHolder) loop(cxt context.Context, wg *sync.WaitGroup) {
 			motorRotationSpeed = -maxMotorSpeed
 		}
 
-		fmt.Printf("Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f delta: %.1f\n",
-			headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed, rotationCorrection)
+		fmt.Printf("%v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
+			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
+
+		if math.Abs(targetTranslation) < 0.2 {
+			filteredTranslation = targetTranslation
+		} else if targetTranslation > filteredTranslation+maxTranslationDelta {
+			filteredTranslation += maxTranslationDelta
+		} else if targetTranslation < filteredTranslation-maxTranslationDelta {
+			filteredTranslation -= maxTranslationDelta
+		} else {
+			filteredTranslation = targetTranslation
+		}
 
 		// Map the values to speeds for each motor.
-		frontLeft := targetThrottle + motorRotationSpeed + targetTranslation
-		frontRight := targetThrottle - motorRotationSpeed - targetTranslation
-		backLeft := targetThrottle + motorRotationSpeed - targetTranslation
-		backRight := targetThrottle - motorRotationSpeed + targetTranslation
+		frontLeft := targetThrottle + motorRotationSpeed + filteredTranslation
+		frontRight := targetThrottle - motorRotationSpeed - filteredTranslation
+		backLeft := targetThrottle + motorRotationSpeed - filteredTranslation
+		backRight := targetThrottle - motorRotationSpeed + filteredTranslation
 
 		m1 := math.Max(frontLeft, frontRight)
 		m2 := math.Max(backLeft, backRight)
