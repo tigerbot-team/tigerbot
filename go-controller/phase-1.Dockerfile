@@ -34,14 +34,12 @@ RUN sh -c "dpkg -i propelleride-0.38.5-armhf.deb || true" && \
     apt-get install -y -f && \
     apt-get clean -y
 
-# Now add the controller code and build.
+# Pre-build the ToF libraries
 
 COPY VL53L0X_1.0.2 $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_1.0.2
 COPY VL53L0X_rasp $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp
 WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp
 RUN API_DIR=../VL53L0X_1.0.2 make all examples
 
-COPY go-controller/ $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
+RUN mkdir -p $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
-RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
-             GOMAXPROCS=1 go build -p 1 -v controller.go"

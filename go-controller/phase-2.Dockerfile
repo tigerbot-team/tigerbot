@@ -3,9 +3,14 @@
 
 FROM tigerbot/go-controller-phase-1:latest as build
 
+COPY go-controller/controller /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller
+COPY go-controller/copy-libs /go/src/github.com/tigerbot-team/tigerbot/go-controller/copy-libs
+
+WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
+
 # Copy the shared libraries that the controller uses to a designated
 # directory so that they're easy to find in the next phase.
-RUN bash -c "source $GOPATH/src/gocv.io/x/gocv/env.sh && \
+RUN bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
              ./copy-libs"
 
 # Now build the container image that we actually ship by copying
