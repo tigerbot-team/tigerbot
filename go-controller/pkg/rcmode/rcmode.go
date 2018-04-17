@@ -201,20 +201,22 @@ func (y *HeadingHolder) loop(cxt context.Context, wg *sync.WaitGroup) {
 
 	var headingEstimate float64
 	var targetHeading float64
-	var filteredTranslation float64
+	var filteredTranslation, filteredThrottle float64
 	var motorRotationSpeed float64
 	var lastHeadingError float64
 	var iHeadingError float64
 
 	const (
-		kp                        = 0.020
+		kp                        = 0.023
 		ki                        = 0.0
-		kd                        = -0.00008
+		kd                        = -0.00007
 		maxIntegral               = 1
 		maxMotorSpeed             = 2.0
 		maxTranslationDeltaPerSec = 1
+		maxThrottleDeltaPerSec    = 2
 	)
 	maxTranslationDelta := maxTranslationDeltaPerSec * targetLoopDT.Seconds()
+	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()
 
 	for cxt.Err() == nil {
@@ -244,8 +246,13 @@ func (y *HeadingHolder) loop(cxt context.Context, wg *sync.WaitGroup) {
 		loopTimeSecs := loopTime.Seconds()
 
 		// Avoid letting the yaw lead the heading too much.
-		if math.Abs(targetHeading-headingEstimate) < 40 {
-			targetHeading += loopTimeSecs * targetYaw * 300
+		targetHeading += loopTimeSecs * targetYaw * 300
+
+		const maxLeadDegrees = 20
+		if targetHeading > headingEstimate+maxLeadDegrees {
+			targetHeading = headingEstimate + maxLeadDegrees
+		} else if targetHeading < headingEstimate-maxLeadDegrees {
+			targetHeading = headingEstimate - maxLeadDegrees
 		}
 
 		// Calculate the error/derivative/integral.
@@ -282,11 +289,21 @@ func (y *HeadingHolder) loop(cxt context.Context, wg *sync.WaitGroup) {
 			filteredTranslation = targetTranslation
 		}
 
+		if math.Abs(targetThrottle) < 0.4 {
+			filteredThrottle = targetThrottle
+		} else if targetThrottle > filteredThrottle+maxThrottleDelta {
+			filteredThrottle += maxThrottleDelta
+		} else if targetThrottle < filteredThrottle-maxThrottleDelta {
+			filteredThrottle -= maxThrottleDelta
+		} else {
+			filteredThrottle = targetThrottle
+		}
+
 		// Map the values to speeds for each motor.
-		frontLeft := targetThrottle + motorRotationSpeed + filteredTranslation
-		frontRight := targetThrottle - motorRotationSpeed - filteredTranslation
-		backLeft := targetThrottle + motorRotationSpeed - filteredTranslation
-		backRight := targetThrottle - motorRotationSpeed + filteredTranslation
+		frontLeft := filteredThrottle + motorRotationSpeed + filteredTranslation
+		frontRight := filteredThrottle - motorRotationSpeed - filteredTranslation
+		backLeft := filteredThrottle + motorRotationSpeed - filteredTranslation
+		backRight := filteredThrottle - motorRotationSpeed + filteredTranslation
 
 		m1 := math.Max(frontLeft, frontRight)
 		m2 := math.Max(backLeft, backRight)
