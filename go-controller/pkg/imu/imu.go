@@ -13,9 +13,9 @@ const (
 	RegSampleRateDiv = 25
 	RegConfig        = 26
 	RegGyroConf      = 27
-	RegGyroXOffset   = 19
+	RegGyroYOffset   = 21
 	RegFIFOEnable    = 35
-	RegGyroX         = 67 // 16 bits
+	RegGyroY         = 69 // 16 bits
 	RegUserCtl       = 106
 	RegFIFOCount     = 114 // 16 bits
 	RegFIFORW        = 116 // n-bytes
@@ -62,8 +62,8 @@ func (m *IMU) Configure() error {
 	if err != nil {
 		return err
 	}
-	// Enable write of gyro X to FIFO
-	err = m.dev.WriteReg(RegFIFOEnable, []byte{1 << 6})
+	// Enable write of gyro Y to FIFO
+	err = m.dev.WriteReg(RegFIFOEnable, []byte{1 << 5})
 	return err
 }
 
@@ -74,7 +74,7 @@ func (m *IMU) DegreesPerLSB() float64 {
 func (m *IMU) Calibrate() error {
 	// Now calibrate...
 	fmt.Println("Calibrating gyro")
-	m.dev.WriteReg(RegGyroXOffset, []byte{0, 0})
+	m.dev.WriteReg(RegGyroYOffset, []byte{0, 0})
 
 	for i := 0; i < 100; i++ {
 		m.ReadGyroX()
@@ -92,13 +92,13 @@ func (m *IMU) Calibrate() error {
 	fmt.Println("Scaled offset", scaledOffset)
 	scaledOffsetInt := int16(scaledOffset)
 	fmt.Println("Scaled offset int", scaledOffsetInt)
-	m.dev.WriteReg(RegGyroXOffset, []byte{byte(scaledOffsetInt >> 8), byte(scaledOffset)})
+	m.dev.WriteReg(RegGyroYOffset, []byte{byte(scaledOffsetInt >> 8), byte(scaledOffset)})
 
 	return nil
 }
 
 func (m *IMU) ReadGyroX() int16 {
-	return m.Read16(RegGyroX)
+	return m.Read16(RegGyroY)
 }
 
 func (m *IMU) ResetFIFO() {
