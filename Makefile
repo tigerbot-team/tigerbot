@@ -20,13 +20,17 @@ controller-image.tar: metabotspin/mb3.binary python-controller/*
 PHONY: go-phase-1-image
 go-phase-1-image go-controller/controller: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
 	docker build -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest .
-	-docker rm -f tigerbot-build
-	docker create --name=tigerbot-build tigerbot/go-controller-phase-1:latest
-	docker cp tigerbot-build:/go/src/github.com/tigerbot-team/tigerbot/go-controller/controller go-controller/controller
-	-docker rm -f tigerbot-build
+	-mkdir .go-cache
+	docker run --rm -v `pwd`/go-controller:/go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                -v `pwd`/.go-cache:/go-cache \
+	                -e GOCACHE=/go-cache \
+	                -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                tigerbot/go-controller-phase-1:latest \
+	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
+	                         GOMAXPROCS=1 go build -p 1 -v controller.go"
 
 PHONY: go-controller-image
-go-controller-image go-controller-image.tar: go-phase-1-image metabotspin/mb3.binary
+go-controller-image go-controller-image.tar: go-controller/controller metabotspin/mb3.binary
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
 	docker save tigerbot/go-controller:latest > go-controller-image.tar
 
