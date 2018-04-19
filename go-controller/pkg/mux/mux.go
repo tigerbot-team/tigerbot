@@ -12,8 +12,8 @@ const (
 	BusTOFForward    = 0
 	BusTOFFrontLeft  = 2
 	BusTOFFrontRight = 6
-	BusTOFSideLeft   = 1
-	BusTOFSideRight  = 7
+	BusTOFSideLeft   = 7
+	BusTOFSideRight  = 1
 )
 
 type Interface interface {
