@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
@@ -18,14 +19,16 @@ import (
 )
 
 type SLSTMode struct {
+	i2cLock        sync.Mutex
 	Propeller      propeller.Interface
+	headingHolder  *headingholder.HeadingHolder
 	cancel         context.CancelFunc
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
 	running        bool
 	cancelSequence context.CancelFunc
-	sequenceDone   chan struct{}
+	sequenceWG     sync.WaitGroup
 
 	paused int32
 
@@ -56,6 +59,8 @@ func New(propeller propeller.Interface) *SLSTMode {
 		joystickEvents: make(chan *joystick.Event),
 	}
 
+	mm.headingHolder = headingholder.New(&mm.i2cLock, propeller)
+
 	mm.cornerSensorOffset = mm.tunables.Create("Corner sensor offset", -12)
 	mm.cornerSensorAngleOffset = mm.tunables.Create("Corner sensor angle offset", -8)
 	mm.clearanceReturnFactor = mm.tunables.Create("Clearance return factor", 90)
@@ -67,9 +72,9 @@ func New(propeller propeller.Interface) *SLSTMode {
 	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 3)
 	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 2)
 
-	mm.tnKp = mm.tunables.Create("Translation Kp (thousandths)", 330)
-	mm.tnKi = mm.tunables.Create("Translation Ki (ten-thousandths)", 120)
-	mm.tnKd = mm.tunables.Create("Translation Kd (ten-thousandths)", -144)
+	mm.tnKp = mm.tunables.Create("Translation Kp (thousandths)", 50)
+	mm.tnKi = mm.tunables.Create("Translation Ki (ten-thousandths)", 10)
+	mm.tnKd = mm.tunables.Create("Translation Kd (ten-thousandths)", -10)
 	mm.rotKp = mm.tunables.Create("Rotation Kp (thousandths)", 90)
 	mm.rotKi = mm.tunables.Create("Rotation Ki (ten-thousandths)", 0)
 	mm.rotKd = mm.tunables.Create("Rotation Kd (ten-thousandths)", -20)
@@ -158,15 +163,17 @@ func (m *SLSTMode) startSequence() {
 
 	seqCtx, cancel := context.WithCancel(context.Background())
 	m.cancelSequence = cancel
-	m.sequenceDone = make(chan struct{})
+	m.sequenceWG.Add(2)
 	go m.runSequence(seqCtx)
+	go m.headingHolder.Loop(seqCtx, &m.sequenceWG)
 }
 
 func (m *SLSTMode) runSequence(ctx context.Context) {
-	defer close(m.sequenceDone)
-	defer m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+	defer m.sequenceWG.Done()
 
+	m.i2cLock.Lock()
 	mx, err := mux.New("/dev/i2c-1")
+	m.i2cLock.Unlock()
 	if err != nil {
 		fmt.Println("Failed to open mux", err)
 		return
@@ -174,9 +181,11 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 	var tofs []tofsensor.Interface
 	defer func() {
+		m.i2cLock.Lock()
 		for _, tof := range tofs {
 			tof.Close()
 		}
+		m.i2cLock.Unlock()
 	}()
 	for _, port := range []int{
 		mux.BusTOFSideLeft,
@@ -185,12 +194,16 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 		mux.BusTOFFrontRight,
 		mux.BusTOFSideRight,
 	} {
+		m.i2cLock.Lock()
 		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
+		m.i2cLock.Unlock()
 		if err != nil {
 			fmt.Println("Failed to open sensor", err)
 			return
 		}
+		m.i2cLock.Lock()
 		err = tof.StartContinuousMeasurements()
+		m.i2cLock.Unlock()
 		if err != nil {
 			fmt.Println("Failed to start continuous measurements", err)
 			return
@@ -207,9 +220,13 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 	readSensors := func() {
 		// Read the sensors
+		start := time.Now()
+		fmt.Print("ToF: ")
 		for j, tof := range tofs {
 			reading := "-"
+			m.i2cLock.Lock()
 			readingInMM, err := tof.GetNextContinuousMeasurement()
+			m.i2cLock.Unlock()
 			filters[j].Accumulate(readingInMM)
 			if err == tofsensor.ErrMeasurementInvalid {
 				reading = "<invalid>"
@@ -220,7 +237,7 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 			}
 			fmt.Printf("%s:=%5s/%5dmm ", filters[j].Name, reading, filters[j].BestGuess())
 		}
-		fmt.Println()
+		fmt.Println("in", time.Since(start))
 	}
 
 	sideLeft := filters[0]
@@ -238,9 +255,6 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 	_ = sideLeft
 	_ = sideRight
 
-	readSensors()
-	readSensors()
-	readSensors()
 	readSensors()
 	readSensors()
 
@@ -319,8 +333,8 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 			tnErrorInt += timeSinceLastSecs * tnError
 			rotErrorInt += timeSinceLastSecs * rotError
 			if timeSinceLastReading > 0 && lastTnError != 0 {
-				dTnError = tnError - lastTnError/timeSinceLastSecs
-				dRotError = rotError - lastRotError/timeSinceLastSecs
+				dTnError = (tnError - lastTnError) / timeSinceLastSecs
+				dRotError = (rotError - lastRotError) / timeSinceLastSecs
 			}
 		}
 
@@ -333,28 +347,32 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 		scaledTxErr := tnKp*tnError + tnKi*tnErrorInt + tnKd*dTnError
 		scaledRotErr := rotKp*rotError + rotKi*rotErrorInt + rotKd*dRotError
+		_ = scaledRotErr
+		fmt.Println("TX P", tnError, "I", tnErrorInt, "D", dTnError)
 
-		if -40 < tnError && tnError < 40 &&
-			-20 < rotError && rotError < 20 {
+		if -80 < tnError && tnError < 80 &&
+			-80 < rotError && rotError < 80 {
 			// Only speed up if we're in the middle...
 			if speed < float64(m.topSpeed.Get()) {
 				speed += float64(m.speedRampUp.Get())
 			}
-		} else if -80 > tnError || tnError > 80 ||
+		} else if -100 > tnError || tnError > 100 ||
 			-40 > rotError || rotError > 40 {
 			// Slow down if we get too close to the wall
 			if speed > baseSpeed {
 				speed -= float64(m.speedRampDown.Get())
 			}
 		}
+		//
+		//fl := clamp(speed-scaledTxErr-scaledRotErr, speed*2)
+		//fr := clamp(speed+scaledTxErr+scaledRotErr, speed*2)
+		//bl := clamp(speed+scaledTxErr-scaledRotErr, speed*2)
+		//br := clamp(speed-scaledTxErr+scaledRotErr, speed*2)
+		//
+		//fmt.Printf("%v Speeds: FL=%d FR=%d BL=%d BR=%d\n", timeSinceLastReading, fl, fr, bl, br)
+		//m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
 
-		fl := clamp(speed-scaledTxErr-scaledRotErr, speed*2)
-		fr := clamp(speed+scaledTxErr+scaledRotErr, speed*2)
-		bl := clamp(speed+scaledTxErr-scaledRotErr, speed*2)
-		br := clamp(speed-scaledTxErr+scaledRotErr, speed*2)
-
-		fmt.Printf("%v Speeds: FL=%d FR=%d BL=%d BR=%d\n", timeSinceLastReading, fl, fr, bl, br)
-		m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+		m.headingHolder.SetControlInputs(0, 1, -scaledTxErr/127)
 
 		lastReadingTime = readingTime
 		lastTnError = tnError
@@ -441,9 +459,8 @@ func (m *SLSTMode) stopSequence() {
 
 	m.cancelSequence()
 	m.cancelSequence = nil
-	<-m.sequenceDone
+	m.sequenceWG.Wait()
 	m.running = false
-	m.sequenceDone = nil
 	atomic.StoreInt32(&m.paused, 0)
 }
 

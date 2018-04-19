@@ -135,7 +135,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			motorRotationSpeed = -maxMotorSpeed
 		}
 
-		fmt.Printf("%v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
+		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
 			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
 		if math.Abs(targetTranslation) < 0.2 {
