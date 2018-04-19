@@ -23,6 +23,7 @@ type SLSTMode struct {
 	Propeller      propeller.Interface
 	headingHolder  *headingholder.HeadingHolder
 	cancel         context.CancelFunc
+	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
@@ -117,13 +118,19 @@ func (m *SLSTMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
-						startTime = time.Now()
 						m.startSequence()
+						m.startWG.Add(1)
 					case joystick.ButtonSquare:
 						m.stopSequence()
 						fmt.Println("Run time:", time.Since(startTime))
 					case joystick.ButtonTriangle:
 						m.pauseOrResumeSequence()
+					}
+				} else {
+					switch event.Number {
+					case joystick.ButtonR1:
+						startTime = time.Now()
+						m.startWG.Done()
 					}
 				}
 			case joystick.EventTypeAxis:
@@ -163,9 +170,8 @@ func (m *SLSTMode) startSequence() {
 
 	seqCtx, cancel := context.WithCancel(context.Background())
 	m.cancelSequence = cancel
-	m.sequenceWG.Add(2)
+	m.sequenceWG.Add(1)
 	go m.runSequence(seqCtx)
-	go m.headingHolder.Loop(seqCtx, &m.sequenceWG)
 }
 
 func (m *SLSTMode) runSequence(ctx context.Context) {
@@ -257,6 +263,11 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 	readSensors()
 	readSensors()
+
+	m.sequenceWG.Add(1)
+	go m.headingHolder.Loop(ctx, &m.sequenceWG)
+
+	m.startWG.Wait()
 
 	const (
 		wallSeparationMMs = 560
