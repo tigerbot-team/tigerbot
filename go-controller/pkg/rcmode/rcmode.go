@@ -7,9 +7,9 @@ import (
 
 	"fmt"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcheadingholder"
 )
 
 type ServoController interface {
@@ -32,7 +32,7 @@ type RCMode struct {
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
-	headingHolder *headingholder.HeadingHolder
+	headingHolder *headingholder.RCHeadingHolder
 }
 
 func New(name, startupSound string, propeller propeller.Interface, servoController ServoController) *RCMode {
