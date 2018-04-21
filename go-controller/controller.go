@@ -57,6 +57,7 @@ func main() {
 	}()
 
 	joystickEvents := make(chan *joystick.Event)
+	firstLog := true
 	for {
 		jDev := os.Getenv("JOYSTICK_DEVICE")
 		if jDev == "" {
@@ -64,7 +65,10 @@ func main() {
 		}
 		j, err := joystick.NewJoystick(jDev)
 		if err != nil {
-			fmt.Printf("Failed to open joystick: %v.\n", err)
+			if firstLog {
+				fmt.Printf("Waiting for joystick: %v.\n", err)
+				firstLog = false
+			}
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -109,7 +113,7 @@ func main() {
 				fmt.Println("Unable to play", s)
 			}
 		}()
-		sampleRate := beep.SampleRate(44000)
+		sampleRate := beep.SampleRate(44100)
 		err = speaker.Init(sampleRate, sampleRate.N(time.Second/5))
 		if err != nil {
 			fmt.Println("Failed to open speaker", err)
