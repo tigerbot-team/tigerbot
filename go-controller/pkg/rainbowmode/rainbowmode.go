@@ -68,6 +68,7 @@ type RainbowMode struct {
 	startTrigger   chan struct{}
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
+	soundsToPlay   chan string
 
 	running        bool
 	targetBallIdx  int
