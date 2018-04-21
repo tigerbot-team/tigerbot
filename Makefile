@@ -30,7 +30,7 @@ go-phase-1-image go-controller/controller: $(ARCH_DEPS) $(shell find go-controll
 	                         GOMAXPROCS=1 go build -p 1 -v controller.go"
 
 PHONY: go-controller-image
-go-controller-image go-controller-image.tar: go-controller/controller metabotspin/mb3.binary
+go-controller-image go-controller-image.tar: go-controller/controller metabotspin/mb3.binary go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
 	docker save tigerbot/go-controller:latest > go-controller-image.tar
 

@@ -34,6 +34,8 @@ RUN sh -c "dpkg -i propelleride-0.38.5-armhf.deb || true" && \
     apt-get install -y -f && \
     apt-get clean -y
 
+RUN apt-get install libasound2-dev libasound2 libasound2-plugins
+
 # Pre-build the ToF libraries
 
 COPY VL53L0X_1.0.2 $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_1.0.2

@@ -1,10 +1,26 @@
-hash: e7f8671ac8102129f247bdc3aef3e1708b60bca93ddb0f0be8280467abfb9a60
-updated: 2018-04-15T14:37:55.541808884+01:00
+hash: c9be57cdd46c594382f9d8decec2e6ebc99a3da095f5473639b4c974714798b9
+updated: 2018-04-21T09:49:05.913198189+01:00
 imports:
+- name: github.com/faiface/beep
+  version: 4ec0906f41871d561558e3e0643f71fb8bf08885
+  subpackages:
+  - speaker
+  - wav
+- name: github.com/gopherjs/gopherjs
+  version: fcfa75a46cca3b1ed8b2c75c4f6f0a88df581baa
+  subpackages:
+  - js
+- name: github.com/hajimehoshi/oto
+  version: 7a1d13b19d823f7672135569e7a2d040046252e8
+  subpackages:
+  - internal/jni
 - name: github.com/kr/pty
   version: 282ce0e5322c82529687d609ee670fac7c7d917c
+- name: github.com/pkg/errors
+  version: 816c9085562cd7ee03e7f8188a1cfd942858cded
 - name: gocv.io/x/gocv
-  version: 65d6ebdd323af342cc48ac0d146ef7ad16b33fbc
+  version: d0eef5bd7f46af6885df499ef5ece94ba21c5627
+  repo: https://github.com/fasaxc/gocv.git
 - name: golang.org/x/exp
   version: 072991165226c11c888c881218850e8318c2b32e
   subpackages:

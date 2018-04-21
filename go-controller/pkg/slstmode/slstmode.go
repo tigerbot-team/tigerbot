@@ -26,6 +26,7 @@ type SLSTMode struct {
 	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
+	soundChannel   chan string
 
 	running        bool
 	cancelSequence context.CancelFunc
@@ -54,9 +55,10 @@ type SLSTMode struct {
 	rotKd *Tunable
 }
 
-func New(propeller propeller.Interface) *SLSTMode {
+func New(propeller propeller.Interface, soundChannel chan string) *SLSTMode {
 	mm := &SLSTMode{
 		Propeller:      propeller,
+		soundChannel:   soundChannel,
 		joystickEvents: make(chan *joystick.Event),
 	}
 
@@ -85,6 +87,10 @@ func New(propeller propeller.Interface) *SLSTMode {
 
 func (m *SLSTMode) Name() string {
 	return "SLST mode"
+}
+
+func (m *SLSTMode) StartupSound() string {
+	return "/sounds/slstmode.wav"
 }
 
 func (m *SLSTMode) Start(ctx context.Context) {
@@ -266,6 +272,8 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 
 	m.sequenceWG.Add(1)
 	go m.headingHolder.Loop(ctx, &m.sequenceWG)
+
+	m.soundChannel <- "/sounds/ready.wav"
 
 	m.startWG.Wait()
 

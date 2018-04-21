@@ -7,3 +7,7 @@ done
 for file in $(ldd /usr/bin/propman | grep -P -o '/[^ ]+/[^ :]+' | sort | uniq); do
   cp $file /controller-libs
 done
+cd /usr/lib
+for f in $(find | grep libasound); do
+  cp "${f}" /controller-libs
+done

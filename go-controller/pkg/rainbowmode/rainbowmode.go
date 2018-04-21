@@ -121,7 +121,7 @@ func New(propeller propeller.Interface) *RainbowMode {
 	// Write out the config that we are using.
 	fmt.Printf("Using config: %#v\n", m.config)
 	cfgBytes, err := yaml.Marshal(&m.config)
-	fmt.Printf("Marshalled: %#v\n", cfgBytes)
+	//fmt.Printf("Marshalled: %#v\n", cfgBytes)
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -135,6 +135,10 @@ func New(propeller propeller.Interface) *RainbowMode {
 
 func (m *RainbowMode) Name() string {
 	return "Rainbow mode"
+}
+
+func (m *RainbowMode) StartupSound() string {
+	return "/sounds/rainbowmode.wav"
 }
 
 func (m *RainbowMode) Start(ctx context.Context) {
