@@ -53,6 +53,7 @@ type RainbowConfig struct {
 type RainbowMode struct {
 	Propeller      propeller.Interface
 	cancel         context.CancelFunc
+	startTrigger   chan struct{}
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
@@ -105,6 +106,7 @@ func New(propeller propeller.Interface) *RainbowMode {
 
 			ForwardReverseThreshold: 450,
 		},
+		startTrigger: make(chan struct{}),
 	}
 	for _, colour := range m.config.Sequence {
 		m.config.Balls[colour] = *rainbow.Balls[colour]
@@ -166,16 +168,24 @@ func (m *RainbowMode) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case event := <-m.joystickEvents:
-			if event.Type == joystick.EventTypeButton && event.Value == 1 {
-				switch event.Number {
-				case joystick.ButtonR1:
-					m.startSequence()
-				case joystick.ButtonSquare:
-					m.stopSequence()
-				case joystick.ButtonTriangle:
-					m.pauseOrResumeSequence()
-				case joystick.ButtonCircle:
-					atomic.StoreInt32(&m.savePicture, 1)
+			switch event.Type {
+			case joystick.EventTypeButton:
+				if event.Value == 1 {
+					switch event.Number {
+					case joystick.ButtonR1:
+						m.startSequence()
+					case joystick.ButtonSquare:
+						m.stopSequence()
+					case joystick.ButtonTriangle:
+						m.pauseOrResumeSequence()
+					case joystick.ButtonCircle:
+						atomic.StoreInt32(&m.savePicture, 1)
+					}
+				} else {
+					switch event.Number {
+					case joystick.ButtonR1:
+						close(m.startTrigger)
+					}
 				}
 			}
 		}
@@ -362,9 +372,11 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.targetColour = m.config.Sequence[m.targetBallIdx]
 		m.processImage(img)
 
-		// Don't do anything for the first second, to allow the code to synchronize with the
-		// camera frame rate.
-		if numFramesRead <= m.config.FPS {
+		select {
+		case <-m.startTrigger:
+			// Do rest of loop: moving etc.
+		default:
+			// Don't move yet.
 			continue
 		}
 
