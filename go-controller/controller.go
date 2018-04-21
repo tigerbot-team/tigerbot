@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/faiface/beep/speaker"
+	"github.com/faiface/beep/wav"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
@@ -96,6 +98,20 @@ func main() {
 		fmt.Println("Zeroing motors")
 		prop.SetMotorSpeeds(0, 0, 0, 0)
 	}()
+
+	f, err := os.Open("/sounds/tigerbotstart.wav")
+	if err != nil {
+		fmt.Println("Failed to open startup sound", err)
+	}
+	s, format, err := wav.Decode(f)
+	if err != nil {
+		fmt.Println("Failed to decode startup sound", err)
+	}
+	err = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/2))
+	if err != nil {
+		fmt.Println("Failed to open speaker", err)
+	}
+	speaker.Play(s)
 
 	allModes := []Mode{
 		rcmode.New("Golf mode", prop, golf.NewServoController()),

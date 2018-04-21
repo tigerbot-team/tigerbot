@@ -24,12 +24,14 @@ FROM resin/raspberry-pi-alpine:latest
 RUN apk --no-cache add util-linux strace
 
 RUN mkdir -p /usr/local/lib
-COPY metabotspin/mb3.binary /mb3.binary
 COPY --from=build /usr/bin/propman /usr/bin/propman
 COPY --from=build /lib/ld-linux-armhf.so* /lib
 COPY --from=build /controller-libs/* /usr/local/lib/
-COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller /controller
+COPY --from=build /usr/share/alsa /usr/share/alsa
 COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp/bin/* /usr/local/bin/
+COPY go-controller/sounds /sounds
+COPY --from=build /go/src/github.com/tigerbot-team/tigerbot/go-controller/controller /controller
+COPY metabotspin/mb3.binary /mb3.binary
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
 ENTRYPOINT []
