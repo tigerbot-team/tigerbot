@@ -65,6 +65,7 @@ type RainbowConfig struct {
 type RainbowMode struct {
 	Propeller      propeller.Interface
 	cancel         context.CancelFunc
+	startTrigger   chan struct{}
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
@@ -92,9 +93,10 @@ type RainbowMode struct {
 	config RainbowConfig
 }
 
-func New(propeller propeller.Interface) *RainbowMode {
+func New(propeller propeller.Interface, soundsToPlay chan string) *RainbowMode {
 	m := &RainbowMode{
 		Propeller:      propeller,
+		soundsToPlay:   soundsToPlay,
 		joystickEvents: make(chan *joystick.Event),
 		phase:          Rotating,
 		config: RainbowConfig{
@@ -125,6 +127,7 @@ func New(propeller propeller.Interface) *RainbowMode {
 			TanTheta:     0.177,
 			FilterYCoord: false,
 		},
+		startTrigger: make(chan struct{}),
 	}
 	for _, colour := range m.config.Sequence {
 		m.config.Balls[colour] = *rainbow.Balls[colour]
@@ -186,16 +189,25 @@ func (m *RainbowMode) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case event := <-m.joystickEvents:
-			if event.Type == joystick.EventTypeButton && event.Value == 1 {
-				switch event.Number {
-				case joystick.ButtonR1:
-					m.startSequence()
-				case joystick.ButtonSquare:
-					m.stopSequence()
-				case joystick.ButtonTriangle:
-					m.pauseOrResumeSequence()
-				case joystick.ButtonCircle:
-					atomic.StoreInt32(&m.savePicture, 1)
+			switch event.Type {
+			case joystick.EventTypeButton:
+				if event.Value == 1 {
+					switch event.Number {
+					case joystick.ButtonR1:
+						m.startSequence()
+					case joystick.ButtonSquare:
+						m.stopSequence()
+					case joystick.ButtonTriangle:
+						m.pauseOrResumeSequence()
+					case joystick.ButtonCircle:
+						atomic.StoreInt32(&m.savePicture, 1)
+					}
+				} else {
+					switch event.Number {
+					case joystick.ButtonR1:
+						close(m.startTrigger)
+						m.announceTargetBall()
+					}
 				}
 			}
 		}
@@ -382,9 +394,11 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.targetColour = m.config.Sequence[m.targetBallIdx]
 		m.processImage(img, forward)
 
-		// Don't do anything for the first second, to allow the code to synchronize with the
-		// camera frame rate.
-		if numFramesRead <= m.config.FPS {
+		select {
+		case <-m.startTrigger:
+			// Do rest of loop: moving etc.
+		default:
+			// Don't move yet.
 			continue
 		}
 
@@ -465,12 +479,17 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.targetBallIdx++
 		if m.targetBallIdx < len(m.config.Sequence) {
 			fmt.Println("Next target ball: ", m.config.Sequence[m.targetBallIdx])
+			m.announceTargetBall()
 		} else {
 			fmt.Println("Done!!")
 		}
 	}
 
 	m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+}
+
+func (m *RainbowMode) announceTargetBall() {
+	m.soundsToPlay <- fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[m.targetBallIdx])
 }
 
 func (m *RainbowMode) reset() {
