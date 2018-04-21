@@ -31,6 +31,7 @@ const (
 
 type RainbowConfig struct {
 	FPS                   int
+	InitialWaitFrames     int
 	RotateSpeed           float64
 	SlowRotateSpeed       float64
 	LimitSpeed            float64
@@ -87,6 +88,7 @@ func New(propeller propeller.Interface) *RainbowMode {
 		phase:          Rotating,
 		config: RainbowConfig{
 			FPS:                   15,
+			InitialWaitFrames:     3,
 			RotateSpeed:           16,
 			SlowRotateSpeed:       5,
 			LimitSpeed:            80,
@@ -358,9 +360,9 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.targetColour = m.config.Sequence[m.targetBallIdx]
 		m.processImage(img)
 
-		// Don't do anything for the first second, to allow the code to synchronize with the
-		// camera frame rate.
-		if numFramesRead <= m.config.FPS {
+		// Don't do anything for the first few frames, to allow the code to synchronize with
+		// the camera frame rate.
+		if numFramesRead <= m.config.InitialWaitFrames {
 			continue
 		}
 
