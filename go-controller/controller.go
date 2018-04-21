@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/faiface/beep"
 	"github.com/faiface/beep/speaker"
 	"github.com/faiface/beep/wav"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
@@ -28,6 +29,7 @@ import (
 
 type Mode interface {
 	Name() string
+	StartupSound() string
 	Start(ctx context.Context)
 	Stop()
 }
@@ -99,23 +101,51 @@ func main() {
 		prop.SetMotorSpeeds(0, 0, 0, 0)
 	}()
 
-	f, err := os.Open("/sounds/tigerbotstart.wav")
-	if err != nil {
-		fmt.Println("Failed to open startup sound", err)
-	}
-	s, format, err := wav.Decode(f)
-	if err != nil {
-		fmt.Println("Failed to decode startup sound", err)
-	}
-	err = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/2))
-	if err != nil {
-		fmt.Println("Failed to open speaker", err)
-	}
-	speaker.Play(s)
+	soundsToPlay := make(chan string)
+	go func() {
+		sampleRate := beep.SampleRate(44000)
+		err = speaker.Init(sampleRate, sampleRate.N(time.Second/2))
+		if err != nil {
+			fmt.Println("Failed to open speaker", err)
+			for s := range soundsToPlay {
+				fmt.Println("Unable to play", s)
+			}
+		}
+		var ctrl *beep.Ctrl
+		var s beep.StreamSeekCloser
+		for soundToPlay := range soundsToPlay {
+			if ctrl != nil {
+				speaker.Lock()
+				ctrl.Paused = true
+				ctrl.Streamer = nil
+				speaker.Unlock()
+				ctrl = nil
+			}
+			if s != nil {
+				s.Close()
+			}
+
+			f, err := os.Open(soundToPlay)
+			if err != nil {
+				fmt.Println("Failed to open sound", err)
+				continue
+			}
+			s, _, err = wav.Decode(f)
+			if err != nil {
+				fmt.Println("Failed to decode sound", err)
+				continue
+			}
+			ctrl := &beep.Ctrl{Streamer: s}
+			speaker.Play(ctrl)
+		}
+	}()
+
+	defer close(soundsToPlay)
+	soundsToPlay <- "/sounds/tigerbotstart.wav"
 
 	allModes := []Mode{
-		rcmode.New("Golf mode", prop, golf.NewServoController()),
-		rcmode.New("Duck shoot mode", prop, duckshoot.NewServoController()),
+		rcmode.New("Golf mode", "/sounds/tigerbotstart.wav", prop, golf.NewServoController()),
+		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", prop, duckshoot.NewServoController()),
 		mazemode.New(prop),
 		slstmode.New(prop),
 		rainbowmode.New(prop),
@@ -137,6 +167,9 @@ func main() {
 		activeModeIdx = (activeModeIdx + len(allModes)) % len(allModes)
 		activeMode = allModes[activeModeIdx]
 		fmt.Printf("----- %s -----\n", activeMode.Name())
+
+		soundsToPlay <- activeMode.StartupSound()
+
 		activeMode.Start(ctx)
 	}
 

@@ -137,6 +137,10 @@ func (m *RainbowMode) Name() string {
 	return "Rainbow mode"
 }
 
+func (m *RainbowMode) StartupSound() string {
+	return "/sounds/rainbowmode.wav"
+}
+
 func (m *RainbowMode) Start(ctx context.Context) {
 	m.stopWG.Add(1)
 	var loopCtx context.Context

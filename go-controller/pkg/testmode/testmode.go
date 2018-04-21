@@ -25,6 +25,10 @@ func (t *TestMode) Name() string {
 	return "Test mode"
 }
 
+func (m *TestMode) StartupSound() string {
+	return "/sounds/testmode.wav"
+}
+
 func (t *TestMode) Start(ctx context.Context) {
 	t.stopWG.Add(1)
 	var loopCtx context.Context

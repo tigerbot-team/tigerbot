@@ -20,7 +20,8 @@ type ServoController interface {
 }
 
 type RCMode struct {
-	name string
+	name         string
+	startupSound string
 
 	propLock  sync.Mutex // Guards access to the propeller
 	Propeller propeller.Interface
@@ -34,12 +35,13 @@ type RCMode struct {
 	headingHolder *headingholder.HeadingHolder
 }
 
-func New(name string, propeller propeller.Interface, servoController ServoController) *RCMode {
+func New(name, startupSound string, propeller propeller.Interface, servoController ServoController) *RCMode {
 	r := &RCMode{
 		Propeller:       propeller,
 		joystickEvents:  make(chan *joystick.Event),
 		servoController: servoController,
 		name:            name,
+		startupSound:    startupSound,
 	}
 	r.headingHolder = headingholder.New(&r.propLock, propeller)
 	return r
@@ -47,6 +49,10 @@ func New(name string, propeller propeller.Interface, servoController ServoContro
 
 func (m *RCMode) Name() string {
 	return m.name
+}
+
+func (m *RCMode) StartupSound() string {
+	return m.startupSound
 }
 
 func (m *RCMode) Start(ctx context.Context) {

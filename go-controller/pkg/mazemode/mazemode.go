@@ -89,6 +89,10 @@ func (m *MazeMode) Name() string {
 	return "Maze mode"
 }
 
+func (m *MazeMode) StartupSound() string {
+	return "/sounds/mazemode.wav"
+}
+
 func (m *MazeMode) Start(ctx context.Context) {
 	m.stopWG.Add(1)
 	var loopCtx context.Context

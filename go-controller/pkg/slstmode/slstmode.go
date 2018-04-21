@@ -87,6 +87,10 @@ func (m *SLSTMode) Name() string {
 	return "SLST mode"
 }
 
+func (m *SLSTMode) StartupSound() string {
+	return "/sounds/slstmode.wav"
+}
+
 func (m *SLSTMode) Start(ctx context.Context) {
 	m.stopWG.Add(1)
 	var loopCtx context.Context
