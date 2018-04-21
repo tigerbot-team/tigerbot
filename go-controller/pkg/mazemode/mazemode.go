@@ -172,6 +172,8 @@ func (m *MazeMode) startSequence() {
 	m.running = true
 	atomic.StoreInt32(&m.paused, 0)
 
+	m.headingHolder.SetControlInputs(0, 0, 0)
+
 	seqCtx, cancel := context.WithCancel(context.Background())
 	m.cancelSequence = cancel
 	m.sequenceWG.Add(1)
@@ -569,6 +571,8 @@ func (m *MazeMode) stopSequence() {
 	m.sequenceWG.Wait()
 	m.running = false
 	atomic.StoreInt32(&m.paused, 0)
+
+	m.headingHolder.SetControlInputs(0, 0, 0)
 
 	fmt.Println("Stopped sequence...")
 }
