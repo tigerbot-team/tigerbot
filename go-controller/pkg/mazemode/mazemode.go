@@ -21,6 +21,7 @@ import (
 type MazeMode struct {
 	Propeller      propeller.Interface
 	cancel         context.CancelFunc
+	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
@@ -114,13 +115,19 @@ func (m *MazeMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
-						startTime = time.Now()
+						m.startWG.Add(1)
 						m.startSequence()
 					case joystick.ButtonSquare:
 						m.stopSequence()
 						fmt.Println("Run time:", time.Since(startTime))
 					case joystick.ButtonTriangle:
 						m.pauseOrResumeSequence()
+					}
+				} else {
+					switch event.Number {
+					case joystick.ButtonR1:
+						startTime = time.Now()
+						m.startWG.Done()
 					}
 				}
 			case joystick.EventTypeAxis:
@@ -242,6 +249,9 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	readSensors()
 	readSensors()
 	readSensors()
+
+	m.startWG.Wait()
+
 	readSensors()
 	readSensors()
 
