@@ -103,6 +103,12 @@ func main() {
 
 	soundsToPlay := make(chan string)
 	go func() {
+		defer func() {
+			recover()
+			for s := range soundsToPlay {
+				fmt.Println("Unable to play", s)
+			}
+		}()
 		sampleRate := beep.SampleRate(44000)
 		err = speaker.Init(sampleRate, sampleRate.N(time.Second/2))
 		if err != nil {
@@ -146,7 +152,7 @@ func main() {
 	allModes := []Mode{
 		rcmode.New("Golf mode", "/sounds/tigerbotstart.wav", prop, golf.NewServoController()),
 		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", prop, duckshoot.NewServoController()),
-		mazemode.New(prop),
+		mazemode.New(prop, soundsToPlay),
 		slstmode.New(prop),
 		rainbowmode.New(prop),
 		&testmode.TestMode{Propeller: prop},

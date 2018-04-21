@@ -27,6 +27,7 @@ type MazeMode struct {
 	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
+	soundChannel   chan string
 
 	running        bool
 	cancelSequence context.CancelFunc
@@ -56,10 +57,11 @@ type MazeMode struct {
 	speedRampDown               *Tunable
 }
 
-func New(propeller propeller.Interface) *MazeMode {
+func New(propeller propeller.Interface, soundChannel chan string) *MazeMode {
 	mm := &MazeMode{
 		Propeller:      propeller,
 		joystickEvents: make(chan *joystick.Event),
+		soundChannel:   soundChannel,
 	}
 
 	mm.headingHolder = headingholder.New(&mm.i2cLock, propeller)
@@ -274,6 +276,8 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 	m.sequenceWG.Add(1)
 	go m.headingHolder.Loop(ctx, &m.sequenceWG)
+
+	m.soundChannel <- "/sounds/ready.wav"
 
 	m.startWG.Wait()
 
