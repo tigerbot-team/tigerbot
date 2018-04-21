@@ -110,7 +110,7 @@ func main() {
 			}
 		}()
 		sampleRate := beep.SampleRate(44000)
-		err = speaker.Init(sampleRate, sampleRate.N(time.Second/2))
+		err = speaker.Init(sampleRate, sampleRate.N(time.Second/5))
 		if err != nil {
 			fmt.Println("Failed to open speaker", err)
 			for s := range soundsToPlay {
@@ -153,7 +153,7 @@ func main() {
 		rcmode.New("Golf mode", "/sounds/tigerbotstart.wav", prop, golf.NewServoController()),
 		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", prop, duckshoot.NewServoController()),
 		mazemode.New(prop, soundsToPlay),
-		slstmode.New(prop),
+		slstmode.New(prop, soundsToPlay),
 		rainbowmode.New(prop),
 		&testmode.TestMode{Propeller: prop},
 		&pausemode.PauseMode{Propeller: prop},
