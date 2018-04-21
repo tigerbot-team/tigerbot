@@ -24,6 +24,7 @@ type HeadingHolder struct {
 
 	controlLock                sync.Mutex
 	yaw, throttle, translation float64
+	currentHeading             float64
 }
 
 func (y *HeadingHolder) SetControlInputs(yaw, throttle, translation float64) {
@@ -33,6 +34,13 @@ func (y *HeadingHolder) SetControlInputs(yaw, throttle, translation float64) {
 	y.yaw = yaw
 	y.throttle = throttle
 	y.translation = translation
+}
+
+func (y *HeadingHolder) CurrentHeading() float64 {
+	y.controlLock.Lock()
+	defer y.controlLock.Unlock()
+
+	return y.currentHeading
 }
 
 func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
@@ -99,6 +107,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		targetYaw := y.yaw
 		targetThrottle := y.throttle
 		targetTranslation := y.translation
+		y.currentHeading = headingEstimate
 		y.controlLock.Unlock()
 
 		// Update our target heading accordingly.

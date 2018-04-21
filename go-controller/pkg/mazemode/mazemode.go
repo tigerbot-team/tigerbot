@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
@@ -19,7 +20,9 @@ import (
 )
 
 type MazeMode struct {
+	i2cLock        sync.Mutex
 	Propeller      propeller.Interface
+	headingHolder  *headingholder.HeadingHolder
 	cancel         context.CancelFunc
 	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
@@ -27,19 +30,19 @@ type MazeMode struct {
 
 	running        bool
 	cancelSequence context.CancelFunc
-	sequenceDone   chan struct{}
+	sequenceWG     sync.WaitGroup
 
 	paused int32
 
 	tunables Tunables
 
-	turnSameFrontOffset *Tunable
-	turnOppFrontOffset  *Tunable
-	turnSameRearOffset  *Tunable
-	turnOppRearOffset   *Tunable
 	turnEntryThresh     *Tunable
 	turnExitThresh      *Tunable
 	turnExitRatioThresh *Tunable
+
+	turnRotationSpeed *Tunable
+	turnThrottle      *Tunable
+	turnTranslate     *Tunable
 
 	cornerSensorOffset      *Tunable
 	cornerSensorAngleOffset *Tunable
@@ -59,21 +62,23 @@ func New(propeller propeller.Interface) *MazeMode {
 		joystickEvents: make(chan *joystick.Event),
 	}
 
-	mm.turnEntryThresh = mm.tunables.Create("Turn entry threshold", 130)
-	mm.turnSameFrontOffset = mm.tunables.Create("Turn same side front offset", -7)
-	mm.turnOppFrontOffset = mm.tunables.Create("Turn opp side front offset", 14)
-	mm.turnSameRearOffset = mm.tunables.Create("Turn same side rear offset", -2)
-	mm.turnOppRearOffset = mm.tunables.Create("Turn opp side rear offset", 6)
+	mm.headingHolder = headingholder.New(&mm.i2cLock, propeller)
+
+	mm.turnEntryThresh = mm.tunables.Create("Turn entry threshold", 300)
+	mm.turnExitThresh = mm.tunables.Create("Turn exit threshold", 78)
+
+	mm.turnRotationSpeed = mm.tunables.Create("Turn rotation speed (100ths)", 35)
+	mm.turnThrottle = mm.tunables.Create("Turn throttle (100ths)", 18)
+	mm.turnTranslate = mm.tunables.Create("Turn translate (100ths)", 0)
+
 	mm.cornerSensorOffset = mm.tunables.Create("Corner sensor offset", -12)
 	mm.cornerSensorAngleOffset = mm.tunables.Create("Corner sensor angle offset", -8)
 	mm.clearanceReturnFactor = mm.tunables.Create("Clearance return factor", 90)
-	mm.turnExitThresh = mm.tunables.Create("Turn exit threshold", 170)
-	mm.turnExitRatioThresh = mm.tunables.Create("Turn exit ratio threshold", 180)
 
 	mm.frontDistanceSpeedUpThresh = mm.tunables.Create("Front distance speed up thresh", 350)
 	mm.cornerDistanceSpeedUpThresh = mm.tunables.Create("Corner distance speed up thresh", 80)
-	mm.baseSpeed = mm.tunables.Create("Base speed", 35)
-	mm.topSpeed = mm.tunables.Create("Top speed", 70)
+	mm.baseSpeed = mm.tunables.Create("Base speed", 40)
+	mm.topSpeed = mm.tunables.Create("Top speed", 65)
 	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 5)
 	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 10)
 
@@ -115,6 +120,7 @@ func (m *MazeMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
+						fmt.Println("Getting ready!")
 						m.startWG.Add(1)
 						m.startSequence()
 					case joystick.ButtonSquare:
@@ -126,6 +132,7 @@ func (m *MazeMode) loop(ctx context.Context) {
 				} else {
 					switch event.Number {
 					case joystick.ButtonR1:
+						fmt.Println("GO!")
 						startTime = time.Now()
 						m.startWG.Done()
 					}
@@ -165,16 +172,20 @@ func (m *MazeMode) startSequence() {
 	m.running = true
 	atomic.StoreInt32(&m.paused, 0)
 
+	m.headingHolder.SetControlInputs(0, 0, 0)
+
 	seqCtx, cancel := context.WithCancel(context.Background())
 	m.cancelSequence = cancel
-	m.sequenceDone = make(chan struct{})
+	m.sequenceWG.Add(1)
 	go m.runSequence(seqCtx)
 }
 
 func (m *MazeMode) runSequence(ctx context.Context) {
-	defer close(m.sequenceDone)
+	defer m.sequenceWG.Done()
 
+	m.i2cLock.Lock()
 	mx, err := mux.New("/dev/i2c-1")
+	m.i2cLock.Unlock()
 	if err != nil {
 		fmt.Println("Failed to open mux", err)
 		return
@@ -193,12 +204,16 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		mux.BusTOFFrontRight,
 		mux.BusTOFSideRight,
 	} {
+		m.i2cLock.Lock()
 		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
+		m.i2cLock.Unlock()
 		if err != nil {
 			fmt.Println("Failed to open sensor", err)
 			return
 		}
+		m.i2cLock.Lock()
 		err = tof.StartContinuousMeasurements()
+		m.i2cLock.Unlock()
 		if err != nil {
 			fmt.Println("Failed to start continuous measurements", err)
 			return
@@ -215,9 +230,12 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 	readSensors := func() {
 		// Read the sensors
+		msg := ""
 		for j, tof := range tofs {
 			reading := "-"
+			m.i2cLock.Lock()
 			readingInMM, err := tof.GetNextContinuousMeasurement()
+			m.i2cLock.Unlock()
 			filters[j].Accumulate(readingInMM)
 			if err == tofsensor.ErrMeasurementInvalid {
 				reading = "<invalid>"
@@ -226,9 +244,9 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			} else {
 				reading = fmt.Sprintf("%dmm", readingInMM)
 			}
-			fmt.Printf("%s:=%5s/%5dmm ", filters[j].Name, reading, filters[j].BestGuess())
+			msg += fmt.Sprintf("%s:=%5s/%5dmm ", filters[j].Name, reading, filters[j].BestGuess())
 		}
-		fmt.Println()
+		fmt.Println(msg)
 	}
 
 	sideLeft := filters[0]
@@ -250,6 +268,9 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	readSensors()
 	readSensors()
 
+	m.sequenceWG.Add(1)
+	go m.headingHolder.Loop(ctx, &m.sequenceWG)
+
 	m.startWG.Wait()
 
 	readSensors()
@@ -265,6 +286,8 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	var translationErrorMMs float64 // positive if we're too far right
 	var rotationErrorMMs float64    // positive if we're rotated too far clockwise
 
+	var turnRejectCounter = 0
+
 	for ctx.Err() == nil {
 		// Main loop, alternates between following the walls until we detect a wall in front, and then
 		// making turns.
@@ -278,7 +301,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			readSensors()
 
 			// If we reach a wall in front, break out and do the turn.
-			if !forward.IsFar() {
+			if turnRejectCounter <= 0 && !forward.IsFar() {
 				forwardGuess := forward.BestGuess()
 				if forwardGuess < m.turnEntryThresh.Get() {
 					log.Println("Reached wall in front")
@@ -286,17 +309,23 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				}
 			}
 
+			if turnRejectCounter > 0 {
+				turnRejectCounter--
+			}
+
 			// Ramp up the speed on the straights...
 			if (forward.IsFar() || forward.BestGuess() > m.frontDistanceSpeedUpThresh.Get()) &&
 				(forwardLeft.IsFar() || forwardLeft.BestGuess() > m.cornerDistanceSpeedUpThresh.Get()) &&
 				(forwardRight.IsFar() || forwardRight.BestGuess() > m.cornerDistanceSpeedUpThresh.Get()) {
-				if speed < float64(m.topSpeed.Get()) {
-					speed += float64(m.speedRampUp.Get())
-				}
+				speed += float64(m.speedRampUp.Get())
 			} else {
-				if speed > baseSpeed {
-					speed -= float64(m.speedRampDown.Get())
-				}
+				speed -= float64(m.speedRampDown.Get())
+			}
+			if speed < baseSpeed {
+				speed = baseSpeed
+			}
+			if speed > float64(m.topSpeed.Get()) {
+				speed = float64(m.topSpeed.Get())
 			}
 
 			cornerSensorOffset := m.cornerSensorOffset.Get()
@@ -367,23 +396,17 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			} else {
 				rotationErrorMMs *= 0.9
 			}
-			fmt.Printf("Translation error %.1f Rotation error %.1f\n", translationErrorMMs, rotationErrorMMs)
 
 			// positive if we're too far right
 			txErrorSq := math.Copysign(translationErrorMMs*translationErrorMMs, translationErrorMMs)
 			// positive if we're rotated too far clockwise
 			rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
 
-			scaledTxErr := txErrorSq * speed / 10000
+			scaledTxErr := txErrorSq * speed / 20000
 			scaledRotErr := rotErrorSq * speed / 1000
 
-			fl := clamp(speed-scaledTxErr-scaledRotErr, speed*2)
-			fr := clamp(speed+scaledTxErr+scaledRotErr, speed*2)
-			bl := clamp(speed+scaledTxErr-scaledRotErr, speed*2)
-			br := clamp(speed-scaledTxErr+scaledRotErr, speed*2)
-
-			fmt.Printf("Speeds: FL=%d FR=%d BL=%d BR=%d\n", fl, fr, bl, br)
-			m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+			fmt.Printf("Control: S %.1f R %.2f T %.2f\n", speed/127, scaledRotErr/127, scaledTxErr/127)
+			m.headingHolder.SetControlInputs(-scaledRotErr/127, speed/127, -scaledTxErr/127)
 		}
 
 		var leftTurnConfidence int
@@ -411,46 +434,61 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence)
 
+		var sign float64
 		if leftTurnConfidence > rightTurnConfidence {
 			fmt.Println("Turning left...")
-			baseSpeed := m.baseSpeed.Get()
-			m.Propeller.SetMotorSpeeds(
-				int8(-baseSpeed+m.turnSameFrontOffset.Get()),
-				int8(baseSpeed+m.turnOppFrontOffset.Get()),
-				int8(-baseSpeed+m.turnSameRearOffset.Get()),
-				int8(baseSpeed+m.turnOppRearOffset.Get()),
-			)
-			for ctx.Err() == nil {
-				m.sleepIfPaused(ctx)
-				readSensors()
-
-				if (forward.IsFar() || forward.BestGuess() > m.turnExitThresh.Get()) &&
-					m.turnExitRatioThresh.Get()*forward.BestGuess() > 220*sideRight.BestGuess() {
-					break
-				}
-			}
+			sign = -1
 		} else {
 			fmt.Println("Turning right...")
-			baseSpeed := m.baseSpeed.Get()
-			m.Propeller.SetMotorSpeeds(
-				int8(baseSpeed+m.turnOppFrontOffset.Get()),
-				int8(-baseSpeed+m.turnSameFrontOffset.Get()),
-				int8(baseSpeed+m.turnOppRearOffset.Get()),
-				int8(-baseSpeed+m.turnSameRearOffset.Get()),
-			)
-			for ctx.Err() == nil {
-				m.sleepIfPaused(ctx)
-				readSensors()
+			sign = 1
+		}
 
-				if (forward.IsFar() || forward.BestGuess() > m.turnExitThresh.Get()) &&
-					m.turnExitRatioThresh.Get()*forward.BestGuess() > 220*sideLeft.BestGuess() {
+		startHeading := m.headingHolder.CurrentHeading()
+		fmt.Println("Turn start heading:", startHeading)
+
+		var lastHeading float64
+		for ctx.Err() == nil {
+			m.sleepIfPaused(ctx)
+
+			turnRotationSpeed := float64(m.turnRotationSpeed.Get()) / 100
+			turnThrottle := float64(m.turnThrottle.Get()) / 100
+			turnTranslate := float64(m.turnThrottle.Get()) / 100
+
+			currentHeading := m.headingHolder.CurrentHeading()
+
+			if math.Abs(currentHeading-startHeading) > 70 {
+				turnRotationSpeed /= 3
+				turnThrottle /= 3
+				turnTranslate /= 3
+			}
+
+			m.headingHolder.SetControlInputs(turnRotationSpeed*sign, turnThrottle, sign*turnTranslate)
+
+			if currentHeading != lastHeading {
+				fmt.Println("Heading:", currentHeading)
+			}
+			turnExitThresh := float64(m.turnExitThresh.Get())
+			if sign > 0 {
+				if currentHeading > startHeading+turnExitThresh {
+					fmt.Println("Turn finished:", currentHeading)
+
+					m.headingHolder.SetControlInputs(0, turnThrottle, 0)
+					break
+				}
+			} else {
+				if currentHeading < startHeading-turnExitThresh {
+					fmt.Println("Turn finished:", currentHeading)
+					m.headingHolder.SetControlInputs(0, turnThrottle, 0)
 					break
 				}
 			}
+			time.Sleep(5 * time.Millisecond)
+			lastHeading = currentHeading
 		}
-	}
 
-	m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+		// Prevent another turn before the Filter buffers have cycled.
+		turnRejectCounter = 5
+	}
 }
 
 func clamp(v float64, limit float64) int8 {
@@ -516,7 +554,7 @@ func (f *Filter) BestGuess() int {
 
 func (m *MazeMode) sleepIfPaused(ctx context.Context) {
 	for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
-		m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+		m.headingHolder.SetControlInputs(0, 0, 0)
 		time.Sleep(100 * time.Millisecond)
 	}
 }
@@ -530,10 +568,13 @@ func (m *MazeMode) stopSequence() {
 
 	m.cancelSequence()
 	m.cancelSequence = nil
-	<-m.sequenceDone
+	m.sequenceWG.Wait()
 	m.running = false
-	m.sequenceDone = nil
 	atomic.StoreInt32(&m.paused, 0)
+
+	m.headingHolder.SetControlInputs(0, 0, 0)
+
+	fmt.Println("Stopped sequence...")
 }
 
 func (m *MazeMode) pauseOrResumeSequence() {
