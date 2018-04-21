@@ -73,8 +73,8 @@ func New(propeller propeller.Interface) *MazeMode {
 	mm.frontDistanceSpeedUpThresh = mm.tunables.Create("Front distance speed up thresh", 350)
 	mm.cornerDistanceSpeedUpThresh = mm.tunables.Create("Corner distance speed up thresh", 80)
 	mm.baseSpeed = mm.tunables.Create("Base speed", 35)
-	mm.topSpeed = mm.tunables.Create("Top speed", 80)
-	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 6)
+	mm.topSpeed = mm.tunables.Create("Top speed", 70)
+	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 5)
 	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 10)
 
 	return mm
