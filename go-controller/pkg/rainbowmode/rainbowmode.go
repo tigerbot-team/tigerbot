@@ -186,6 +186,7 @@ func (m *RainbowMode) loop(ctx context.Context) {
 					switch event.Number {
 					case joystick.ButtonR1:
 						close(m.startTrigger)
+						m.announceTargetBall()
 					}
 				}
 			}
