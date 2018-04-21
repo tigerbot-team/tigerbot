@@ -81,9 +81,10 @@ type RainbowMode struct {
 	config RainbowConfig
 }
 
-func New(propeller propeller.Interface) *RainbowMode {
+func New(propeller propeller.Interface, soundsToPlay chan string) *RainbowMode {
 	m := &RainbowMode{
 		Propeller:      propeller,
+		soundsToPlay:   soundsToPlay,
 		joystickEvents: make(chan *joystick.Event),
 		phase:          Rotating,
 		config: RainbowConfig{
@@ -457,12 +458,17 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.targetBallIdx++
 		if m.targetBallIdx < len(m.config.Sequence) {
 			fmt.Println("Next target ball: ", m.config.Sequence[m.targetBallIdx])
+			m.announceTargetBall()
 		} else {
 			fmt.Println("Done!!")
 		}
 	}
 
 	m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+}
+
+func (m *RainbowMode) announceTargetBall() {
+	m.soundsToPlay <- fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[m.targetBallIdx])
 }
 
 func (m *RainbowMode) reset() {

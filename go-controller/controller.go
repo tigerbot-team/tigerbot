@@ -154,7 +154,7 @@ func main() {
 		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", prop, duckshoot.NewServoController()),
 		mazemode.New(prop, soundsToPlay),
 		slstmode.New(prop, soundsToPlay),
-		rainbowmode.New(prop),
+		rainbowmode.New(prop, soundsToPlay),
 		&testmode.TestMode{Propeller: prop},
 		&pausemode.PauseMode{Propeller: prop},
 	}
