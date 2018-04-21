@@ -48,13 +48,27 @@ type RainbowConfig struct {
 	CornerSlowDownThresh              int
 
 	ForwardReverseThreshold int
+
+	// Height offset in mm from the camera centreline to the lowest reasonable ball centre
+	// height; positive/negative if that ball centre height is above/below the camera height.
+	DeltaHMinMM int
+	// Height offset in mm from the camera centreline to the highest reasonable ball centre
+	// height; positive/negative if that ball centre height is above/below the camera height.
+	DeltaHMaxMM int
+	// Vertical field of view factor as tan(theta), where theta is the angle that the camera
+	// captures (in 640x480 video mode) above and below its centreline.
+	TanTheta float64
+	// Whether to filter out apparent 'balls' that aren't in the expected Y range.
+	FilterYCoord bool
 }
 
 type RainbowMode struct {
 	Propeller      propeller.Interface
 	cancel         context.CancelFunc
+	startTrigger   chan struct{}
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
+	soundsToPlay   chan string
 
 	running        bool
 	targetBallIdx  int
@@ -80,9 +94,10 @@ type RainbowMode struct {
 	config RainbowConfig
 }
 
-func New(propeller propeller.Interface) *RainbowMode {
+func New(propeller propeller.Interface, soundsToPlay chan string) *RainbowMode {
 	m := &RainbowMode{
 		Propeller:      propeller,
+		soundsToPlay:   soundsToPlay,
 		joystickEvents: make(chan *joystick.Event),
 		phase:          Rotating,
 		config: RainbowConfig{
@@ -104,7 +119,16 @@ func New(propeller propeller.Interface) *RainbowMode {
 			CornerSlowDownThresh:              60,
 
 			ForwardReverseThreshold: 450,
+
+			DeltaHMinMM: -28,
+			DeltaHMaxMM: 17,
+			// tan(24.4 degrees) * 480 / 1232, following
+			// https://www.raspberrypi.org/documentation/hardware/camera/README.md and
+			// https://github.com/waveform80/picamera/blob/master/docs/fov.rst
+			TanTheta:     0.177,
+			FilterYCoord: false,
 		},
+		startTrigger: make(chan struct{}),
 	}
 	for _, colour := range m.config.Sequence {
 		m.config.Balls[colour] = *rainbow.Balls[colour]
@@ -166,16 +190,25 @@ func (m *RainbowMode) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case event := <-m.joystickEvents:
-			if event.Type == joystick.EventTypeButton && event.Value == 1 {
-				switch event.Number {
-				case joystick.ButtonR1:
-					m.startSequence()
-				case joystick.ButtonSquare:
-					m.stopSequence()
-				case joystick.ButtonTriangle:
-					m.pauseOrResumeSequence()
-				case joystick.ButtonCircle:
-					atomic.StoreInt32(&m.savePicture, 1)
+			switch event.Type {
+			case joystick.EventTypeButton:
+				if event.Value == 1 {
+					switch event.Number {
+					case joystick.ButtonR1:
+						m.startSequence()
+					case joystick.ButtonSquare:
+						m.stopSequence()
+					case joystick.ButtonTriangle:
+						m.pauseOrResumeSequence()
+					case joystick.ButtonCircle:
+						atomic.StoreInt32(&m.savePicture, 1)
+					}
+				} else {
+					switch event.Number {
+					case joystick.ButtonR1:
+						close(m.startTrigger)
+						m.announceTargetBall()
+					}
 				}
 			}
 		}
@@ -360,11 +393,13 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 
 		m.targetColour = m.config.Sequence[m.targetBallIdx]
-		m.processImage(img)
+		m.processImage(img, forward)
 
-		// Don't do anything for the first second, to allow the code to synchronize with the
-		// camera frame rate.
-		if numFramesRead <= m.config.FPS {
+		select {
+		case <-m.startTrigger:
+			// Do rest of loop: moving etc.
+		default:
+			// Don't move yet.
 			continue
 		}
 
@@ -445,12 +480,17 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		m.targetBallIdx++
 		if m.targetBallIdx < len(m.config.Sequence) {
 			fmt.Println("Next target ball: ", m.config.Sequence[m.targetBallIdx])
+			m.announceTargetBall()
 		} else {
 			fmt.Println("Done!!")
 		}
 	}
 
 	m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+}
+
+func (m *RainbowMode) announceTargetBall() {
+	m.soundsToPlay <- fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[m.targetBallIdx])
 }
 
 func (m *RainbowMode) reset() {
@@ -461,7 +501,7 @@ func (m *RainbowMode) reset() {
 	m.ballFixed = false
 }
 
-func (m *RainbowMode) processImage(img gocv.Mat) {
+func (m *RainbowMode) processImage(img gocv.Mat, distanceSensor *Filter) {
 	w := img.Cols()
 	h := img.Rows()
 	if w != 640 || h != 480 {
@@ -489,6 +529,24 @@ func (m *RainbowMode) processImage(img gocv.Mat) {
 			fmt.Println("Ball seen roughly ahead")
 			m.roughDirectionCount++
 			m.ballFixed = true
+			if !distanceSensor.IsFar() {
+				distanceMM := distanceSensor.BestGuess()
+				yMin := int(240 * (1 - float64(m.config.DeltaHMaxMM)/(float64(distanceMM)*m.config.TanTheta)))
+				yMax := int(240 * (1 - float64(m.config.DeltaHMinMM)/(float64(distanceMM)*m.config.TanTheta)))
+				if pos.Y < yMin {
+					fmt.Printf("Ball above expected Y range: %v < %v\n", pos.Y, yMin)
+					if m.config.FilterYCoord {
+						m.ballFixed = false
+					}
+				} else if pos.Y > yMax {
+					fmt.Printf("Ball below expected Y range: %v > %v\n", pos.Y, yMax)
+					if m.config.FilterYCoord {
+						m.ballFixed = false
+					}
+				} else {
+					fmt.Printf("Ball within expected Y range: %v < %v < %v\n", yMin, pos.Y, yMax)
+				}
+			}
 		}
 		m.ballInView = true
 	} else {
