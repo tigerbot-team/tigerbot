@@ -49,14 +49,14 @@ OBJ
 DAT
 '       M1   M2   M3   M4
 ' encA  A1   A10  A15  A29
-' encB  A0   A11  A16  A28
+' encB  A0   A11  A14  A28
 ' dir   A3   A12  A18  A26
 ' pwm   A2   A13  A17  A27
 
 ' Motor driver connector: DIR, PWM, GND
 ' Motor connector: encA, encB, +ve, gnd, M+, M-
 
-  encoderPins byte 0, 1, 11, 10, 16, 15, 28, 29
+  encoderPins byte 0, 1, 11, 10, 14, 15, 28, 29
   motorPWM    byte 2, 13, 17, 27
   motorD1     byte 3, 12, 18, 26
 
