@@ -48,7 +48,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	defer fmt.Println("Heading holder loop exited")
 
 	y.i2cLock.Lock()
-	m, err := imu.New("/dev/i2c-1")
+	m, err := imu.NewSPI("/dev/spidev0.1")
 	if err != nil {
 		fmt.Println("Failed to open IMU", err)
 		y.i2cLock.Unlock()

@@ -4,6 +4,11 @@ import (
 	"fmt"
 	"math"
 
+	"periph.io/x/periph/conn/physic"
+	"periph.io/x/periph/conn/spi"
+	"periph.io/x/periph/conn/spi/spireg"
+	"periph.io/x/periph/host"
+
 	"golang.org/x/exp/io/i2c"
 )
 
@@ -32,11 +37,18 @@ type Interface interface {
 	DegreesPerLSB() float64
 }
 
-type IMU struct {
-	dev *i2c.Device
+type port interface {
+	// Read reads len(buf) bytes from the device.
+	ReadReg(reg byte, buf []byte) error
+	WriteReg(reg byte, buf []byte) (err error)
 }
 
-func New(deviceFile string) (Interface, error) {
+type IMU struct {
+	dev        port
+	disableI2C bool
+}
+
+func NewI2C(deviceFile string) (Interface, error) {
 	dev, err := i2c.Open(&i2c.Devfs{deviceFile}, IMUAddr)
 	if err != nil {
 		return nil, err
@@ -46,7 +58,89 @@ func New(deviceFile string) (Interface, error) {
 	}, nil
 }
 
+func NewSPI(deviceFile string) (Interface, error) {
+	// Make sure periph is initialized.
+	if _, err := host.Init(); err != nil {
+		return nil, err
+	}
+
+	// Use spireg SPI port registry to find the SPI bus.
+	p, err := spireg.Open(deviceFile)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the spi.Port into a spi.Conn so it can be used for communication.
+	c, err := p.Connect(physic.KiloHertz*1000, spi.Mode3, 8)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap the SPI connection in our interface.
+	dev := SPIAdapter{c: c}
+
+	return &IMU{
+		dev:        &dev,
+		disableI2C: true,
+	}, nil
+}
+
+type SPIAdapter struct {
+	c spi.Conn
+
+	r, w []byte
+}
+
+const W = 0x00
+const R = 0x80
+
+func (s *SPIAdapter) ReadReg(reg byte, buf []byte) error {
+	// The read and write buffers need to be as long as the whole transaction.
+	bufLen := 1 + len(buf)
+	s.ensureBuf(bufLen)
+	// We write the address byte, then read back the response.
+	addrByte := R | reg
+	s.w[0] = addrByte
+	err := s.c.Tx(s.w[:bufLen], s.r[:bufLen])
+	if err != nil {
+		return err
+	}
+	// The response will come back only after the first byte is sent, ignore the first byte that we read.
+	copy(buf, s.r[1:])
+	return nil
+}
+
+func (s *SPIAdapter) WriteReg(reg byte, buf []byte) (err error) {
+	// The read and write buffers need to be as long as the whole transaction.
+	bufLen := 1 + len(buf)
+	s.ensureBuf(bufLen)
+	// We write the address byte, then the data.
+	addrByte := W | reg
+	s.w[0] = addrByte
+	copy(s.w[1:], buf)
+	err = s.c.Tx(s.w[:bufLen], s.r[:bufLen])
+	return
+}
+
+func (s *SPIAdapter) ensureBuf(l int) {
+	if len(s.r) < l {
+		s.w = make([]byte, l)
+		s.r = make([]byte, l)
+	} else {
+		for i := 0; i < l; i++ {
+			s.w[i] = 0
+			s.r[i] = 0
+		}
+	}
+}
+
 func (m *IMU) Configure() error {
+	if m.disableI2C {
+		err := m.dev.WriteReg(RegUserCtl, []byte{0x10})
+		if err != nil {
+			return err
+		}
+	}
 	// Set GYRO range
 	err := m.dev.WriteReg(RegGyroConf, []byte{GyroRange << 3})
 	if err != nil {

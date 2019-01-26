@@ -28,4 +28,6 @@ imports:
   - io/i2c/driver
 - name: gopkg.in/yaml.v2
   version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
+- name: periph.io/x/periph
+  version: v3.4.0
 testImports: []

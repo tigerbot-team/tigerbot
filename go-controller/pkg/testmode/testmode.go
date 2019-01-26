@@ -180,7 +180,7 @@ func (t *TestMode) testSensors(ctx context.Context) {
 
 func (t *TestMode) testIMU(ctx context.Context) {
 	defer t.stopWG.Done()
-	m, err := imu.New("/dev/i2c-1")
+	m, err := imu.NewSPI("/dev/spidev0.1")
 	if err != nil {
 		fmt.Println("Failed to open IMU", err)
 		return

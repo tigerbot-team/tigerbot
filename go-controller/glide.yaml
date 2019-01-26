@@ -13,3 +13,5 @@ import:
   version: ^2.2.1
 - package: github.com/faiface/beep
 - package: github.com/hajimehoshi/oto
+- package: periph.io/x/periph
+  version: 3.4.0
