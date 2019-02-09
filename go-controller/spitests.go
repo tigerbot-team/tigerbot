@@ -3,7 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
+	"os"
+	"sync"
 	"time"
+
+	"github.com/fogleman/gg"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/imu"
 
@@ -12,6 +17,8 @@ import (
 	"periph.io/x/periph/conn/spi/spireg"
 	"periph.io/x/periph/host"
 )
+
+var lock sync.Mutex
 
 func main() {
 	// Make sure periph is initialized.
@@ -64,6 +71,7 @@ func main() {
 		fmt.Println("Failed to configure IMU", err)
 		panic("Failed to open IMU")
 	}
+	time.Sleep(1 * time.Second)
 	err = m.Calibrate()
 	if err != nil {
 		fmt.Println("Failed to calibrate IMU", err)
@@ -71,7 +79,79 @@ func main() {
 	}
 	m.ResetFIFO()
 
+	go drawOnScreen()
+	go readFIFO(m)
+
 	for range time.NewTicker(time.Millisecond * 200).C {
-		log.Println("FIFO:", m.ReadFIFO())
+		headingLock.Lock()
+		fmt.Printf("Heading: %.4f Offset: %f Num: %d\n", headingEstimate, offset, numR)
+		headingLock.Unlock()
+	}
+}
+
+var headingLock sync.Mutex
+var headingEstimate float64
+var offset = 0.0
+var numR int
+
+func readFIFO(m imu.Interface) {
+	const imuDT = 1 * time.Millisecond
+
+	for range time.NewTicker(time.Millisecond * 20).C {
+		lock.Lock()
+		yawReadings := m.ReadFIFO()
+		lock.Unlock()
+		headingLock.Lock()
+		numR = len(yawReadings)
+		for _, yaw := range yawReadings {
+			yawDegreesPerSec := float64(yaw) * m.DegreesPerLSB()
+			if math.Abs(yawDegreesPerSec) < 0.1 {
+				offset = offset*0.999 + 0.001*yawDegreesPerSec
+			}
+			headingEstimate -= imuDT.Seconds() * (yawDegreesPerSec - offset)
+		}
+		headingLock.Unlock()
+	}
+}
+
+func drawOnScreen() {
+	f, err := os.OpenFile("/dev/fb1", os.O_RDWR, 0666)
+	if err != nil {
+		panic(err)
+	}
+	j := 0
+	for range time.NewTicker(50 * time.Millisecond).C {
+		const S = 128
+		dc := gg.NewContext(S, S)
+		dc.SetRGBA(0, 0, 0, 0.1)
+		for i := 0; i < 360; i += 15 {
+			dc.Push()
+			dc.RotateAbout(gg.Radians(float64(i+j)), S/2, S/2)
+			dc.DrawEllipse(S/2, S/2, S*7/16, S/8)
+			dc.Fill()
+			dc.Pop()
+		}
+		j++
+		var buf [128 * 128 * 2]byte
+		for y := 0; y < S; y++ {
+			for x := 0; x < S; x++ {
+				c := dc.Image().At(x, y)
+				_, _, _, a := c.RGBA()
+
+				buf[x*2+y*128*2] = byte(a >> 12)
+				buf[x*2+y*128*2+1] = byte(a>>12) | (byte(a>>12) << 4)
+			}
+		}
+		_, err = f.Seek(0, 0)
+		if err != nil {
+			panic(err)
+		}
+
+		lock.Lock()
+		_, err = f.Write(buf[:])
+		lock.Unlock()
+		if err != nil {
+			panic(err)
+		}
 	}
 }

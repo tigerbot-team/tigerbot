@@ -3,6 +3,7 @@ package imu
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"periph.io/x/periph/conn/physic"
 	"periph.io/x/periph/conn/spi"
@@ -31,7 +32,7 @@ const (
 type Interface interface {
 	Configure() error
 	Calibrate() error
-	ReadGyroX() int16
+	ReadGyro() int16
 	ReadFIFO() []int16
 	ResetFIFO()
 	DegreesPerLSB() float64
@@ -152,7 +153,7 @@ func (m *IMU) Configure() error {
 		return err
 	}
 	// Divide output rate
-	err = m.dev.WriteReg(RegSampleRateDiv, []byte{9})
+	err = m.dev.WriteReg(RegSampleRateDiv, []byte{0})
 	if err != nil {
 		return err
 	}
@@ -170,15 +171,22 @@ func (m *IMU) Calibrate() error {
 	fmt.Println("Calibrating gyro")
 	m.dev.WriteReg(RegGyroYOffset, []byte{0, 0})
 
-	for i := 0; i < 100; i++ {
-		m.ReadGyroX()
-	}
+	m.ResetFIFO()
 
 	var sum float64
 	const n = 1000
-	for i := 0; i < n; i++ {
-		x := m.ReadGyroX()
-		sum -= float64(x)
+	i := 0
+outer:
+	for {
+		time.Sleep(100 * time.Millisecond)
+		readings := m.ReadFIFO()
+		for _, r := range readings {
+			sum -= float64(r)
+			i++
+			if i >= n {
+				break outer
+			}
+		}
 	}
 	offset := sum / n
 	fmt.Println("Offset", offset)
@@ -191,7 +199,7 @@ func (m *IMU) Calibrate() error {
 	return nil
 }
 
-func (m *IMU) ReadGyroX() int16 {
+func (m *IMU) ReadGyro() int16 {
 	return m.Read16(RegGyroY)
 }
 
