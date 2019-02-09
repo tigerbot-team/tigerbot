@@ -204,7 +204,7 @@ func (m *IMU) ReadFIFO() []int16 {
 	for count == 0 {
 		count = m.Read16(RegFIFOCount) & 0xfff
 	}
-	var buf [512]byte
+	var buf [0xfff]byte
 	result := make([]int16, count/2)
 	m.dev.ReadReg(RegFIFORW, buf[:count])
 	for i := 0; i < int(count/2); i++ {
