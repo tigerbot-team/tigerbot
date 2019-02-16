@@ -43,6 +43,28 @@ go-controller/spitests: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go
 	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
 	                         GOMAXPROCS=1 go build -p 1 -v spitests.go"
 
+go-controller/joytests: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
+	$(MAKE) go-phase-1-image
+	-mkdir .go-cache
+	docker run --rm -v `pwd`/go-controller:/go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                -v `pwd`/.go-cache:/go-cache \
+	                -e GOCACHE=/go-cache \
+	                -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                tigerbot/go-controller-phase-1:latest \
+	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
+	                         GOMAXPROCS=1 go build -p 1 -v joytests.go"
+
+go-controller/toftests: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
+	$(MAKE) go-phase-1-image
+	-mkdir .go-cache
+	docker run --rm -v `pwd`/go-controller:/go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                -v `pwd`/.go-cache:/go-cache \
+	                -e GOCACHE=/go-cache \
+	                -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                tigerbot/go-controller-phase-1:latest \
+	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
+	                         GOMAXPROCS=1 go build -p 1 -v toftests.go"
+
 PHONY: go-controller-image
 go-controller-image go-controller-image.tar: go-controller/controller metabotspin/mb3.binary go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest

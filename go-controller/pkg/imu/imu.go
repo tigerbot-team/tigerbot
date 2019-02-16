@@ -157,8 +157,8 @@ func (m *IMU) Configure() error {
 	if err != nil {
 		return err
 	}
-	// Enable write of gyro Y to FIFO
-	err = m.dev.WriteReg(RegFIFOEnable, []byte{1 << 5})
+	// Enable write of gyro X to FIFO
+	err = m.dev.WriteReg(RegFIFOEnable, []byte{1 << 6})
 	return err
 }
 

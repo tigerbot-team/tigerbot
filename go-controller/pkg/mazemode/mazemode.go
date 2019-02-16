@@ -5,6 +5,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
+
 	"fmt"
 	"log"
 	"sort"
@@ -57,14 +59,14 @@ type MazeMode struct {
 	speedRampDown               *Tunable
 }
 
-func New(propeller propeller.Interface, soundChannel chan string) *MazeMode {
+func New(hw *hw.Hardware, soundChannel chan string) *MazeMode {
 	mm := &MazeMode{
-		Propeller:      propeller,
+		Propeller:      hw.Motors,
 		joystickEvents: make(chan *joystick.Event),
 		soundChannel:   soundChannel,
 	}
 
-	mm.headingHolder = headingholder.New(&mm.i2cLock, propeller)
+	mm.headingHolder = headingholder.New(&mm.i2cLock, hw.Motors)
 
 	mm.turnEntryThresh = mm.tunables.Create("Turn entry threshold", 300)
 	mm.turnExitThresh = mm.tunables.Create("Turn exit threshold", 78)

@@ -5,6 +5,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
+
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -55,14 +57,14 @@ type SLSTMode struct {
 	rotKd *Tunable
 }
 
-func New(propeller propeller.Interface, soundChannel chan string) *SLSTMode {
+func New(hw *hw.Hardware, soundChannel chan string) *SLSTMode {
 	mm := &SLSTMode{
-		Propeller:      propeller,
+		Propeller:      hw.Motors,
 		soundChannel:   soundChannel,
 		joystickEvents: make(chan *joystick.Event),
 	}
 
-	mm.headingHolder = headingholder.New(&mm.i2cLock, propeller)
+	mm.headingHolder = headingholder.New(&mm.i2cLock, hw.Motors)
 
 	mm.cornerSensorOffset = mm.tunables.Create("Corner sensor offset", -12)
 	mm.cornerSensorAngleOffset = mm.tunables.Create("Corner sensor angle offset", -8)
@@ -464,7 +466,7 @@ func (f *Filter) BestGuess() int {
 
 func (m *SLSTMode) sleepIfPaused(ctx context.Context) {
 	for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
-		m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+		m.Propeller.SetMotorSpeeds(0, 0)
 		time.Sleep(100 * time.Millisecond)
 	}
 }

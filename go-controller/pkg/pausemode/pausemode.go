@@ -19,7 +19,7 @@ func (m *PauseMode) StartupSound() string {
 }
 
 func (t *PauseMode) Start(ctx context.Context) {
-	t.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+	t.Propeller.SetMotorSpeeds(0, 0)
 }
 
 func (t *PauseMode) Stop() {

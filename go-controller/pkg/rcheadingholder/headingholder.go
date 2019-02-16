@@ -61,7 +61,7 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	m.ResetFIFO()
 	y.i2cLock.Unlock()
 
-	const imuDT = 10 * time.Millisecond
+	const imuDT = 1 * time.Millisecond
 	const targetLoopDT = 20 * time.Millisecond
 
 	ticker := time.NewTicker(targetLoopDT)
@@ -151,8 +151,8 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			motorRotationSpeed = -maxMotorSpeed
 		}
 
-		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
-			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
+		fmt.Printf("HH: Thr: %.1f %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
+			targetThrottle, loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
 		if math.Abs(targetTranslation) < 0.2 {
 			filteredTranslation = targetTranslation
@@ -175,8 +175,8 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		}
 
 		// Map the values to speeds for each motor.
-		frontLeft := filteredThrottle + motorRotationSpeed + filteredTranslation
-		frontRight := filteredThrottle - motorRotationSpeed - filteredTranslation
+		frontLeft := filteredThrottle + motorRotationSpeed
+		frontRight := filteredThrottle - motorRotationSpeed
 		backLeft := filteredThrottle + motorRotationSpeed - filteredTranslation
 		backRight := filteredThrottle - motorRotationSpeed + filteredTranslation
 
@@ -190,17 +190,19 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		fl := scaleAndClamp(frontLeft*scale, 127)
 		fr := scaleAndClamp(frontRight*scale, 127)
-		bl := scaleAndClamp(backLeft*scale, 127)
-		br := scaleAndClamp(backRight*scale, 127)
+		//bl := scaleAndClamp(backLeft*scale, 127)
+		//br := scaleAndClamp(backRight*scale, 127)
+
+		fmt.Println("Left: ", frontLeft, "Right:", frontRight)
 
 		y.i2cLock.Lock()
-		y.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+		y.Propeller.SetMotorSpeeds(fl, fr)
 		y.i2cLock.Unlock()
 
 		lastHeadingError = headingError
 	}
 	y.i2cLock.Lock()
-	y.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+	y.Propeller.SetMotorSpeeds(0, 0)
 	y.i2cLock.Unlock()
 }
 

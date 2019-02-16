@@ -56,7 +56,7 @@ DAT
 ' Motor driver connector: DIR, PWM, GND
 ' Motor connector: encA, encB, +ve, gnd, M+, M-
 
-  encoderPins byte 0, 1, 11, 10, 14, 15, 28, 29
+  encoderPins byte 0, 1, 10, 11, 15, 14, 28, 29
   motorPWM    byte 2, 13, 17, 27
   motorD1     byte 3, 12, 18, 26
 

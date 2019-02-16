@@ -5,6 +5,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
+
 	"fmt"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
@@ -35,15 +37,15 @@ type RCMode struct {
 	headingHolder *headingholder.RCHeadingHolder
 }
 
-func New(name, startupSound string, propeller propeller.Interface, servoController ServoController) *RCMode {
+func New(name, startupSound string, hw *hw.Hardware) *RCMode {
 	r := &RCMode{
-		Propeller:       propeller,
+		Propeller:       hw.Motors,
 		joystickEvents:  make(chan *joystick.Event),
-		servoController: servoController,
+		servoController: hw.ServoController,
 		name:            name,
 		startupSound:    startupSound,
 	}
-	r.headingHolder = headingholder.New(&r.propLock, propeller)
+	r.headingHolder = headingholder.New(&r.propLock, hw.Motors)
 	return r
 }
 

@@ -183,17 +183,17 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		fl := scaleAndClamp(frontLeft*scale, 127)
 		fr := scaleAndClamp(frontRight*scale, 127)
-		bl := scaleAndClamp(backLeft*scale, 127)
-		br := scaleAndClamp(backRight*scale, 127)
+		//bl := scaleAndClamp(backLeft*scale, 127)
+		//br := scaleAndClamp(backRight*scale, 127)
 
 		y.i2cLock.Lock()
-		y.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+		y.Propeller.SetMotorSpeeds(fl, fr)
 		y.i2cLock.Unlock()
 
 		lastHeadingError = headingError
 	}
 	y.i2cLock.Lock()
-	y.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+	y.Propeller.SetMotorSpeeds(0, 0)
 	y.i2cLock.Unlock()
 }
 

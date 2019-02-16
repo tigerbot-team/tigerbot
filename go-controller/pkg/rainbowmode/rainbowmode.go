@@ -12,6 +12,7 @@ import (
 
 	"sort"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
@@ -94,9 +95,9 @@ type RainbowMode struct {
 	config RainbowConfig
 }
 
-func New(propeller propeller.Interface, soundsToPlay chan string) *RainbowMode {
+func New(hw *hw.Hardware, soundsToPlay chan string) *RainbowMode {
 	m := &RainbowMode{
-		Propeller:      propeller,
+		Propeller:      hw.Motors,
 		soundsToPlay:   soundsToPlay,
 		joystickEvents: make(chan *joystick.Event),
 		phase:          Rotating,
@@ -255,7 +256,7 @@ func (m *RainbowMode) setSpeeds(forwards, sideways, rotation float64) {
 	br := clamp(forwards-sideways+rotation, m.config.LimitSpeed)
 
 	fmt.Printf("Speeds: FL=%d FR=%d BL=%d BR=%d\n", fl, fr, bl, br)
-	m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+	m.Propeller.SetMotorSpeeds(fl, fr)
 }
 
 // runSequence is a goroutine that reads form the camera and controls the motors.
@@ -359,7 +360,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 
 	for m.targetBallIdx < len(m.config.Sequence) && ctx.Err() == nil {
 		for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
-			m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+			m.Propeller.SetMotorSpeeds(0, 0)
 			time.Sleep(100 * time.Millisecond)
 		}
 
@@ -486,7 +487,7 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 		}
 	}
 
-	m.Propeller.SetMotorSpeeds(0, 0, 0, 0)
+	m.Propeller.SetMotorSpeeds(0, 0)
 }
 
 func (m *RainbowMode) announceTargetBall() {

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
+
 	"github.com/kr/pty"
 	"golang.org/x/exp/io/i2c"
 )
@@ -40,26 +42,30 @@ const (
 )
 
 type Interface interface {
-	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error
+	SetMotorSpeeds(left, right int8) error
 	SetServo(n int, value uint8) error
 }
 
 type Propeller struct {
-	dev *i2c.Device
+	dev     *i2c.Device
+	mux     mux.Interface
+	muxPort int
 }
 
 func Dummy() Interface {
 	return &dummyPropeller{}
 }
 
-func New() (Interface, error) {
+func New(mux mux.Interface, muxPort int) (Interface, error) {
 	dev, err := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	prop := &Propeller{
-		dev: dev,
+		dev:     dev,
+		mux:     mux,
+		muxPort: muxPort,
 	}
 
 	err = prop.Flash()
@@ -135,21 +141,15 @@ func (p *Propeller) Reset() error {
 	return nil
 }
 
-func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error {
+func (p *Propeller) SetMotorSpeeds(left, right int8) error {
 	// Clamp all the values for symmetry/to avoid overflow when we negate.
-	if backLeft == -128 {
-		backLeft = -127
+	if left == -128 {
+		left = -127
 	}
-	if backRight == -128 {
-		backRight = -127
+	if right == -128 {
+		right = -127
 	}
-	if frontLeft == -128 {
-		frontLeft = -127
-	}
-	if frontRight == -128 {
-		frontRight = -127
-	}
-	data := []byte{RegMotor1, byte(-frontLeft), byte(-backLeft), byte(backRight), byte(frontRight)}
+	data := []byte{RegMotor2, byte(left), byte(-right)}
 	return p.writeWithRetries(data)
 }
 
@@ -179,7 +179,12 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 	var err error
 	for flashTries := 0; flashTries < 3; flashTries++ {
 		for tries := 0; tries < 20; tries++ {
-			err = p.dev.Write(data)
+			err = p.mux.SelectSinglePort(p.muxPort)
+			if err == nil {
+				err = p.dev.Write(data)
+			} else {
+				fmt.Println("Failed to program mux:", err)
+			}
 			if err == nil {
 				if tries > 0 || flashTries > 0 {
 					fmt.Println("Successfully programmed propeller after retries")
@@ -188,7 +193,7 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 			}
 			fmt.Println("Failed to program propeller:", err)
 			time.Sleep(1 * time.Millisecond)
-			p.dev.Close()
+			_ = p.dev.Close()
 			dev, err := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
 			if err != nil {
 				continue
@@ -196,11 +201,11 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 			p.dev = dev
 		}
 		// Kill the propeller, in case it's going crazy...
-		p.Reset()
+		_ = p.Reset()
 
 		// Then reflash it...
 		fmt.Println("Failed to program propeller after retries!!!  Rebooting it!!!", err)
-		p.Flash()
+		_ = p.Flash()
 	}
 	panic("Failed to program or reflash the propeller")
 }
@@ -208,8 +213,8 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 type dummyPropeller struct {
 }
 
-func (p *dummyPropeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error {
-	fmt.Printf("Dummy propeller setting motors: fl=%v fr=%v bl=%v br=%v\n", frontLeft, frontRight, backLeft, backRight)
+func (p *dummyPropeller) SetMotorSpeeds(left, right int8) error {
+	fmt.Printf("Dummy propeller setting motors: l=%v r=%v\n", left, right)
 	return nil
 }
 
