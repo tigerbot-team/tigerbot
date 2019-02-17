@@ -75,10 +75,10 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var iHeadingError float64
 
 	const (
-		kp                        = 0.022
+		kp                        = 0.010
 		ki                        = 0.0
 		kd                        = -0.00008
-		maxIntegral               = 1
+		maxIntegral               = .1
 		maxMotorSpeed             = 2.0
 		maxTranslationDeltaPerSec = 1
 		maxThrottleDeltaPerSec    = 2
@@ -107,7 +107,7 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		y.controlLock.Lock()
 		targetYaw := y.yaw
 		targetThrottle := y.throttle
-		targetTranslation := y.translation
+		targetTranslation := 0.0
 		y.currentHeading = headingEstimate
 		y.controlLock.Unlock()
 
@@ -115,7 +115,7 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		loopTimeSecs := loopTime.Seconds()
 
 		newTargetHeading := targetHeading + loopTimeSecs*targetYaw*600
-		const maxLeadDegrees = 40
+		const maxLeadDegrees = 20
 
 		// If new heading is good, use it.  If new heading is out of range but old heading is good, clamp it.
 		// Otherwise, keep old heading.  This helps us recover from shocks or if someone picks up the bot.
@@ -188,8 +188,8 @@ func (y *RCHeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			scale = 1.0 / m
 		}
 
-		fl := scaleAndClamp(frontLeft*scale, 127)
-		fr := scaleAndClamp(frontRight*scale, 127)
+		fl := scaleAndClamp(frontLeft*scale, 127) >> 1
+		fr := scaleAndClamp(frontRight*scale, 127) >> 1
 		//bl := scaleAndClamp(backLeft*scale, 127)
 		//br := scaleAndClamp(backRight*scale, 127)
 
