@@ -2,3 +2,4 @@
 *-image.tar
 *.jpg
 .go-cache
+*.log
