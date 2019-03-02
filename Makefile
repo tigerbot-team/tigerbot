@@ -43,6 +43,17 @@ go-controller/spitests: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go
 	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
 	                         GOMAXPROCS=1 go build -p 1 -v spitests.go"
 
+go-controller/ina219tests: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
+	$(MAKE) go-phase-1-image
+	-mkdir .go-cache
+	docker run --rm -v `pwd`/go-controller:/go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                -v `pwd`/.go-cache:/go-cache \
+	                -e GOCACHE=/go-cache \
+	                -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
+	                tigerbot/go-controller-phase-1:latest \
+	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
+	                         GOMAXPROCS=1 go build -p 1 -v ina219tests.go"
+
 go-controller/joytests: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
 	$(MAKE) go-phase-1-image
 	-mkdir .go-cache
