@@ -10,10 +10,10 @@ endif
 build-image: $(ARCH_DEPS)
 	docker build ./build -f build/Dockerfile -t tigerbot/build:latest
 
-controller-image: $(ARCH_DEPS) metabotspin/mb3.binary
+python-controller-image: $(ARCH_DEPS) metabotspin/mb3.binary
 	docker build . -f python-controller/Dockerfile -t tigerbot/controller:latest
 
-controller-image.tar: metabotspin/mb3.binary python-controller/*
+python-controller-image.tar: metabotspin/mb3.binary python-controller/*
 	$(MAKE) controller-image
 	docker save tigerbot/controller:latest > controller-image.tar
 
@@ -47,7 +47,7 @@ go-patch: go-controller/bin/controller metabotspin/mb3.binary
 	rsync -zv --progress metabotspin/mb3.binary pi@$(BOT_HOST):mb3.binary
 	@echo 'Now run the image with -v `pwd`/controller:/controller -v `pwd`/mb3.binary:/mb3.binary'
 
-install-to-pi: controller-image.tar
+python-install-to-pi: controller-image.tar
 	rsync -zv --progress controller-image.tar pi@$(BOT_HOST):controller-image.tar
 	ssh pi@$(BOT_HOST) docker load -i controller-image.tar
 
