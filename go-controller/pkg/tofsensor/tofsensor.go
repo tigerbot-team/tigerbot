@@ -11,10 +11,12 @@ package tofsensor
 import "C"
 import (
 	"errors"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
+	"fmt"
 	"syscall"
-	"unsafe"
 	"time"
+	"unsafe"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 )
 
 const (
@@ -68,7 +70,7 @@ func (m *MuxedTOFSensor) DoSingleMeasurement() (int, error) {
 	return m.tof.DoSingleMeasurement()
 }
 
-func (m *MuxedTOFSensor) StartContinuousMeasurements() (error) {
+func (m *MuxedTOFSensor) StartContinuousMeasurements() error {
 	err := m.mux.SelectSinglePort(m.Port)
 	if err != nil {
 		return err
@@ -93,7 +95,7 @@ type TOFSensor struct {
 	device         *C.VL53L0X_Dev_t
 }
 
-func New(device string, addr byte) (Interface, error) {
+func New(device string, addr ...byte) (Interface, error) {
 	tof := &TOFSensor{}
 
 	var status C.VL53L0X_Error
@@ -108,7 +110,7 @@ func New(device string, addr byte) (Interface, error) {
 	// Not sure if it's necessary to alloc the struct from the C heap or not
 	// but it's certainly safe.
 	tof.device = (*C.VL53L0X_Dev_t)(C.malloc(C.sizeof_VL53L0X_Dev_t))
-	tof.device.I2cDevAddr = C.uchar(addr)
+	tof.device.I2cDevAddr = C.uchar(addr[0])
 
 	tof.deviceFileName = C.CString(device)
 	tof.device.fd = C.VL53L0X_i2c_init(tof.deviceFileName, C.int(tof.device.I2cDevAddr))
@@ -116,13 +118,31 @@ func New(device string, addr byte) (Interface, error) {
 		return nil, ErrI2CInitFailed
 	}
 
+	if len(addr) > 1 {
+		fmt.Printf("Moving ToF from address %#x to %#x\n", addr[0], addr[1])
+		status := C.VL53L0X_SetDeviceAddress(tof.device, C.uchar(addr[1])<<1)
+		if status != C.VL53L0X_ERROR_NONE {
+			fmt.Printf("Failed to move ToF from addreess %#x to %#x; checking if it's already there...\n", addr[0], addr[1])
+		}
+
+		_ = syscall.Close(int(tof.device.fd))
+
+		tof.device.I2cDevAddr = C.uchar(addr[1])
+		tof.device.fd = C.VL53L0X_i2c_init(tof.deviceFileName, C.int(tof.device.I2cDevAddr))
+		if tof.device.fd < 0 {
+			return nil, ErrI2CInitFailed
+		}
+	}
+
 	status = C.VL53L0X_DataInit(tof.device)
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_DataInit failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 
 	status = C.VL53L0X_StaticInit(tof.device)
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_StaticInit failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 
@@ -132,6 +152,7 @@ func New(device string, addr byte) (Interface, error) {
 	)
 	status = C.VL53L0X_PerformRefCalibration(tof.device, &vhvSettings, &phaseCal)
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_PerformRefCalibration failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 
@@ -141,47 +162,56 @@ func New(device string, addr byte) (Interface, error) {
 	)
 	status = C.VL53L0X_PerformRefSpadManagement(tof.device, &refSpadCount, &isApertureSpads)
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_PerformRefSpadManagement failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 
 	status = C.VL53L0X_SetDeviceMode(tof.device, C.VL53L0X_DEVICEMODE_SINGLE_RANGING)
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetDeviceMode failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 
 	status = C.VL53L0X_SetLimitCheckEnable(tof.device, C.VL53L0X_CHECKENABLE_SIGMA_FINAL_RANGE, 1)
 
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetLimitCheckEnable failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 	status = C.VL53L0X_SetLimitCheckEnable(tof.device, C.VL53L0X_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE, 1)
 
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetLimitCheckEnable failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 	status = C.VL53L0X_SetLimitCheckValue(tof.device, C.VL53L0X_CHECKENABLE_SIGNAL_RATE_FINAL_RANGE, (C.FixPoint1616_t)(6554))
 
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetLimitCheckValue failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 	status = C.VL53L0X_SetLimitCheckValue(tof.device, C.VL53L0X_CHECKENABLE_SIGMA_FINAL_RANGE, (C.FixPoint1616_t)(60*65536))
 
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetLimitCheckValue failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 	status = C.VL53L0X_SetMeasurementTimingBudgetMicroSeconds(tof.device, 33000)
 
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetMeasurementTimingBudgetMicroSeconds failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 	status = C.VL53L0X_SetVcselPulsePeriod(tof.device, C.VL53L0X_VCSEL_PERIOD_PRE_RANGE, 18)
 
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetVcselPulsePeriod failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 	status = C.VL53L0X_SetVcselPulsePeriod(tof.device, C.VL53L0X_VCSEL_PERIOD_FINAL_RANGE, 14)
 
 	if status != C.VL53L0X_ERROR_NONE {
+		fmt.Println("VL53L0X_SetVcselPulsePeriod failed: ", status)
 		return nil, ErrDataInitFailed
 	}
 	return tof, nil
@@ -227,7 +257,7 @@ func (p *TOFSensor) StartContinuousMeasurements() error {
 
 var (
 	ErrWaitFailed = errors.New("failed to wait")
-	ErrTimeout = errors.New("timed out")
+	ErrTimeout    = errors.New("timed out")
 )
 
 func (p *TOFSensor) GetNextContinuousMeasurement() (int, error) {
@@ -241,7 +271,7 @@ func (p *TOFSensor) GetNextContinuousMeasurement() (int, error) {
 		if ready == 1 {
 			break
 		}
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(100 * time.Microsecond)
 		if time.Since(start) > time.Second {
 			return 0, ErrTimeout
 		}

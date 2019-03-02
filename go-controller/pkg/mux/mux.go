@@ -19,6 +19,7 @@ const (
 type Interface interface {
 	DisableAllPorts() error
 	SelectSinglePort(num int) error
+	SelectMultiplePorts(i byte) error
 }
 
 type Mux struct {
@@ -37,6 +38,10 @@ func New(deviceFile string) (Interface, error) {
 
 func (p *Mux) SelectSinglePort(num int) error {
 	data := []byte{1 << uint(num)}
+	return p.dev.Write(data)
+}
+func (p *Mux) SelectMultiplePorts(i byte) error {
+	data := []byte{i}
 	return p.dev.Write(data)
 }
 
@@ -59,5 +64,9 @@ func (p *dummyMux) SelectSinglePort(num int) error {
 
 func (p *dummyMux) DisableAllPorts() error {
 	fmt.Printf("Dummy Mux disabling all ports\n")
+	return nil
+}
+
+func (p *dummyMux) SelectMultiplePorts(i byte) error {
 	return nil
 }
