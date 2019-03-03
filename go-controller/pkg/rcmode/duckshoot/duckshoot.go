@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/servo"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 )
 
 const (
@@ -31,8 +32,7 @@ const (
 )
 
 type ServoController struct {
-	propLock  *sync.Mutex // Guards access to the propeller
-	propeller propeller.Interface
+	servoSetter servo.ServoSetter
 
 	stopC  chan struct{}
 	doneWg sync.WaitGroup
@@ -46,9 +46,8 @@ func NewServoController() *ServoController {
 	}
 }
 
-func (d *ServoController) Start(propLock *sync.Mutex, propeller propeller.Interface) {
-	d.propLock = propLock
-	d.propeller = propeller
+func (d *ServoController) Start(servoSetter servo.ServoSetter) {
+	d.servoSetter = servoSetter
 	d.stopC = make(chan struct{})
 	d.doneWg.Add(1)
 
@@ -105,9 +104,7 @@ func (d *ServoController) loop() {
 		}
 
 		fmt.Println("Setting pitch:", ballThrowerPitch)
-		d.propLock.Lock()
-		d.propeller.SetServo(ServoPitch, ballThrowerPitch)
-		d.propLock.Unlock()
+		d.servoSetter.SetServo(ServoPitch, ballThrowerPitch)
 
 		if time.Since(autoRepeatStart) > 250*time.Millisecond {
 			autoRepeatFactor += 1
@@ -179,11 +176,9 @@ func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGrou
 	var motorStopC <-chan time.Time
 
 	updateServos := func() {
-		d.propLock.Lock()
-		d.propeller.SetServo(ServoMotor1, motorTop)
-		d.propeller.SetServo(ServoMotor2, motorBottom)
-		d.propeller.SetServo(ServoPlunger, plunger)
-		d.propLock.Unlock()
+		d.servoSetter.SetServo(ServoMotor1, motorTop)
+		d.servoSetter.SetServo(ServoMotor2, motorBottom)
+		d.servoSetter.SetServo(ServoPlunger, plunger)
 	}
 
 	stopTimer := func() {

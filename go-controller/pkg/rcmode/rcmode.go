@@ -5,47 +5,42 @@ import (
 	"math"
 	"sync"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/servo"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"fmt"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcheadingholder"
 )
-
-type ServoController interface {
-	Start(propLock *sync.Mutex, propeller propeller.Interface)
-	Stop()
-
-	OnJoystickEvent(event *joystick.Event)
-}
 
 type RCMode struct {
 	name         string
 	startupSound string
 
-	propLock  sync.Mutex // Guards access to the propeller
-	Propeller propeller.Interface
+	propLock sync.Mutex // Guards access to the propeller
+	hardware hardware.Interface
 
-	servoController ServoController
+	servoController servo.ServoController
 
 	cancel         context.CancelFunc
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
-
-	headingHolder *headingholder.RCHeadingHolder
 }
 
-func New(name, startupSound string, hw *hw.Hardware) *RCMode {
+func New(
+	name,
+	startupSound string,
+	hw hardware.Interface,
+	servoController servo.ServoController,
+) *RCMode {
 	r := &RCMode{
-		Propeller:       hw.Motors,
+		hardware:        hw,
 		joystickEvents:  make(chan *joystick.Event),
-		servoController: hw.ServoController,
+		servoController: servoController,
 		name:            name,
 		startupSound:    startupSound,
 	}
-	r.headingHolder = headingholder.New(&r.propLock, hw.Motors)
 	return r
 }
 
@@ -62,7 +57,6 @@ func (m *RCMode) Start(ctx context.Context) {
 	var loopCtx context.Context
 	loopCtx, m.cancel = context.WithCancel(ctx)
 	go m.loop(loopCtx)
-	go m.headingHolder.Loop(loopCtx, &m.stopWG)
 }
 
 func (m *RCMode) Stop() {
@@ -73,11 +67,14 @@ func (m *RCMode) Stop() {
 func (m *RCMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
 
-	m.servoController.Start(&m.propLock, m.Propeller)
+	m.servoController.Start(m.hardware)
 	defer m.servoController.Stop()
 
 	var leftStickX, leftStickY, rightStickX, rightStickY int16
 	var mix = MixAggressive
+
+	motorController := m.hardware.StartYawAndThrottleMode()
+	defer m.hardware.StopMotorControl()
 
 	for {
 		select {
@@ -110,8 +107,8 @@ func (m *RCMode) loop(ctx context.Context) {
 			}
 
 			m.servoController.OnJoystickEvent(event)
-			yaw, throttle, translate := mix(leftStickX, leftStickY, rightStickX, rightStickY)
-			m.headingHolder.SetControlInputs(yaw, throttle, translate)
+			yaw, throttle := mix(leftStickX, leftStickY, rightStickX, rightStickY)
+			motorController.SetYawAndThrottle(yaw, throttle)
 		}
 
 	}
@@ -121,25 +118,25 @@ func (m *RCMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
-func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translate float64) {
+func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle float64) {
 	const expo = 1.6
 	_ = lStickY
+	_ = rStickX
 
 	// Put all the values into the range (-1, 1) and apply expo.
 	yaw = applyExpo(float64(lStickX)/32767.0, 2.5) / 4
 	throttle = applyExpo(float64(rStickY)/-32767.0, expo) / 4
-	translate = applyExpo(float64(rStickX)/32767.0, expo) / 4
 	return
 }
 
-func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translate float64) {
+func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle float64) {
 	const expo = 1.6
 	_ = lStickY
+	_ = rStickX
 
 	// Put all the values into the range (-1, 1) and apply expo.
 	yaw = applyExpo(float64(lStickX)/32767.0, expo)
 	throttle = applyExpo(float64(rStickY)/-32767.0, expo)
-	translate = applyExpo(float64(rStickX)/32767.0, expo)
 
 	return
 }

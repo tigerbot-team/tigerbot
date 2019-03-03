@@ -5,11 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fogleman/gg"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
-	imu2 "github.com/tigerbot-team/tigerbot/go-controller/pkg/imu"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
+	"github.com/fogleman/gg"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"context"
 
@@ -19,18 +18,8 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/faiface/beep"
-	"github.com/faiface/beep/speaker"
-	"github.com/faiface/beep/wav"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbowmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/slstmode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 )
 
 type Mode interface {
@@ -62,95 +51,19 @@ func main() {
 	// Wait for the joystick and kick off a background thread to read from it.
 	joystickEvents := initJoystick(cancel, ctx)
 
-	// Initialise the SPI hardware.
-
-	// Screen.
-	go drawTests()
-
-	// IMU.
-	imu, err := imu2.NewSPI("/dev/spidev0.1")
-	if err != nil {
-		fmt.Println("Failed to open IMU", err)
-		panic("Failed to open IMU")
-	}
-	err = imu.Configure()
-	if err != nil {
-		fmt.Println("Failed to configure IMU", err)
-		panic("Failed to open IMU")
-	}
-	time.Sleep(1 * time.Second)
-	err = imu.Calibrate()
-	if err != nil {
-		fmt.Println("Failed to calibrate IMU", err)
-		panic("Failed to open IMU")
-	}
-	imu.ResetFIFO()
-
-	// Initialise the I2C hardware.  First the mux, which all the other peripherals rely on.
-	globalI2CLock.Lock()
-	i2cMux, err := mux.New("/dev/i2c-1")
-	globalI2CLock.Unlock()
-	if err != nil {
-		fmt.Println("Failed to open mux", err)
-		return
-	}
-	// TODO need to keep reading from the FIFO.
-
-	// Voltage monitors, background thread.
-	// Time of flight sensors.
-	// Servo controller.
-
-	// Prooeller
-	globalI2CLock.Lock()
-	prop, err := propeller.New(i2cMux, 7)
-	globalI2CLock.Unlock()
-	if err != nil {
-		fmt.Printf("Failed to open propeller: %v.\n", err)
-		if os.Getenv("IGNORE_MISSING_PROPELLER") == "true" {
-			fmt.Printf("Using dummy propeller\n")
-			prop = propeller.Dummy()
-		} else {
-			cancel()
-			return
-		}
-	}
-	fmt.Println("Zeroing motors for startup")
-	globalI2CLock.Lock()
-	err = prop.SetMotorSpeeds(0, 0)
-	globalI2CLock.Unlock()
-	if err != nil {
-		panic(err)
-	}
+	// Initialise the hardware.
+	hw := hardware.New()
 	defer func() {
 		fmt.Println("Zeroing motors for shut down")
-		globalI2CLock.Lock()
-		defer globalI2CLock.Unlock()
-		_ = prop.SetMotorSpeeds(0, 0)
+		hw.Shutdown()
+		time.Sleep(100 * time.Millisecond)
 	}()
 
-	// Init the sound system and play the startup sound.
-	soundsToPlay := initSounds()
-	defer close(soundsToPlay)
-	soundsToPlay <- "/sounds/tigerbotstart.wav"
-
-	hw := &hw.Hardware{
-		Motors:          prop,
-		DistanceSensors: nil,
-		I2CLock:         &globalI2CLock,
-		SPILock:         &globalSPILock,
-		IMU:             imu,
-		Mux:             i2cMux,
-		ServoController: duckshoot.NewServoController(),
-	}
+	hw.PlaySound("/sounds/tigerbotstart.wav")
 
 	allModes := []Mode{
-		rcmode.New("Golf mode", "/sounds/tigerbotstart.wav", hw),
-		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", hw),
-		mazemode.New(hw, soundsToPlay),
-		slstmode.New(hw, soundsToPlay),
-		rainbowmode.New(hw, soundsToPlay),
-		&testmode.TestMode{Propeller: hw.Motors},
-		&pausemode.PauseMode{Propeller: hw.Motors},
+		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
+		//&pausemode.PauseMode{Propeller: hw.Motors},
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
@@ -159,16 +72,13 @@ func main() {
 
 	switchMode := func(delta int) {
 		activeMode.Stop()
-		err = prop.SetMotorSpeeds(0, 0)
-		if err != nil {
-			panic(err)
-		}
+		hw.StopMotorControl()
 		activeModeIdx += delta
 		activeModeIdx = (activeModeIdx + len(allModes)) % len(allModes)
 		activeMode = allModes[activeModeIdx]
 		fmt.Printf("----- %s -----\n", activeMode.Name())
 
-		soundsToPlay <- activeMode.StartupSound()
+		hw.PlaySound(activeMode.StartupSound())
 
 		activeMode.Start(ctx)
 	}
@@ -209,54 +119,6 @@ func main() {
 			}
 		}
 	}
-}
-
-func initSounds() chan string {
-	soundsToPlay := make(chan string)
-	go func() {
-		defer func() {
-			recover()
-			for s := range soundsToPlay {
-				fmt.Println("Unable to play", s)
-			}
-		}()
-		sampleRate := beep.SampleRate(44100)
-		err := speaker.Init(sampleRate, sampleRate.N(time.Second/5))
-		if err != nil {
-			fmt.Println("Failed to open speaker", err)
-			for s := range soundsToPlay {
-				fmt.Println("Unable to play", s)
-			}
-		}
-		var ctrl *beep.Ctrl
-		var s beep.StreamSeekCloser
-		for soundToPlay := range soundsToPlay {
-			if ctrl != nil {
-				speaker.Lock()
-				ctrl.Paused = true
-				ctrl.Streamer = nil
-				speaker.Unlock()
-				ctrl = nil
-			}
-			if s != nil {
-				s.Close()
-			}
-
-			f, err := os.Open(soundToPlay)
-			if err != nil {
-				fmt.Println("Failed to open sound", err)
-				continue
-			}
-			s, _, err = wav.Decode(f)
-			if err != nil {
-				fmt.Println("Failed to decode sound", err)
-				continue
-			}
-			ctrl := &beep.Ctrl{Streamer: s}
-			speaker.Play(ctrl)
-		}
-	}()
-	return soundsToPlay
 }
 
 func initJoystick(cancel context.CancelFunc, ctx context.Context) chan *joystick.Event {

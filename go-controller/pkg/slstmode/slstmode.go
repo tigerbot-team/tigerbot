@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"fmt"
 	"sort"
@@ -57,7 +57,7 @@ type SLSTMode struct {
 	rotKd *Tunable
 }
 
-func New(hw *hw.Hardware, soundChannel chan string) *SLSTMode {
+func New(hw *hardware.Interface, soundChannel chan string) *SLSTMode {
 	mm := &SLSTMode{
 		Propeller:      hw.Motors,
 		soundChannel:   soundChannel,

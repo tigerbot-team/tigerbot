@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"fmt"
 	"log"
@@ -59,7 +59,7 @@ type MazeMode struct {
 	speedRampDown               *Tunable
 }
 
-func New(hw *hw.Hardware, soundChannel chan string) *MazeMode {
+func New(hw *hardware.Interface, soundChannel chan string) *MazeMode {
 	mm := &MazeMode{
 		Propeller:      hw.Motors,
 		joystickEvents: make(chan *joystick.Event),

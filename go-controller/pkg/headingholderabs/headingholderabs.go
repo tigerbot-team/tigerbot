@@ -1,4 +1,4 @@
-package headingholder
+package headingholderabs
 
 import (
 	"context"
@@ -10,29 +10,44 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/imu"
 )
 
+type RawControl interface {
+	SetMotorSpeeds(left, right int8)
+}
+
 func New(prop RawControl) *HeadingHolder {
 	return &HeadingHolder{
 		Motors: prop,
 	}
 }
 
-type RawControl interface {
-	SetMotorSpeeds(left, right int8)
-}
-
 type HeadingHolder struct {
 	Motors RawControl
 
-	controlLock    sync.Mutex
-	yaw, throttle  float64
-	currentHeading float64
+	controlLock sync.Mutex
+	controls
 }
 
-func (y *HeadingHolder) SetYawAndThrottle(yaw, throttle float64) {
+type controls struct {
+	desiredHeading float64
+	currentHeading float64
+	throttle       float64
+}
+
+func (y *HeadingHolder) SetHeading(desiredHeaading float64) {
 	y.controlLock.Lock()
 	defer y.controlLock.Unlock()
+	y.desiredHeading = desiredHeaading
+}
 
-	y.yaw = yaw
+func (y *HeadingHolder) AddHeadingDelta(delta float64) {
+	y.controlLock.Lock()
+	defer y.controlLock.Unlock()
+	y.desiredHeading += delta
+}
+
+func (y *HeadingHolder) SetThrottle(throttle float64) {
+	y.controlLock.Lock()
+	defer y.controlLock.Unlock()
 	y.throttle = throttle
 }
 
@@ -73,8 +88,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	defer ticker.Stop()
 
 	var headingEstimate float64
-	var targetHeading float64
-	var filteredTranslation, filteredThrottle float64
+	var filteredThrottle float64
 	var motorRotationSpeed float64
 	var lastHeadingError float64
 	var iHeadingError float64
@@ -84,9 +98,9 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		ki                        = 0.0
 		kd                        = -0.00007
 		maxIntegral               = 1
-		maxMotorSpeed             = 2.0
+		maxRotationThrottle       = 0.3
 		maxTranslationDeltaPerSec = 1
-		maxThrottleDeltaPerSec    = 1
+		maxThrottleDeltaPerSec    = 0.5
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()
@@ -107,16 +121,13 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// Grab the current control values.
 		y.controlLock.Lock()
-		targetYaw := y.yaw
-		targetThrottle := y.throttle
+		controls := y.controls
 		y.currentHeading = headingEstimate
 		y.controlLock.Unlock()
 
 		// Update our target heading accordingly.
 		loopTimeSecs := loopTime.Seconds()
-
-		// Avoid letting the yaw lead the heading too much.
-		targetHeading += loopTimeSecs * targetYaw * 300
+		targetHeading := controls.desiredHeading
 
 		const maxLeadDegrees = 20
 		if targetHeading > headingEstimate+maxLeadDegrees {
@@ -140,15 +151,16 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// Add the correction to the current speed.  We want 0 correction to mean "hold the same motor speed".
 		motorRotationSpeed = rotationCorrection
-		if motorRotationSpeed > maxMotorSpeed {
-			motorRotationSpeed = maxMotorSpeed
-		} else if motorRotationSpeed < -maxMotorSpeed {
-			motorRotationSpeed = -maxMotorSpeed
+		if motorRotationSpeed > maxRotationThrottle {
+			motorRotationSpeed = maxRotationThrottle
+		} else if motorRotationSpeed < -maxRotationThrottle {
+			motorRotationSpeed = -maxRotationThrottle
 		}
 
 		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
 			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
+		targetThrottle := controls.throttle
 		if math.Abs(targetThrottle) < 0.4 {
 			filteredThrottle = targetThrottle
 		} else if targetThrottle > filteredThrottle+maxThrottleDelta {
@@ -160,25 +172,19 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		}
 
 		// Map the values to speeds for each motor.
-		frontLeft := filteredThrottle + motorRotationSpeed + filteredTranslation
-		frontRight := filteredThrottle - motorRotationSpeed - filteredTranslation
-		backLeft := filteredThrottle + motorRotationSpeed - filteredTranslation
-		backRight := filteredThrottle - motorRotationSpeed + filteredTranslation
+		frontLeft := filteredThrottle + motorRotationSpeed
+		frontRight := filteredThrottle - motorRotationSpeed
 
-		m1 := math.Max(frontLeft, frontRight)
-		m2 := math.Max(backLeft, backRight)
-		m := math.Max(m1, m2)
+		m := math.Max(frontLeft, frontRight)
 		scale := 1.0
 		if m > 1 {
 			scale = 1.0 / m
 		}
 
-		fl := scaleAndClamp(frontLeft*scale, 127)
-		fr := scaleAndClamp(frontRight*scale, 127)
-		//bl := scaleAndClamp(backLeft*scale, 127)
-		//br := scaleAndClamp(backRight*scale, 127)
+		l := scaleAndClamp(frontLeft*scale, 127)
+		r := scaleAndClamp(frontRight*scale, 127)
 
-		y.Motors.SetMotorSpeeds(fl, fr)
+		y.Motors.SetMotorSpeeds(l, r)
 
 		lastHeadingError = headingError
 	}

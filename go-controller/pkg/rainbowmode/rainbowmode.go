@@ -12,7 +12,7 @@ import (
 
 	"sort"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hw"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
@@ -95,7 +95,7 @@ type RainbowMode struct {
 	config RainbowConfig
 }
 
-func New(hw *hw.Hardware, soundsToPlay chan string) *RainbowMode {
+func New(hw *hardware.Interface, soundsToPlay chan string) *RainbowMode {
 	m := &RainbowMode{
 		Propeller:      hw.Motors,
 		soundsToPlay:   soundsToPlay,
