@@ -1,8 +1,17 @@
 package hardware
 
-import "time"
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
+)
 
 type Interface interface {
+	Start(ctx context.Context)
+
 	// Enter a particular motor control mode (previous mode will be stopped if needed).
 	StartRawControlMode() RawControl
 	StartHeadingHoldMode() HeadingAbsolute
@@ -44,8 +53,19 @@ type Reading struct {
 	Error      error
 }
 
+func (r Reading) String() string {
+	if r.Error != nil {
+		return "<failed>"
+	}
+	if r.DistanceMM == tofsensor.RangeTooFar {
+		return ">2000mm"
+	}
+	return fmt.Sprintf("%dmm", r.DistanceMM)
+}
+
 type I2CInterface interface {
 	SetMotorSpeeds(left, right int8)
 	SetServo(n int, value uint8)
 	CurrentDistanceReadings() DistanceReadings
+	Loop(context context.Context, initDone *sync.WaitGroup)
 }

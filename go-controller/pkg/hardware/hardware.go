@@ -33,6 +33,13 @@ func New() *Hardware {
 	}
 }
 
+func (h *Hardware) Start(ctx context.Context) {
+	var initDone sync.WaitGroup
+	initDone.Add(1)
+	go h.i2c.Loop(ctx, &initDone)
+	initDone.Wait()
+}
+
 func (h *Hardware) StartRawControlMode() RawControl {
 	// Raw mode doesn't have any state so pass through.
 	h.StopMotorControl()
@@ -47,7 +54,7 @@ func (h *Hardware) StartHeadingHoldMode() HeadingAbsolute {
 
 	hh := headingholderabs.New(h.i2c)
 	h.currentControlModeDone.Add(1)
-	hh.Loop(ctx, &h.currentControlModeDone)
+	go hh.Loop(ctx, &h.currentControlModeDone)
 	h.imu = hh
 	return hh
 }
@@ -60,7 +67,7 @@ func (h *Hardware) StartYawAndThrottleMode() HeadingRelative {
 
 	hh := headingholder.New(h.i2c)
 	h.currentControlModeDone.Add(1)
-	hh.Loop(ctx, &h.currentControlModeDone)
+	go hh.Loop(ctx, &h.currentControlModeDone)
 	h.imu = hh
 	return hh
 }

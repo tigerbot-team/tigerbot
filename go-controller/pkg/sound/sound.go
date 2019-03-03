@@ -11,9 +11,11 @@ import (
 )
 
 func InitSound() chan string {
-	soundsToPlay := make(chan string)
+	soundsToPlay := make(chan string, 1)
 	go func() {
+		fmt.Println("Sound loop started")
 		defer func() {
+			fmt.Println("Sound loop exiting")
 			recover()
 			for s := range soundsToPlay {
 				fmt.Println("Unable to play", s)

@@ -76,14 +76,25 @@ func (c *I2CController) CurrentDistanceReadings() DistanceReadings {
 	return c.distanceReadings
 }
 
-func (c *I2CController) Loop(ctx context.Context) {
-	for ctx.Err() == nil {
-		c.loopUntilSomethingBadHappens(ctx)
-		fmt.Println("===== !!! WARNING !!! I2C FAILURE =====")
+func (c *I2CController) Loop(ctx context.Context, initDone *sync.WaitGroup) {
+	fmt.Println("I2C loop started")
+	for {
+		c.loopUntilSomethingBadHappens(ctx, initDone)
+		if ctx.Err() != nil {
+			return
+		}
+		fmt.Println("===== !!! WARNING !!! I2C FAILURE; TRYING TO RECOVER =====")
+		initDone = nil
 	}
 }
 
-func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context) {
+func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDone *sync.WaitGroup) {
+	defer func() {
+		if initDone != nil {
+			initDone.Done()
+		}
+	}()
+
 	mx, err := mux.New("/dev/i2c-1")
 	if err != nil {
 		fmt.Println("Failed to open mux", err)
@@ -171,6 +182,11 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context) {
 	var lastL, lastR int8
 	var lastPowerReadingTime time.Time
 
+	if initDone != nil {
+		initDone.Done()
+		initDone = nil
+	}
+
 	for ctx.Err() == nil {
 		<-ticker.C
 
@@ -219,8 +235,9 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context) {
 				if err != nil {
 					continue
 				}
-				fmt.Printf("Bus %v: %.2fV %.2fW", i, bv, bp)
+				fmt.Printf("Bus %v: %.2fV %.2fW ", i, bv, bp)
 			}
+			fmt.Println()
 			lastPowerReadingTime = time.Now()
 		}
 	}

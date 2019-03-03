@@ -66,7 +66,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	}
 	m.ResetFIFO()
 
-	const imuDT = 10 * time.Millisecond
+	const imuDT = 1 * time.Millisecond
 	const targetLoopDT = 20 * time.Millisecond
 
 	ticker := time.NewTicker(targetLoopDT)
@@ -80,13 +80,12 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var iHeadingError float64
 
 	const (
-		kp                        = 0.023
-		ki                        = 0.0
-		kd                        = -0.00007
-		maxIntegral               = 1
-		maxMotorSpeed             = 2.0
-		maxTranslationDeltaPerSec = 1
-		maxThrottleDeltaPerSec    = 1
+		kp                     = 0.010
+		ki                     = 0.0
+		kd                     = -0.00007
+		maxIntegral            = .1
+		maxMotorSpeed          = 2.0
+		maxThrottleDeltaPerSec = 1
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()

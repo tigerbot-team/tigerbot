@@ -66,19 +66,24 @@ func (m *RCMode) Stop() {
 
 func (m *RCMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
+	fmt.Println("RCMode main loop started")
 
+	fmt.Println("RCMode Starting servo controller")
 	m.servoController.Start(m.hardware)
 	defer m.servoController.Stop()
+	fmt.Println("RCMode Started servo controller")
 
 	var leftStickX, leftStickY, rightStickX, rightStickY int16
 	var mix = MixAggressive
 
+	fmt.Println("RCMode taking control of motors")
 	motorController := m.hardware.StartYawAndThrottleMode()
 	defer m.hardware.StopMotorControl()
 
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Println("RCMode context done")
 			return
 		case event := <-m.joystickEvents:
 			switch event.Type {

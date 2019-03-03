@@ -1,16 +1,16 @@
-package controller
+package main
 
 import (
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
 
-	"github.com/fogleman/gg"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
-
 	"context"
+
+	"github.com/fogleman/gg"
 
 	"log"
 	"os"
@@ -18,8 +18,8 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
 )
 
 type Mode interface {
@@ -58,12 +58,12 @@ func main() {
 		hw.Shutdown()
 		time.Sleep(100 * time.Millisecond)
 	}()
+	hw.Start(ctx)
 
 	hw.PlaySound("/sounds/tigerbotstart.wav")
 
 	allModes := []Mode{
 		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
-		//&pausemode.PauseMode{Propeller: hw.Motors},
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
@@ -81,7 +81,11 @@ func main() {
 		hw.PlaySound(activeMode.StartupSound())
 
 		activeMode.Start(ctx)
+		fmt.Println("Mode switch done.")
 	}
+
+	fmt.Println("Waiting for events...", joystickEvents)
+	watchdog := time.NewTicker(5 * time.Second)
 
 	for {
 		select {
@@ -115,14 +119,29 @@ func main() {
 			}
 			// Pass other joystick events through if this mode requires them.
 			if ju, ok := activeMode.(JoystickUser); ok {
-				ju.OnJoystickEvent(event)
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					ju.OnJoystickEvent(event)
+				}()
+				timeout := time.NewTimer(1 * time.Second)
+				select {
+				case <-done:
+					timeout.Stop()
+				case <-timeout.C:
+					// All the modes are supposed to just queue the event to the background thread.
+					// If they block this long, they've probably deadlocked.
+					panic("Deadlock? Active mode blocked OnJoystickEvent for >1s")
+				}
 			}
+		case <-watchdog.C:
+			fmt.Println("Main loop still running")
 		}
 	}
 }
 
 func initJoystick(cancel context.CancelFunc, ctx context.Context) chan *joystick.Event {
-	joystickEvents := make(chan *joystick.Event)
+	joystickEvents := make(chan *joystick.Event, 1)
 	firstLog := true
 	for {
 		jDev := os.Getenv("JOYSTICK_DEVICE")
@@ -173,7 +192,7 @@ func loopReadingJoystickEvents(ctx context.Context, j *joystick.Joystick, events
 			fmt.Printf("Failed to read from joystick: %v.\n", err)
 			return err
 		}
-		fmt.Printf("Event from joystick: %s\n", event)
+		fmt.Printf("Joy: %s\n", event)
 		events <- event
 	}
 	return ctx.Err()

@@ -116,7 +116,7 @@ func (p *Propeller) enableResetPin() error {
 	defer dirn.Close()
 	_, err = dirn.WriteString("high")
 	if err != nil {
-		fmt.Println("Failed to drive propeller reset pin")
+		fmt.Println("Failed to drive propeller reset pin", err)
 		return err
 	}
 	return nil
@@ -127,9 +127,9 @@ func (p *Propeller) Reset() error {
 	fmt.Println("Resetting the propeller")
 	value, err := os.OpenFile("/sys/class/gpio/gpio17/value", os.O_WRONLY, 0666)
 	defer value.Close()
-	_, err = value.WriteString("low")
+	_, err = value.WriteString("0")
 	if err != nil {
-		fmt.Println("Failed to drive propeller reset pin")
+		fmt.Println("Failed to drive propeller reset pin: ", err)
 		return err
 	}
 	return nil
