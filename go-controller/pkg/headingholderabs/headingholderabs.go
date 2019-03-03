@@ -94,13 +94,13 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var iHeadingError float64
 
 	const (
-		kp                        = 0.023
+		kp                        = 0.007
 		ki                        = 0.0
 		kd                        = -0.00007
 		maxIntegral               = 1
-		maxRotationThrottle       = 0.3
+		maxRotationThrottle       = 0.2
 		maxTranslationDeltaPerSec = 1
-		maxThrottleDeltaPerSec    = 0.5
+		maxThrottleDeltaPerSec    = 0.2
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()
