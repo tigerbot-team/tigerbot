@@ -143,8 +143,8 @@ func (t *TestMode) testSensors(ctx context.Context) {
 		for j, tof := range tofs {
 			reading := "-"
 			readingInMM, err := tof.GetNextContinuousMeasurement()
-			if err == tofsensor.ErrMeasurementInvalid {
-				reading = "<invalid>"
+			if readingInMM == tofsensor.RangeTooFar {
+				reading = ">2000mm"
 			} else if err != nil {
 				reading = "<failed>"
 			} else {

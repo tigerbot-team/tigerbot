@@ -242,8 +242,8 @@ func (m *SLSTMode) runSequence(ctx context.Context) {
 			readingInMM, err := tof.GetNextContinuousMeasurement()
 			m.i2cLock.Unlock()
 			filters[j].Accumulate(readingInMM)
-			if err == tofsensor.ErrMeasurementInvalid {
-				reading = "<invalid>"
+			if readingInMM == tofsensor.RangeTooFar {
+				reading = ">2000mm"
 			} else if err != nil {
 				reading = "<failed>"
 			} else {
@@ -453,7 +453,7 @@ func (f *Filter) IsGood() bool {
 func (f *Filter) BestGuess() int {
 	var goodSamples []int
 	for _, s := range f.samples {
-		if s != 0 {
+		if s != 0 && s < tofsensor.RangeTooFar {
 			goodSamples = append(goodSamples, s)
 		}
 	}

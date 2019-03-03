@@ -7,8 +7,6 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
-
 	"github.com/kr/pty"
 	"golang.org/x/exp/io/i2c"
 )
@@ -43,29 +41,25 @@ const (
 
 type Interface interface {
 	SetMotorSpeeds(left, right int8) error
-	SetServo(n int, value uint8) error
+	Close() error
 }
 
 type Propeller struct {
-	dev     *i2c.Device
-	mux     mux.Interface
-	muxPort int
+	dev *i2c.Device
 }
 
 func Dummy() Interface {
 	return &dummyPropeller{}
 }
 
-func New(mux mux.Interface, muxPort int) (Interface, error) {
+func New() (Interface, error) {
 	dev, err := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	prop := &Propeller{
-		dev:     dev,
-		mux:     mux,
-		muxPort: muxPort,
+		dev: dev,
 	}
 
 	err = prop.Flash()
@@ -153,33 +147,38 @@ func (p *Propeller) SetMotorSpeeds(left, right int8) error {
 	return p.writeWithRetries(data)
 }
 
-func (p *Propeller) SetServo(n int, value uint8) error {
-	var reg byte
-
-	switch n {
-	case 1:
-		reg = RegServo1
-	case 2:
-		reg = RegServo2
-	case 3:
-		reg = RegServo3
-	case 4:
-		reg = RegServo4
-	default:
-		panic(fmt.Errorf("Unknown servo %d", n))
-	}
-
-	fmt.Println("Setting servo", n, "to", value)
-
-	data := []byte{reg, byte(value)}
-	return p.writeWithRetries(data)
+func (p *Propeller) Close() error {
+	_ = p.Reset()
+	return p.dev.Close()
 }
+
+//
+//func (p *Propeller) SetServo(n int, value uint8) error {
+//	var reg byte
+//
+//	switch n {
+//	case 1:
+//		reg = RegServo1
+//	case 2:
+//		reg = RegServo2
+//	case 3:
+//		reg = RegServo3
+//	case 4:
+//		reg = RegServo4
+//	default:
+//		panic(fmt.Errorf("Unknown servo %d", n))
+//	}
+//
+//	fmt.Println("Setting servo", n, "to", value)
+//
+//	data := []byte{reg, byte(value)}
+//	return p.writeWithRetries(data)
+//}
 
 func (p *Propeller) writeWithRetries(data []byte) error {
 	var err error
 	for flashTries := 0; flashTries < 3; flashTries++ {
 		for tries := 0; tries < 20; tries++ {
-			err = p.mux.SelectSinglePort(p.muxPort)
 			if err == nil {
 				err = p.dev.Write(data)
 			} else {
@@ -218,7 +217,12 @@ func (p *dummyPropeller) SetMotorSpeeds(left, right int8) error {
 	return nil
 }
 
-func (p *dummyPropeller) SetServo(n int, value uint8) error {
-	fmt.Printf("Dummy propeller setting servo %d to %d\n", n, value)
+//
+//func (p *dummyPropeller) SetServo(n int, value uint8) error {
+//	fmt.Printf("Dummy propeller setting servo %d to %d\n", n, value)
+//	return nil
+//}
+
+func (p *dummyPropeller) Close() error {
 	return nil
 }

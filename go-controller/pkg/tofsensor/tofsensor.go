@@ -21,13 +21,16 @@ import (
 
 const (
 	TOFAddr = 0x70
+
+	// RangeTooFar is the range in mm that we return if the measurement was invalid, which
+	// typically means that the sensor got no response because the surface was too far away.
+	RangeTooFar = 2001
 )
 
 var (
-	ErrI2CInitFailed      = errors.New("I2C init failed")
-	ErrDataInitFailed     = errors.New("data init failed")
-	ErrMeasurementFailed  = errors.New("measurement failed")
-	ErrMeasurementInvalid = errors.New("measurement invalid")
+	ErrI2CInitFailed     = errors.New("I2C init failed")
+	ErrDataInitFailed    = errors.New("data init failed")
+	ErrMeasurementFailed = errors.New("measurement failed")
 )
 
 type Interface interface {
@@ -236,7 +239,7 @@ func (p *TOFSensor) DoSingleMeasurement() (int, error) {
 		return 0, ErrMeasurementFailed
 	}
 	if meas.RangeStatus != 0 {
-		return 0, ErrMeasurementInvalid
+		return RangeTooFar, nil
 	}
 	return int(meas.RangeMilliMeter), nil
 }
@@ -285,7 +288,7 @@ func (p *TOFSensor) GetNextContinuousMeasurement() (int, error) {
 	C.VL53L0X_ClearInterruptMask(p.device,
 		C.VL53L0X_REG_SYSTEM_INTERRUPT_GPIO_NEW_SAMPLE_READY)
 	if meas.RangeStatus != 0 {
-		return 0, ErrMeasurementInvalid
+		return RangeTooFar, nil
 	}
 	return int(meas.RangeMilliMeter), nil
 }

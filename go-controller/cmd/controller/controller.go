@@ -50,7 +50,7 @@ var (
 )
 
 func main() {
-	fmt.Print("---- Tigerbot ----\n\n")
+	fmt.Println("---- Wall-E ----")
 	fmt.Println("GOMAXPROCS", runtime.GOMAXPROCS(0))
 
 	// Our global context, we cancel it to trigger shutdown.

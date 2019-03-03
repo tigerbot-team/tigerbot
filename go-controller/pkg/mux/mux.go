@@ -9,17 +9,23 @@ import (
 const (
 	MuxAddr = 0x70
 
-	BusTOFForward    = 0
-	BusTOFFrontLeft  = 2
-	BusTOFFrontRight = 6
-	BusTOFSideLeft   = 7
-	BusTOFSideRight  = 1
+	BusTOFForwardLeft  = 0
+	BusTOFForwardRight = 1
+	BusTOFLeftFront    = 2
+	BusTOFLeftRear     = 3
+	BusTOFRightFront   = 4
+	BusTOFRightRear    = 5
+
+	BusOthers = 6
+
+	BusPropeller = 7
 )
 
 type Interface interface {
 	DisableAllPorts() error
 	SelectSinglePort(num int) error
 	SelectMultiplePorts(i byte) error
+	Close() error
 }
 
 type Mux struct {
@@ -50,6 +56,10 @@ func (p *Mux) DisableAllPorts() error {
 	return p.dev.Write(data)
 }
 
+func (p *Mux) Close() error {
+	return p.dev.Close()
+}
+
 func Dummy() Interface {
 	return &dummyMux{}
 }
@@ -68,5 +78,9 @@ func (p *dummyMux) DisableAllPorts() error {
 }
 
 func (p *dummyMux) SelectMultiplePorts(i byte) error {
+	return nil
+}
+
+func (p *dummyMux) Close() error {
 	return nil
 }

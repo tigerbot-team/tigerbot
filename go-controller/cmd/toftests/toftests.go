@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -13,9 +12,6 @@ import (
 )
 
 func main() {
-
-	fmt.Println("GOMAXPROCS: ", runtime.GOMAXPROCS(10))
-
 	mx, err := mux.New("/dev/i2c-1")
 	if err != nil {
 		fmt.Println("Failed to open mux", err)
@@ -71,8 +67,8 @@ func main() {
 			go func() {
 				reading := "-"
 				readingInMM, err := tof.GetNextContinuousMeasurement()
-				if err == tofsensor.ErrMeasurementInvalid {
-					reading = "<invalid>"
+				if readingInMM == tofsensor.RangeTooFar {
+					reading = ">2000mm"
 				} else if err != nil {
 					reading = "<failed>"
 				} else {
