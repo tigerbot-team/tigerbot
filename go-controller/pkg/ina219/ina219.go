@@ -1,6 +1,8 @@
 package ina219
 
 import (
+	"fmt"
+
 	"golang.org/x/exp/io/i2c"
 )
 
@@ -15,16 +17,13 @@ const (
 	RegCurrent     = 4
 	RegCalibration = 5
 
-	MaxCurrent = 10
-	CurrentLSB = MaxCurrent / (2 ^ 15)
-	ShuntOhms  = 0.1
+	ShuntOhms = 0.1
 
 	BusVoltageLSB = 0.004
-	PowerLSB      = CurrentLSB * 20
 )
 
 type Interface interface {
-	Configure() error
+	Configure(maxCurrent float64) error
 	ReadBusVoltage() (float64, error)
 	ReadCurrent() (float64, error)
 	ReadPower() (float64, error)
@@ -37,7 +36,8 @@ type port interface {
 }
 
 type INA219 struct {
-	dev port
+	currentLSB float64
+	dev        port
 }
 
 func NewI2C(deviceFile string, addr int) (Interface, error) {
@@ -50,13 +50,12 @@ func NewI2C(deviceFile string, addr int) (Interface, error) {
 	}, nil
 }
 
-func (m *INA219) Configure() error {
+func (m *INA219) Configure(maxCurrent float64) error {
 	// Write Calibration register
-	cval := CalculateCalibrationValue(CurrentLSB, ShuntOhms)
-	err := m.dev.WriteReg(RegCalibration, []byte{byte(cval), byte(cval >> 8)})
-	if err != nil {
-		return err
-	}
+	m.currentLSB = maxCurrent / (1 << 15)
+	cval := CalculateCalibrationValue(m.currentLSB, ShuntOhms)
+	fmt.Printf("INA219 calibration value: 0x%x\n", cval)
+	err := m.dev.WriteReg(RegCalibration, []byte{byte(cval >> 8), byte(cval)})
 	return err
 }
 
@@ -68,12 +67,12 @@ func (m *INA219) ReadBusVoltage() (float64, error) {
 
 func (m *INA219) ReadCurrent() (float64, error) {
 	raw, err := m.Read16(RegCurrent)
-	return float64(raw) * CurrentLSB, err
+	return float64(raw) * m.currentLSB, err
 }
 
 func (m *INA219) ReadPower() (float64, error) {
 	raw, err := m.Read16(RegPower)
-	return float64(raw) * PowerLSB, err
+	return float64(raw) * m.currentLSB * 20, err
 }
 
 func (m *INA219) Read16(reg byte) (uint16, error) {

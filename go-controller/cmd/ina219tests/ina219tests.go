@@ -34,21 +34,26 @@ func main() {
 		return
 	}
 
-	ina219A.Configure()
-	ina219B.Configure()
+	err = ina219A.Configure(2.0)
+	if err != nil {
+		fmt.Println("Failed to configure ina219B", err)
+		return
+	}
 
-	for range time.NewTicker(100 * time.Millisecond).C {
+	ina219B.Configure(1.0)
+
+	for range time.NewTicker(500 * time.Millisecond).C {
 		voltage, err := ina219A.ReadBusVoltage()
-		fmt.Printf("A: %2fV %v\n", voltage, err)
-		current, err := ina219A.ReadBusVoltage()
-		fmt.Printf("A: %2fA %v\n", current, err)
-		power, err := ina219A.ReadBusVoltage()
-		fmt.Printf("A: %2fW %v\n", power, err)
-		voltage, err = ina219B.ReadBusVoltage()
-		fmt.Printf("B: %2fV %v\n", voltage, err)
-		current, err = ina219B.ReadBusVoltage()
-		fmt.Printf("B: %2fA %v\n", current, err)
-		power, err = ina219B.ReadBusVoltage()
-		fmt.Printf("B: %2fW %v\n", power, err)
+		fmt.Printf("A: %.2fV %v ", voltage, err)
+		current, err := ina219A.ReadCurrent()
+		fmt.Printf("A: %.3fA %v ", current, err)
+		power, err := ina219A.ReadPower()
+		fmt.Printf("A: %.3fW %v\n", power, err)
+		//voltage, err = ina219B.ReadBusVoltage()
+		//fmt.Printf("B: %.2fV %v\n", voltage, err)
+		//current, err = ina219B.ReadCurrent()
+		//fmt.Printf("B: %.3fA %v\n", current, err)
+		//power, err = ina219B.ReadPower()
+		//fmt.Printf("B: %.3fW %v\n", power, err)
 	}
 }
