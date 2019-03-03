@@ -19,14 +19,16 @@ const (
 	RegSampleRateDiv = 25
 	RegConfig        = 26
 	RegGyroConf      = 27
+	RegGyroXOffset   = 19
 	RegGyroYOffset   = 21
 	RegFIFOEnable    = 35
+	RegGyroX         = 67 // 16 bits
 	RegGyroY         = 69 // 16 bits
 	RegUserCtl       = 106
 	RegFIFOCount     = 114 // 16 bits
 	RegFIFORW        = 116 // n-bytes
 
-	GyroRange = 2 // 1000 dps
+	GyroRange = 2 // 1000 dps  AKA FS_SEL
 )
 
 type Interface interface {
@@ -169,19 +171,24 @@ func (m *IMU) DegreesPerLSB() float64 {
 func (m *IMU) Calibrate() error {
 	// Now calibrate...
 	fmt.Println("Calibrating gyro")
-	m.dev.WriteReg(RegGyroYOffset, []byte{0, 0})
+	err := m.dev.WriteReg(RegGyroXOffset, []byte{0, 0})
+	if err != nil {
+		return err
+	}
 
 	m.ResetFIFO()
+	time.Sleep(100 * time.Millisecond)
+	m.ReadFIFO()
 
 	var sum float64
 	const n = 1000
 	i := 0
 outer:
 	for {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 		readings := m.ReadFIFO()
 		for _, r := range readings {
-			sum -= float64(r)
+			sum += float64(r)
 			i++
 			if i >= n {
 				break outer
@@ -190,17 +197,15 @@ outer:
 	}
 	offset := sum / n
 	fmt.Println("Offset", offset)
-	scaledOffset := offset / 4 * math.Pow(2, GyroRange)
+	scaledOffset := -offset / 4 * math.Pow(2, GyroRange)
 	fmt.Println("Scaled offset", scaledOffset)
 	scaledOffsetInt := int16(scaledOffset)
 	fmt.Println("Scaled offset int", scaledOffsetInt)
-	m.dev.WriteReg(RegGyroYOffset, []byte{byte(scaledOffsetInt >> 8), byte(scaledOffset)})
-
-	return nil
+	return m.dev.WriteReg(RegGyroXOffset, []byte{byte(scaledOffsetInt >> 8), byte(scaledOffset)})
 }
 
 func (m *IMU) ReadGyro() int16 {
-	return m.Read16(RegGyroY)
+	return m.Read16(RegGyroX)
 }
 
 func (m *IMU) ResetFIFO() {

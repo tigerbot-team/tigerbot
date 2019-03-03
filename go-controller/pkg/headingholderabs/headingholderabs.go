@@ -81,7 +81,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	}
 	m.ResetFIFO()
 
-	const imuDT = 10 * time.Millisecond
+	const imuDT = 1 * time.Millisecond
 	const targetLoopDT = 20 * time.Millisecond
 
 	ticker := time.NewTicker(targetLoopDT)
@@ -94,13 +94,12 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var iHeadingError float64
 
 	const (
-		kp                        = 0.007
-		ki                        = 0.0
-		kd                        = -0.00007
-		maxIntegral               = 1
-		maxRotationThrottle       = 0.2
-		maxTranslationDeltaPerSec = 1
-		maxThrottleDeltaPerSec    = 0.2
+		kp                     = 0.007
+		ki                     = 0.0
+		kd                     = -0.00007
+		maxIntegral            = 1
+		maxRotationThrottle    = 0.1
+		maxThrottleDeltaPerSec = 0.2
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()
@@ -157,8 +156,8 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			motorRotationSpeed = -maxRotationThrottle
 		}
 
-		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
-			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
+		fmt.Printf("HH: %v %d Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
+			loopTime, len(yawReadings), headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
 		targetThrottle := controls.throttle
 		if math.Abs(targetThrottle) < 0.4 {

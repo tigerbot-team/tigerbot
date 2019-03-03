@@ -50,7 +50,7 @@ func (t *TestMode) loop(ctx context.Context) {
 
 	for ctx.Err() == nil {
 		hh.AddHeadingDelta(90)
-		time.Sleep(5 * time.Second)
+		time.Sleep(10 * time.Second)
 	}
 }
 
