@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
 
@@ -64,6 +65,7 @@ func main() {
 
 	allModes := []Mode{
 		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
+		pausemode.New(hw),
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
@@ -71,8 +73,11 @@ func main() {
 	activeModeIdx := 0
 
 	switchMode := func(delta int) {
+		fmt.Println("Mode switch", delta)
 		activeMode.Stop()
+		fmt.Println("Mode switch: active mode stopped", delta)
 		hw.StopMotorControl()
+		fmt.Println("Mode switch: motors stopped", delta)
 		activeModeIdx += delta
 		activeModeIdx = (activeModeIdx + len(allModes)) % len(allModes)
 		activeMode = allModes[activeModeIdx]

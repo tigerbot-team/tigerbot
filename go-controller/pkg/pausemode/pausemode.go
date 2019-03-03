@@ -3,11 +3,20 @@ package pausemode
 import (
 	"context"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 )
 
+func New(hw hardware.Interface) *PauseMode {
+	return &PauseMode{
+		hw: hw,
+	}
+}
+
 type PauseMode struct {
 	Propeller propeller.Interface
+	hw        hardware.Interface
 }
 
 func (t *PauseMode) Name() string {
@@ -19,7 +28,7 @@ func (m *PauseMode) StartupSound() string {
 }
 
 func (t *PauseMode) Start(ctx context.Context) {
-	t.Propeller.SetMotorSpeeds(0, 0)
+	t.hw.StopMotorControl()
 }
 
 func (t *PauseMode) Stop() {

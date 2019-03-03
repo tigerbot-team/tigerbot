@@ -53,7 +53,7 @@ func (m *RCMode) StartupSound() string {
 }
 
 func (m *RCMode) Start(ctx context.Context) {
-	m.stopWG.Add(2)
+	m.stopWG.Add(1)
 	var loopCtx context.Context
 	loopCtx, m.cancel = context.WithCancel(ctx)
 	go m.loop(loopCtx)
