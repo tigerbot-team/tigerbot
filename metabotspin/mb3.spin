@@ -101,9 +101,9 @@ PUB main
   servofactor := millidiv * 140 / 25600 ' Scale factor from servo units to pulse time.
   motorfactor := millidiv / 256         ' Scale factor from servo units to motor pulse time.
 
-  Kp := 20
-  Ki := 4
-  Kd := 10
+  Kp := 60
+  Ki := 10
+  Kd := 15
   timeout := 100
   lastping := cnt
 
@@ -209,7 +209,7 @@ PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desir
       if time_at_zero[i] < motorshutdowntime
         error := desired_speed - actual_speed[i]
         error_derivative[i] := error - last_error
-        error_integral[i] := (error_integral[i] * 100 / 99) + error
+        error_integral[i] := error_integral[i] + error
         error_integral[i] := -maxintegral #> error_integral[i] <# maxintegral
         newspeed := Kp * error + Ki * error_integral[i] + Kd * error_derivative[i]
       else
