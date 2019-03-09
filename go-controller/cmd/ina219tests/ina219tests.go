@@ -49,11 +49,11 @@ func main() {
 		fmt.Printf("A: %.3fA %v ", current, err)
 		power, err := ina219A.ReadPower()
 		fmt.Printf("A: %.3fW %v\n", power, err)
-		//voltage, err = ina219B.ReadBusVoltage()
-		//fmt.Printf("B: %.2fV %v\n", voltage, err)
-		//current, err = ina219B.ReadCurrent()
-		//fmt.Printf("B: %.3fA %v\n", current, err)
-		//power, err = ina219B.ReadPower()
-		//fmt.Printf("B: %.3fW %v\n", power, err)
+		voltage, err = ina219B.ReadBusVoltage()
+		fmt.Printf("B: %.2fV %v ", voltage, err)
+		current, err = ina219B.ReadCurrent()
+		fmt.Printf("B: %.3fA %v ", current, err)
+		power, err = ina219B.ReadPower()
+		fmt.Printf("B: %.3fW %v\n", power, err)
 	}
 }

@@ -167,9 +167,15 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		return readings, nil
 	}
 
+	err = mx.SelectSinglePort(mux.BusOthers)
 	var powerSensors []ina219.Interface
 	for _, addr := range []int{0x41, 0x44} {
 		pwrSen, err := ina219.NewI2C("/dev/i2c-1", addr)
+		if err != nil {
+			fmt.Println("Failed to open power sensor; ignoring! ", err)
+			continue
+		}
+		err = pwrSen.Configure(10)
 		if err != nil {
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
 			continue
@@ -231,13 +237,16 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 				if err != nil {
 					continue
 				}
+				bc, err := ps.ReadCurrent()
+				if err != nil {
+					continue
+				}
 				bp, err := ps.ReadPower()
 				if err != nil {
 					continue
 				}
-				fmt.Printf("Bus %v: %.2fV %.2fW ", i, bv, bp)
+				fmt.Printf("Bus %v: %.2fV %.2fA %.2fW\n", i, bv, bc, bp)
 			}
-			fmt.Println()
 			lastPowerReadingTime = time.Now()
 		}
 	}
