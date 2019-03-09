@@ -25,7 +25,7 @@ func main() {
 		}
 	}()
 	for _, port := range []int{
-		0, 1, 3, 4, 5,
+		0, 1, 2, 3, 4, 5,
 	} {
 		fmt.Println("Intiialising ToF ", port)
 
@@ -39,20 +39,24 @@ func main() {
 		if err != nil {
 			tof, err = tofsensor.New("/dev/i2c-1", byte(0x30+port))
 			if err != nil {
-				fmt.Println("Failed to open sensor", err)
-				return
+				fmt.Println("Failed to open sensor, skipping ", port, " ", err)
+				continue
 			}
 		}
 
 		err = tof.StartContinuousMeasurements()
 		if err != nil {
 			fmt.Println("Failed to start continuous measurements", err)
-			return
+			continue
 		}
 		tofs = append(tofs, tof)
 	}
 
-	mx.SelectMultiplePorts(0x3f)
+	err = mx.SelectMultiplePorts(0x3f)
+	if err != nil {
+		fmt.Println("Failed to select mux port", err)
+		return
+	}
 
 	var l sync.Mutex
 	readSensors := func() {
