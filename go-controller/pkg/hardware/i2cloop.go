@@ -121,7 +121,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		}
 	}()
 	for _, port := range []int{
-		0, 1, 3, 4, 5,
+		0, 1, 2, 3, 4, 5,
 	} {
 		fmt.Println("Intiialising ToF ", port)
 
@@ -215,19 +215,31 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		c.lock.Lock()
 		l, r := c.motorL, c.motorR
 		c.lock.Unlock()
+		// Speeds have changed
+		err = mx.SelectSinglePort(mux.BusPropeller)
+		if err != nil {
+			fmt.Println("Failed to update mux port", err)
+			return
+		}
 		if lastL != l || lastR != r {
-			// Speeds have changed
-			err = mx.SelectSinglePort(mux.BusPropeller)
-			if err != nil {
-				fmt.Println("Failed to update mux port", err)
-				return
-			}
 			err = prop.SetMotorSpeeds(l, r)
 			if err != nil {
 				fmt.Println("Failed to update motor speeds", err)
 				return
 			}
 			lastL, lastR = l, r
+		}
+
+		m1, m2, err := prop.GetEncoderPositions()
+		if err == nil {
+			fmt.Println("Motor positions: ", m1, " ", m2)
+			err = prop.StartEncoderRead()
+			if err != nil {
+				fmt.Println("Failed to start encoder read", err)
+				return
+			}
+		} else if err != propeller.ErrNotReady {
+			fmt.Println("Failed to read encoders", err)
 		}
 
 		if time.Since(lastPowerReadingTime) > 10*time.Second {

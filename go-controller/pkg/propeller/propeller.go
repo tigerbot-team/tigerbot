@@ -1,6 +1,7 @@
 package propeller
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -33,15 +34,19 @@ const (
 	RegServo3 = 29
 	RegServo4 = 30
 
-	RegMotor1 = 22
-	RegMotor2 = 23
-	RegMotor3 = 24
-	RegMotor4 = 25
+	RegMotor0 = 22
+	RegMotor1 = 23
+	RegMotor2 = 24
+	RegMotor3 = 25
+
+	RegReadLock = 31
 )
 
 type Interface interface {
 	SetMotorSpeeds(left, right int8) error
 	Close() error
+	StartEncoderRead() error
+	GetEncoderPositions() (m1, m2 int32, err error)
 }
 
 type Propeller struct {
@@ -135,6 +140,34 @@ func (p *Propeller) Reset() error {
 	return nil
 }
 
+func (p *Propeller) StartEncoderRead() error {
+	data := []byte{RegReadLock, 1}
+	return p.writeWithRetries(data)
+}
+
+var ErrNotReady = errors.New("encoders not ready")
+
+func (p *Propeller) GetEncoderPositions() (m1, m2 int32, err error) {
+	buf := []byte{0}
+	err = p.dev.ReadReg(RegReadLock, buf)
+	if err != nil {
+		return
+	}
+	if buf[0] != 0 {
+		// Not ready to read
+		err = ErrNotReady
+		return
+	}
+	buf = make([]byte, 8)
+	err = p.dev.ReadReg(4, buf)
+	if err != nil {
+		return
+	}
+	m1 = int32(buf[3])<<24 | int32(buf[2])<<16 | int32(buf[1])<<8 | int32(buf[0])
+	m2 = -int32(int32(buf[7])<<24 | int32(buf[6])<<16 | int32(buf[5])<<8 | int32(buf[4]))
+	return
+}
+
 func (p *Propeller) SetMotorSpeeds(left, right int8) error {
 	// Clamp all the values for symmetry/to avoid overflow when we negate.
 	if left == -128 {
@@ -143,7 +176,7 @@ func (p *Propeller) SetMotorSpeeds(left, right int8) error {
 	if right == -128 {
 		right = -127
 	}
-	data := []byte{RegMotor2, byte(left), byte(-right)}
+	data := []byte{RegMotor1, byte(left), byte(-right)}
 	return p.writeWithRetries(data)
 }
 
@@ -210,6 +243,14 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 }
 
 type dummyPropeller struct {
+}
+
+func (p *dummyPropeller) StartEncoderRead() error {
+	return nil
+}
+
+func (p *dummyPropeller) GetEncoderPositions() (m1, m2 int32, err error) {
+	return
 }
 
 func (p *dummyPropeller) SetMotorSpeeds(left, right int8) error {

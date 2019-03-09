@@ -48,6 +48,12 @@ type DistanceReadings struct {
 	Readings []Reading
 }
 
+var startTime = time.Now()
+
+func (d DistanceReadings) String() string {
+	return fmt.Sprintf("T+%.4f %v", d.CaptureTime.Sub(startTime).Seconds(), d.Readings)
+}
+
 type Reading struct {
 	DistanceMM int
 	Error      error

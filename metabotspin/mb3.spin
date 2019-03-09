@@ -85,7 +85,6 @@ VAR
   long  Ki
   long  Kd
   byte  b
-  long  timeout
   long  lastping
   long  pingcog
   
@@ -104,7 +103,6 @@ PUB main
   Kp := 60
   Ki := 10
   Kd := 15
-  timeout := 100
   lastping := cnt
 
   ' Since we pre-calculate the servo delays in this thread we need to set them before we start the servo control cog.
@@ -138,12 +136,8 @@ PUB main
 
 PRI update | i
   ' If host is ready to read then write ping and position values
-  timeout := timeout + 1
-  if timeout > 100 or i2c.get(readready) > 0
-    timeout := 0
-    repeat i from 0 to 2
-      i2c.putw(pingbase+i*2, pingval[i])
-    repeat i from 0 to 3  
+  if i2c.get(readready) > 0
+    repeat i from 1 to 2
       i2c.putl(posbase+i*4, lastpos[i])
     i2c.put(readready, 0)                   ' reset ready for the next read
 
