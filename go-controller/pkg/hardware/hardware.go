@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/sound"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholderabs"
@@ -35,6 +37,7 @@ func New() *Hardware {
 
 func (h *Hardware) Start(ctx context.Context) {
 	var initDone sync.WaitGroup
+	go screen.LoopUpdatingScreen(ctx)
 	initDone.Add(1)
 	go h.i2c.Loop(ctx, &initDone)
 	initDone.Wait()

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/ina219"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
@@ -242,7 +244,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			fmt.Println("Failed to read encoders", err)
 		}
 
-		if time.Since(lastPowerReadingTime) > 10*time.Second {
+		if time.Since(lastPowerReadingTime) > 1*time.Second {
 			err = mx.SelectSinglePort(mux.BusOthers)
 			for i, ps := range powerSensors {
 				bv, err := ps.ReadBusVoltage()
@@ -258,6 +260,9 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 					continue
 				}
 				fmt.Printf("Bus %v: %.2fV %.2fA %.2fW\n", i, bv, bc, bp)
+				screen.Lock.Lock()
+				screen.BusVoltages[i] = bv
+				screen.Lock.Unlock()
 			}
 			lastPowerReadingTime = time.Now()
 		}

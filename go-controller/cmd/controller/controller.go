@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
@@ -12,8 +11,6 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
 
 	"context"
-
-	"github.com/fogleman/gg"
 
 	"log"
 	"os"
@@ -35,11 +32,6 @@ type Mode interface {
 type JoystickUser interface {
 	OnJoystickEvent(event *joystick.Event)
 }
-
-var (
-	globalI2CLock sync.Mutex
-	globalSPILock sync.Mutex
-)
 
 func main() {
 	fmt.Println("---- Wall-E ----")
@@ -204,102 +196,4 @@ func loopReadingJoystickEvents(ctx context.Context, j *joystick.Joystick, events
 		events <- event
 	}
 	return ctx.Err()
-}
-
-func drawTests() {
-	f, err := os.OpenFile("/dev/fb1", os.O_RDWR, 0666)
-	if err != nil {
-		panic(err)
-	}
-
-	charge := 0.0
-	for range time.NewTicker(500 * time.Millisecond).C {
-		const S = 128
-		dc := gg.NewContext(S, S)
-		dc.SetRGBA(1, 0.9, 0, 1)
-		//headingLock.Lock()
-		//j := headingEstimate
-		//headingLock.Unlock()
-		//for i := 0; i < 360; i += 15 {
-		//	dc.Push()
-		//	dc.RotateAbout(gg.Radians(float64(i)+j), S/2, S/2)
-		//	dc.DrawEllipse(S/2, S/2, S*7/16, S/8)
-		//	dc.Fill()
-		//	dc.Pop()
-		//}
-
-		dc.Push()
-		dc.Translate(60, 5)
-		dc.DrawString("CHARGE LVL", 0, 10)
-
-		// Draw the larger power bar at the bottom. Colour depends on charge level.
-		if charge < 0.1 {
-			dc.SetRGBA(1, 0.2, 0, 1)
-			dc.Push()
-			dc.Translate(14, 80)
-			DrawWarning(dc)
-			dc.Pop()
-		}
-
-		dc.DrawRectangle(36, 70, 30, 10)
-
-		for n := 2; n < 13; n++ {
-			if charge >= (float64(n) / 13) {
-				dc.DrawRectangle(38, 75-float64(n)*5, 26, 3)
-			}
-		}
-
-		dc.Fill()
-
-		dc.DrawString(fmt.Sprintf("%.1fv", 11.4+charge), 33, 93)
-
-		dc.SetRGBA(1, 0.9, 0, 1)
-
-		dc.Translate(14, 30)
-		dc.Rotate(gg.Radians(1))
-		dc.Scale(0.5, 1.0)
-		dc.DrawRegularPolygon(3, 0, 0, 14, 0)
-		dc.Fill()
-
-		dc.Pop()
-
-		charge += 0.1
-		if charge > 1 {
-			charge = 0
-		}
-
-		var buf [128 * 128 * 2]byte
-		for y := 0; y < S; y++ {
-			for x := 0; x < S; x++ {
-				c := dc.Image().At(x, y)
-				r, g, b, _ := c.RGBA() // 16-bit pre-multiplied
-
-				rb := byte(r >> (16 - 5))
-				gb := byte(g >> (16 - 6)) // Green has 6 bits
-				bb := byte(b >> (16 - 5))
-
-				buf[(127-y)*2+(x)*128*2+1] = (rb << 3) | (gb >> 3)
-				buf[(127-y)*2+(x)*128*2] = bb | (gb << 5)
-			}
-		}
-		_, err = f.Seek(0, 0)
-		if err != nil {
-			panic(err)
-		}
-
-		globalSPILock.Lock()
-		_, err = f.Write(buf[:])
-		globalSPILock.Unlock()
-		if err != nil {
-			panic(err)
-		}
-	}
-}
-
-func DrawWarning(dc *gg.Context) {
-	dc.SetRGB(1, 0.2, 0)
-	dc.DrawRegularPolygon(3, 0, 0, 14, 0)
-	dc.Fill()
-	dc.SetRGBA(0, 0, 0, 0.9)
-	dc.DrawString("!", -3, 3)
 }
