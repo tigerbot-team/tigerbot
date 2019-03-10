@@ -17,15 +17,15 @@ const (
 	ServoPlunger = 3
 	ServoPitch   = 4
 
-	ServoValueMotorOff = 0
-	ServoValueMotorOn  = 255
+	ServoValueMotorOff = 0.0
+	ServoValueMotorOn  = 1.0
 
-	ServoValuePlungerDefault = 0
-	ServoValuePlungerActive  = 255
+	ServoValuePlungerDefault = 0.0
+	ServoValuePlungerActive  = 1.0
 
-	ServoValuePitchDefault  = 127
-	ServoMaxPitch           = 178
-	ServoMinPitch           = 124
+	ServoValuePitchDefault  = 127 / 255.0
+	ServoMaxPitch           = 178 / 255.0
+	ServoMinPitch           = 124 / 255.0
 	PitchAutoRepeatInterval = 40 * time.Millisecond
 
 	MotorStopTime = time.Second
@@ -65,7 +65,7 @@ func (d *ServoController) loop() {
 	fmt.Println("ServoController loop started")
 
 	var dPadY int16
-	var ballThrowerPitch uint8 = ServoValuePitchDefault
+	var ballThrowerPitch float64 = ServoValuePitchDefault
 
 	// Start a goroutine to do fire-control sequencing for the ball flinger.
 	fireControlCtx, cancelFireControl := context.WithCancel(context.Background())
@@ -94,11 +94,11 @@ func (d *ServoController) loop() {
 		for i := 0; i < autoRepeatFactor; i++ {
 			if dPadY < 0 {
 				if ballThrowerPitch < ServoMaxPitch {
-					ballThrowerPitch++ // If changing to bigger increment, be careful of wrap-around
+					ballThrowerPitch += 0.01
 				}
 			} else if dPadY > 0 {
 				if ballThrowerPitch > ServoMinPitch {
-					ballThrowerPitch--
+					ballThrowerPitch -= 0.01
 				}
 			}
 		}
@@ -167,9 +167,9 @@ func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGrou
 	}()
 
 	var (
-		motorTop    uint8 = ServoValueMotorOff
-		motorBottom uint8 = ServoValueMotorOff
-		plunger     uint8 = ServoValuePlungerDefault
+		motorTop    = ServoValueMotorOff
+		motorBottom = ServoValueMotorOff
+		plunger     = ServoValuePlungerDefault
 	)
 
 	var motorStopTimer *time.Timer

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pca9685"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/ina219"
@@ -22,9 +24,9 @@ type I2CController struct {
 	lock sync.Mutex
 
 	// Desired values.  Stored off in case we need to re-initialise the hardware.
-	motorL, motorR    int8
-	servoPositions    []uint8
-	servosWithUpdates map[int]bool
+	motorL, motorR      int8
+	pwmPorts            map[int]pwmTypes // Either servoPosition or pwmValue
+	pwmPortsWithUpdates map[int]bool
 
 	prop        propeller.Interface
 	tofsEnabled bool
@@ -32,11 +34,24 @@ type I2CController struct {
 	distanceReadings DistanceReadings
 }
 
+type pwmTypes interface {
+	pwmsOnly()
+}
+
+type servoPosition float64
+
+func (servoPosition) pwmsOnly() {}
+
+type pwmValue float64
+
+func (pwmValue) pwmsOnly() {}
+
 func NewI2CController() *I2CController {
 	return &I2CController{
-		servoPositions:    make([]uint8, NumServoPorts),
-		tofsEnabled:       true,
-		servosWithUpdates: map[int]bool{},
+		pwmPorts:            map[int]pwmTypes{},
+		pwmPortsWithUpdates: map[int]bool{},
+
+		tofsEnabled: true,
 	}
 }
 
@@ -53,14 +68,17 @@ func (c *I2CController) SetMotorSpeeds(left, right int8) {
 	c.lock.Unlock()
 }
 
-func (c *I2CController) SetServo(n int, value uint8) {
+func (c *I2CController) SetServo(n int, value float64) {
 	c.lock.Lock()
-	if len(c.servoPositions) > n {
-		c.servoPositions[n] = value
-		c.servosWithUpdates[n] = true
-	} else {
-		fmt.Println("Warning: servo out of range: ", n)
-	}
+	c.pwmPorts[n] = servoPosition(value)
+	c.pwmPortsWithUpdates[n] = true
+	c.lock.Unlock()
+}
+
+func (c *I2CController) SetPWM(n int, value float64) {
+	c.lock.Lock()
+	c.pwmPorts[n] = pwmValue(value)
+	c.pwmPortsWithUpdates[n] = true
 	c.lock.Unlock()
 }
 
@@ -125,7 +143,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	for _, port := range []int{
 		0, 1, 2, 3, 4, 5,
 	} {
-		fmt.Println("Intiialising ToF ", port)
+		fmt.Println("Initialising ToF ", port)
 
 		err := mx.SelectSinglePort(port)
 		if err != nil {
@@ -184,6 +202,24 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		}
 		powerSensors = append(powerSensors, pwrSen)
 	}
+
+	servos, err := pca9685.New("/dev/i2c-1")
+	if err != nil {
+		fmt.Println("Failed open PCA9685 ", err)
+		return
+	}
+	defer servos.Close()
+	err = servos.Configure()
+	if err != nil {
+		fmt.Println("Failed configure PCA9685 ", err)
+		return
+	}
+	// We may have been reset, queue servo updates for all the ports.
+	c.lock.Lock()
+	for n := range c.pwmPorts {
+		c.pwmPortsWithUpdates[n] = true
+	}
+	c.lock.Unlock()
 
 	ticker := time.NewTicker(25 * time.Millisecond)
 
@@ -244,8 +280,30 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			fmt.Println("Failed to read encoders", err)
 		}
 
+		c.lock.Lock()
+		pwmUpdates := c.pwmPortsWithUpdates
+		c.pwmPortsWithUpdates = make(map[int]bool)
+		c.lock.Unlock()
+
+		err = mx.SelectSinglePort(mux.BusOthers)
+		for n := range pwmUpdates {
+			c.lock.Lock()
+			value := c.pwmPorts[n]
+			c.lock.Unlock()
+
+			switch v := value.(type) {
+			case servoPosition:
+				err = servos.SetServo(n, float64(v))
+			case pwmValue:
+				err = servos.SetPWM(n, float64(v))
+			}
+			if err != nil {
+				fmt.Println("Failed to update servo/PWM port ", n, ": ", err)
+				return
+			}
+		}
+
 		if time.Since(lastPowerReadingTime) > 1*time.Second {
-			err = mx.SelectSinglePort(mux.BusOthers)
 			for i, ps := range powerSensors {
 				bv, err := ps.ReadBusVoltage()
 				if err != nil {

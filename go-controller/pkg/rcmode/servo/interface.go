@@ -3,7 +3,7 @@ package servo
 import "github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 
 type ServoSetter interface {
-	SetServo(n int, value uint8)
+	SetServo(n int, value float64)
 }
 
 type ServoController interface {

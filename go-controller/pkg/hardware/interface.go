@@ -22,7 +22,8 @@ type Interface interface {
 	CurrentHeading() float64
 	CurrentDistanceReadings() DistanceReadings
 
-	SetServo(n int, value uint8)
+	SetServo(port int, value float64)
+	SetPWM(port int, value float64)
 
 	PlaySound(path string)
 }
@@ -71,7 +72,8 @@ func (r Reading) String() string {
 
 type I2CInterface interface {
 	SetMotorSpeeds(left, right int8)
-	SetServo(n int, value uint8)
+	SetServo(n int, value float64)
+	SetPWM(n int, value float64)
 	CurrentDistanceReadings() DistanceReadings
 	Loop(context context.Context, initDone *sync.WaitGroup)
 }

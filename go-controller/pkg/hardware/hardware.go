@@ -35,6 +35,8 @@ func New() *Hardware {
 	}
 }
 
+var _ Interface = (*Hardware)(nil)
+
 func (h *Hardware) Start(ctx context.Context) {
 	var initDone sync.WaitGroup
 	go screen.LoopUpdatingScreen(ctx)
@@ -97,8 +99,12 @@ func (h *Hardware) CurrentDistanceReadings() DistanceReadings {
 	return h.i2c.CurrentDistanceReadings()
 }
 
-func (h *Hardware) SetServo(n int, value uint8) {
+func (h *Hardware) SetServo(n int, value float64) {
 	h.i2c.SetServo(n, value)
+}
+
+func (h *Hardware) SetPWM(n int, value float64) {
+	h.i2c.SetPWM(n, value)
 }
 
 func (h *Hardware) PlaySound(path string) {
