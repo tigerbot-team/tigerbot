@@ -54,7 +54,7 @@ func main() {
 			return
 		}
 
-		parts := strings.Split(line, "")
+		parts := strings.Split(line, " ")
 		switch parts[0] {
 		case "s", "p":
 			if len(parts) < 3 {
@@ -70,22 +70,16 @@ func main() {
 				fmt.Println("Expected 0 <= n < 16")
 				continue
 			}
-			v, err := strconv.ParseFloat(parts[1], 64)
+			v, err := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
 			if err != nil {
 				fmt.Println("Expected float, not ", parts[2])
 				continue
 			}
-			if v > 1 {
-				fmt.Println("Clamping value to 1.0")
-				v = 1
-			}
-			if v < 0 {
-				fmt.Println("Clamping value to 0.0")
-				v = 0
-			}
 			if parts[0] == "s" {
+				fmt.Printf("Setting servo %d to %f\n", n, v)
 				err = pwmController.SetServo(n, v)
 			} else {
+				fmt.Printf("Setting PWM %d to %f\n", n, v)
 				err = pwmController.SetPWM(n, v)
 			}
 			if err != nil {

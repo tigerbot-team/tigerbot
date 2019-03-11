@@ -58,6 +58,10 @@ func (p *PCA9685) Configure() (err error) {
 	if err != nil {
 		return
 	}
+	err = p.dev.WriteReg(RegMode2, []byte{0x04})
+	if err != nil {
+		return
+	}
 	// Update pre-scaler for 50Hz.
 	err = p.dev.WriteReg(RegPreScale, []byte{0x79})
 	if err != nil {
@@ -80,16 +84,21 @@ func (p *PCA9685) SetServo(port int, value float64) error {
 		fmt.Println("Servo port out of range: ", port)
 		return nil
 	}
-	if value < 0 {
-		value = 0
-	} else if value > 1 {
-		value = 1
+
+	// Allow a little over-driving of the servos.
+	if value < -0.5 {
+		value = -0.5
+	} else if value > 1.5 {
+		value = 1.5
 	}
 
 	pwmValue := uint16(ServoMinPWM + value*(ServoMaxPWM-ServoMinPWM))
-	addr := RegLEDBase + port*4
+	addr := byte(RegLEDBase + port*4)
 
-	return p.dev.WriteReg(byte(addr), []byte{0, 0, byte(pwmValue & 0xff), byte(pwmValue >> 8)})
+	buf := []byte{0, 0, byte(pwmValue & 0xff), byte(pwmValue >> 8)}
+
+	// Auto-increment doesn't seem to work properly?
+	return p.writeIndividualRegs(byte(addr), buf)
 }
 
 func (p *PCA9685) SetPWM(port int, value float64) error {
@@ -106,7 +115,21 @@ func (p *PCA9685) SetPWM(port int, value float64) error {
 	pwmValue := uint16(PWMMax * value)
 	addr := RegLEDBase + port*4
 
-	return p.dev.WriteReg(byte(addr), []byte{0, 0, byte(pwmValue & 0xff), byte(pwmValue >> 8)})
+	buf := []byte{0, 0, byte(pwmValue & 0xff), byte(pwmValue >> 8)}
+
+	// Auto-increment doesn't seem to work properly?
+	return p.writeIndividualRegs(byte(addr), buf)
+}
+
+func (p *PCA9685) writeIndividualRegs(fromAddr byte, data []byte) error {
+	for i := 0; i < len(data); i++ {
+		addr := fromAddr + byte(i)
+		err := p.dev.WriteReg(addr, data[i:i+1])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *PCA9685) Close() error {
