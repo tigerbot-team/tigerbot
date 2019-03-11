@@ -75,7 +75,7 @@ func (p *PCA9685) Configure() (err error) {
 	// Required delay after reset.
 	time.Sleep(1 * time.Millisecond)
 	// Enable.
-	err = p.dev.WriteReg(RegMode1, []byte{0x81})
+	err = p.dev.WriteReg(RegMode1, []byte{0xa1})
 	return
 }
 
@@ -97,8 +97,7 @@ func (p *PCA9685) SetServo(port int, value float64) error {
 
 	buf := []byte{0, 0, byte(pwmValue & 0xff), byte(pwmValue >> 8)}
 
-	// Auto-increment doesn't seem to work properly?
-	return p.writeIndividualRegs(byte(addr), buf)
+	return p.dev.WriteReg(byte(addr), buf)
 }
 
 func (p *PCA9685) SetPWM(port int, value float64) error {
@@ -117,19 +116,7 @@ func (p *PCA9685) SetPWM(port int, value float64) error {
 
 	buf := []byte{0, 0, byte(pwmValue & 0xff), byte(pwmValue >> 8)}
 
-	// Auto-increment doesn't seem to work properly?
-	return p.writeIndividualRegs(byte(addr), buf)
-}
-
-func (p *PCA9685) writeIndividualRegs(fromAddr byte, data []byte) error {
-	for i := 0; i < len(data); i++ {
-		addr := fromAddr + byte(i)
-		err := p.dev.WriteReg(addr, data[i:i+1])
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return p.dev.WriteReg(byte(addr), buf)
 }
 
 func (p *PCA9685) Close() error {
