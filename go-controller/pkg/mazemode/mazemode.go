@@ -272,6 +272,8 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 			hh.SetThrottle(speed / 100)
 
+			// TODO Stay in middle of walls
+
 			//// Calculate our translational error.  We do our best to deal with missing sensor readings.
 			//if leftRear.IsGood() && rightFore.IsGood() {
 			//	// We have readings from both sides of the bot, try to stay in the middle.

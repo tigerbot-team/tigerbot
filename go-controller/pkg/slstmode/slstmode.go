@@ -8,27 +8,23 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"fmt"
+	"log"
 	"sort"
 	"sync/atomic"
 	"time"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	. "github.com/tigerbot-team/tigerbot/go-controller/pkg/tunable"
 )
 
 type SLSTMode struct {
-	i2cLock        sync.Mutex
-	Propeller      propeller.Interface
-	headingHolder  *headingholder.HeadingHolder
+	hw hardware.Interface
+
 	cancel         context.CancelFunc
 	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
-	soundChannel   chan string
 
 	running        bool
 	cancelSequence context.CancelFunc
@@ -38,81 +34,63 @@ type SLSTMode struct {
 
 	tunables Tunables
 
-	cornerSensorOffset      *Tunable
-	cornerSensorAngleOffset *Tunable
-	clearanceReturnFactor   *Tunable
+	turnEntryThreshMM   *Tunable
+	turnExitThresh      *Tunable
+	turnExitRatioThresh *Tunable
 
-	frontDistanceStopThresh     *Tunable
-	cornerDistanceSpeedUpThresh *Tunable
-	baseSpeed                   *Tunable
-	topSpeed                    *Tunable
-	speedRampUp                 *Tunable
-	speedRampDown               *Tunable
+	turnThrottlePct *Tunable
 
-	tnKp  *Tunable
-	tnKi  *Tunable
-	tnKd  *Tunable
-	rotKp *Tunable
-	rotKi *Tunable
-	rotKd *Tunable
+	frontDistanceSpeedUpThreshMM *Tunable
+	baseSpeedPct                 *Tunable
+	topSpeedPct                  *Tunable
+	speedRampUp                  *Tunable
+	speedRampDown                *Tunable
 }
 
-func New(hw *hardware.Interface, soundChannel chan string) *SLSTMode {
+func New(hw hardware.Interface) *SLSTMode {
 	mm := &SLSTMode{
-		Propeller:      hw.Motors,
-		soundChannel:   soundChannel,
+		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
 	}
 
-	mm.headingHolder = headingholder.New(&mm.i2cLock, hw.Motors)
+	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 20)
+	mm.turnThrottlePct = mm.tunables.Create("Turn throttle %", 0)
 
-	mm.cornerSensorOffset = mm.tunables.Create("Corner sensor offset", -12)
-	mm.cornerSensorAngleOffset = mm.tunables.Create("Corner sensor angle offset", -8)
-	mm.clearanceReturnFactor = mm.tunables.Create("Clearance return factor", 90)
-
-	mm.frontDistanceStopThresh = mm.tunables.Create("Front distance stop threshold", 200)
-	mm.cornerDistanceSpeedUpThresh = mm.tunables.Create("Corner distance speed up thresh", 70)
-	mm.baseSpeed = mm.tunables.Create("Base speed", 35)
-	mm.topSpeed = mm.tunables.Create("Top speed", 127)
-	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 3)
-	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 2)
-
-	mm.tnKp = mm.tunables.Create("Translation Kp (thousandths)", 50)
-	mm.tnKi = mm.tunables.Create("Translation Ki (ten-thousandths)", 10)
-	mm.tnKd = mm.tunables.Create("Translation Kd (ten-thousandths)", -10)
-	mm.rotKp = mm.tunables.Create("Rotation Kp (thousandths)", 90)
-	mm.rotKi = mm.tunables.Create("Rotation Ki (ten-thousandths)", 0)
-	mm.rotKd = mm.tunables.Create("Rotation Kd (ten-thousandths)", -20)
+	mm.frontDistanceSpeedUpThreshMM = mm.tunables.Create("Front distance speed up thresh", 350)
+	mm.baseSpeedPct = mm.tunables.Create("Base speed %", 10)
+	mm.topSpeedPct = mm.tunables.Create("Top speed %", 15)
+	mm.speedRampUp = mm.tunables.Create("Speed ramp up %/loop", 1)
+	mm.speedRampDown = mm.tunables.Create("Speed ramp down %/loop", 1)
 
 	return mm
 }
 
-func (m *SLSTMode) Name() string {
-	return "SLST mode"
+func (s *SLSTMode) Name() string {
+	return "SPEED MODE"
 }
 
-func (m *SLSTMode) StartupSound() string {
+func (s *SLSTMode) StartupSound() string {
 	return "/sounds/slstmode.wav"
 }
 
-func (m *SLSTMode) Start(ctx context.Context) {
-	m.stopWG.Add(1)
+func (s *SLSTMode) Start(ctx context.Context) {
+	s.stopWG.Add(1)
 	var loopCtx context.Context
-	loopCtx, m.cancel = context.WithCancel(ctx)
-	go m.loop(loopCtx)
+	loopCtx, s.cancel = context.WithCancel(ctx)
+	go s.loop(loopCtx)
 }
 
-func (m *SLSTMode) Stop() {
-	m.cancel()
-	m.stopWG.Wait()
+func (s *SLSTMode) Stop() {
+	s.cancel()
+	s.stopWG.Wait()
 
-	for _, t := range m.tunables.All {
+	for _, t := range s.tunables.All {
 		fmt.Println("Tunable:", t.Name, "=", t.Value)
 	}
 }
 
-func (m *SLSTMode) loop(ctx context.Context) {
-	defer m.stopWG.Done()
+func (s *SLSTMode) loop(ctx context.Context) {
+	defer s.stopWG.Done()
 
 	var startTime time.Time
 
@@ -120,25 +98,27 @@ func (m *SLSTMode) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case event := <-m.joystickEvents:
+		case event := <-s.joystickEvents:
 			switch event.Type {
 			case joystick.EventTypeButton:
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
-						m.startSequence()
-						m.startWG.Add(1)
+						fmt.Println("Getting ready!")
+						s.startWG.Add(1)
+						s.startSequence()
 					case joystick.ButtonSquare:
-						m.stopSequence()
+						s.stopSequence()
 						fmt.Println("Run time:", time.Since(startTime))
 					case joystick.ButtonTriangle:
-						m.pauseOrResumeSequence()
+						s.pauseOrResumeSequence()
 					}
 				} else {
 					switch event.Number {
 					case joystick.ButtonR1:
+						fmt.Println("GO!")
 						startTime = time.Now()
-						m.startWG.Done()
+						s.startWG.Done()
 					}
 				}
 			case joystick.EventTypeAxis:
@@ -146,18 +126,18 @@ func (m *SLSTMode) loop(ctx context.Context) {
 				case joystick.AxisDPadX:
 					if event.Value > 0 {
 						// Right
-						m.tunables.SelectNext()
+						s.tunables.SelectNext()
 					} else if event.Value < 0 {
 						// Left
-						m.tunables.SelectPrev()
+						s.tunables.SelectPrev()
 					}
 				case joystick.AxisDPadY:
 					if event.Value < 0 {
 						// Up
-						m.tunables.Current().Add(1)
+						s.tunables.Current().Add(1)
 					} else if event.Value > 0 {
 						// Down
-						m.tunables.Current().Add(-1)
+						s.tunables.Current().Add(-1)
 					}
 				}
 			}
@@ -166,241 +146,241 @@ func (m *SLSTMode) loop(ctx context.Context) {
 	}
 }
 
-func (m *SLSTMode) startSequence() {
-	if m.running {
+func (s *SLSTMode) startSequence() {
+	if s.running {
 		fmt.Println("Already running")
 		return
 	}
 
 	fmt.Println("Starting sequence...")
-	m.running = true
-	atomic.StoreInt32(&m.paused, 0)
+	s.running = true
+	atomic.StoreInt32(&s.paused, 0)
 
 	seqCtx, cancel := context.WithCancel(context.Background())
-	m.cancelSequence = cancel
-	m.sequenceWG.Add(1)
-	go m.runSequence(seqCtx)
+	s.cancelSequence = cancel
+	s.sequenceWG.Add(1)
+	go s.runSequence(seqCtx)
 }
 
-func (m *SLSTMode) runSequence(ctx context.Context) {
-	defer m.sequenceWG.Done()
-
-	m.i2cLock.Lock()
-	mx, err := mux.New("/dev/i2c-1")
-	m.i2cLock.Unlock()
-	if err != nil {
-		fmt.Println("Failed to open mux", err)
-		return
-	}
-
-	var tofs []tofsensor.Interface
-	defer func() {
-		m.i2cLock.Lock()
-		for _, tof := range tofs {
-			tof.Close()
-		}
-		m.i2cLock.Unlock()
-	}()
-	for _, port := range []int{
-		mux.BusTOFSideLeft,
-		mux.BusTOFFrontLeft,
-		mux.BusTOFForward,
-		mux.BusTOFFrontRight,
-		mux.BusTOFSideRight,
-	} {
-		m.i2cLock.Lock()
-		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
-		m.i2cLock.Unlock()
-		if err != nil {
-			fmt.Println("Failed to open sensor", err)
-			return
-		}
-		m.i2cLock.Lock()
-		err = tof.StartContinuousMeasurements()
-		m.i2cLock.Unlock()
-		if err != nil {
-			fmt.Println("Failed to start continuous measurements", err)
-			return
-		}
-		tofs = append(tofs, tof)
-	}
-
+func (s *SLSTMode) runSequence(ctx context.Context) {
+	defer s.sequenceWG.Done()
 	defer fmt.Println("Exiting sequence loop")
 
+	// Create time-of-flight reading filters; should filter out any stray readings.
 	var filters []*Filter
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		filters = append(filters, &Filter{})
 	}
 
 	readSensors := func() {
 		// Read the sensors
-		start := time.Now()
-		fmt.Print("ToF: ")
-		for j, tof := range tofs {
-			reading := "-"
-			m.i2cLock.Lock()
-			readingInMM, err := tof.GetNextContinuousMeasurement()
-			m.i2cLock.Unlock()
+		msg := ""
+		readings := s.hw.CurrentDistanceReadings()
+		for j, r := range readings.Readings {
+			prettyPrinted := "-"
+			readingInMM, err := r.DistanceMM, r.Error
 			filters[j].Accumulate(readingInMM)
 			if readingInMM == tofsensor.RangeTooFar {
-				reading = ">2000mm"
+				prettyPrinted = ">2000mm"
 			} else if err != nil {
-				reading = "<failed>"
+				prettyPrinted = "<failed>"
 			} else {
-				reading = fmt.Sprintf("%dmm", readingInMM)
+				prettyPrinted = fmt.Sprintf("%dmm", readingInMM)
 			}
-			fmt.Printf("%s:=%5s/%5dmm ", filters[j].Name, reading, filters[j].BestGuess())
+			msg += fmt.Sprintf("%s:=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
 		}
-		fmt.Println("in", time.Since(start))
+		fmt.Println(msg)
 	}
 
-	sideLeft := filters[0]
-	sideLeft.Name = "L"
-	frontLeft := filters[1]
+	leftRear := filters[0]
+	leftRear.Name = "LR"
+	leftFore := filters[1]
+	leftFore.Name = "LF"
+	frontLeft := filters[2]
 	frontLeft.Name = "FL"
-	front := filters[2]
-	front.Name = "F"
 	frontRight := filters[3]
 	frontRight.Name = "FR"
-	sideRight := filters[4]
-	sideRight.Name = "R"
-	_ = frontRight
-	_ = frontLeft
-	_ = sideLeft
-	_ = sideRight
+	rightFore := filters[4]
+	rightFore.Name = "RF"
+	rightRear := filters[5]
+	rightRear.Name = "RR"
 
-	readSensors()
-	readSensors()
+	// We use the absolute heading hold mode so we can do things like "turn right 45 degrees".
+	hh := s.hw.StartHeadingHoldMode()
 
-	m.sequenceWG.Add(1)
-	go m.headingHolder.Loop(ctx, &m.sequenceWG)
-
-	m.soundChannel <- "/sounds/ready.wav"
-
-	m.startWG.Wait()
+	// Let the user know that we're ready, then wait for the "GO" signal.
+	s.hw.PlaySound("/sounds/ready.wav")
+	s.startWG.Wait()
 
 	const (
-		wallSeparationMMs = 560
+		wallSeparationMMs = 550
 		botWidthMMs       = 200
 		clearanceMMs      = (wallSeparationMMs - botWidthMMs) / 2
 	)
 
-	var lastTnError float64  // positive if we're too far right
-	var lastRotError float64 // positive if we're rotated too far clockwise
-	var tnErrorInt float64
-	var rotErrorInt float64
-	var lastReadingTime = time.Now()
+	//var targetSideClearance float64 = clearanceMMs
+	//var translationErrorMMs float64 // positive if we're too far right
+	//var rotationErrorMMs float64    // positive if we're rotated too far clockwise
 
-	var speed float64 = float64(m.baseSpeed.Get())
+	lastTurnSign := 0
 
 	for ctx.Err() == nil {
-		// Main loop, follow the walls.
+		// Main loop, alternates between following the walls until we detect a wall in front, and then
+		// making turns.
 
-		m.sleepIfPaused(ctx)
-		baseSpeed := float64(m.baseSpeed.Get())
+		var speed float64 = float64(s.baseSpeedPct.Get())
 
-		var readingTime = time.Now()
-		readSensors()
-
-		// FIXME: spurious triggers if there's a speck of something reflective on the floor!
-		//// If we reach a wall in front, stop!
-		//if !front.IsFar() {
-		//	frontGuess := front.BestGuess()
-		//	if frontGuess < m.frontDistanceStopThresh.Get() &&
-		//		// In case of spurious reading from front sensor, check the others too
-		//		(frontLeft.BestGuess() < m.frontDistanceStopThresh.Get() ||
-		//			frontRight.BestGuess() < m.frontDistanceStopThresh.Get()) {
-		//		log.Println("Reached wall in front")
-		//		break
-		//	}
-		//}
-
-		cornerSensorOffset := m.cornerSensorOffset.Get()
-		cornerSensorAngleOffset := float64(m.cornerSensorAngleOffset.Get())
-		frontLeftHorizEstMMs := float64(frontLeft.BestGuess()+cornerSensorOffset) *
-			(100.0 + cornerSensorAngleOffset) / 100 / 1.8
-		frontRightHorizEstMMs := float64(frontRight.BestGuess()+cornerSensorOffset) *
-			(100.0 + cornerSensorAngleOffset) / 100 / 1.8
-
-		var frontTnError, sideTnError, tnError, rotError float64
-		var sideGuess, frontGuess bool
-		if sideLeft.IsGood() && sideRight.IsGood() {
-			leftGuess := float64(sideLeft.BestGuess())
-			rightGuess := float64(sideRight.BestGuess())
-			sideTnError = float64(leftGuess - rightGuess)
-			sideGuess = true
-			tnError = sideTnError
-		}
-		if frontLeft.IsGood() && frontRight.IsGood() {
-			frontTnError = frontLeftHorizEstMMs - frontRightHorizEstMMs
-			frontGuess = true
-			tnError += frontTnError
-			if sideGuess {
-				tnError /= 2
+		fmt.Println("Following the walls...")
+		for ctx.Err() == nil {
+			for atomic.LoadInt32(&s.paused) == 1 && ctx.Err() == nil {
+				// Bot is paused.
+				hh.SetThrottle(0)
+				time.Sleep(100 * time.Millisecond)
 			}
-		}
 
-		if frontGuess && sideGuess {
-			rotError = frontTnError - sideTnError
-		}
+			baseSpeed := float64(s.baseSpeedPct.Get())
+			readSensors()
 
-		fmt.Printf("Translation error %.1f %.1f ->  %.1f Rotation error %.1f\n", frontTnError, sideTnError, tnError, rotError)
-
-		// Only calculate integral and differential terms if time delay was sane.
-		timeSinceLastReading := readingTime.Sub(lastReadingTime)
-		var dTnError, dRotError float64
-		if timeSinceLastReading < 200*time.Millisecond {
-			timeSinceLastSecs := timeSinceLastReading.Seconds()
-			tnErrorInt += timeSinceLastSecs * tnError
-			rotErrorInt += timeSinceLastSecs * rotError
-			if timeSinceLastReading > 0 && lastTnError != 0 {
-				dTnError = (tnError - lastTnError) / timeSinceLastSecs
-				dRotError = (rotError - lastRotError) / timeSinceLastSecs
+			// If we reach a wall in front, break out and do the turn.
+			var numGoodForwardReadings int
+			var sum int
+			if frontLeft.IsGood() {
+				numGoodForwardReadings++
+				sum += frontLeft.BestGuess()
 			}
+			if frontRight.IsGood() {
+				numGoodForwardReadings++
+				sum += frontRight.BestGuess()
+			}
+
+			forwardGuess := sum / 2
+			if numGoodForwardReadings > 0 && forwardGuess < s.turnEntryThreshMM.Get() {
+				log.Println("Reached wall in front")
+				break
+			}
+
+			// Ramp up the speed on the straights...
+			if forwardGuess > s.frontDistanceSpeedUpThreshMM.Get() {
+				speed += float64(s.speedRampUp.Get())
+			} else {
+				speed -= float64(s.speedRampDown.Get())
+			}
+			if speed < baseSpeed {
+				speed = baseSpeed
+			}
+			if speed > float64(s.topSpeedPct.Get()) {
+				speed = float64(s.topSpeedPct.Get())
+			}
+
+			hh.SetThrottle(speed / 100)
+
+			// TODO Stay in middle of walls
+
+			//// Calculate our translational error.  We do our best to deal with missing sensor readings.
+			//if leftRear.IsGood() && rightFore.IsGood() {
+			//	// We have readings from both sides of the bot, try to stay in the middle.
+			//	leftGuess := float64(leftRear.BestGuess())
+			//	if leftFore.IsGood() {
+			//		leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
+			//	}
+			//	rightGuess := float64(rightFore.BestGuess())
+			//	if frontRight.IsGood() {
+			//		rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
+			//	}
+			//
+			//	// Since we know we're in the middle, update the target clearance with actual measured values.
+			//	translationErrorMMs = float64(leftGuess - rightGuess)
+			//
+			//	actualClearance := float64(leftGuess+rightGuess) / 2
+			//	targetSideClearance = targetSideClearance*0.95 + actualClearance*0.05
+			//} else if leftRear.IsGood() {
+			//	leftGuess := float64(leftRear.BestGuess())
+			//	if leftFore.IsGood() {
+			//		leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
+			//	}
+			//	translationErrorMMs = leftGuess - targetSideClearance
+			//
+			//	// Since we're not sure where we are, slowly go back to the default clearance.
+			//	targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
+			//} else if rightFore.IsGood() {
+			//	rightGuess := float64(rightFore.BestGuess())
+			//	if frontRight.IsGood() {
+			//		rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
+			//	}
+			//	translationErrorMMs = targetSideClearance - rightGuess
+			//
+			//	// Since we're not sure where we are, slowly go back to the default clearance.
+			//	targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
+			//} else {
+			//	// No idea, dissipate the error so we don't.
+			//	translationErrorMMs = translationErrorMMs * 0.8
+			//}
+			//
+			//var leftRotErr, rightRotError float64
+			//rotErrGood := false
+			//if leftFore.IsGood() && leftRear.IsGood() {
+			//	leftRotErr = frontLeftHorizEstMMs - float64(leftRear.BestGuess())
+			//	rotErrGood = true
+			//}
+			//if frontRight.IsGood() && rightFore.IsGood() {
+			//	rightRotError = frontRightHorizEstMMs - float64(rightFore.BestGuess())
+			//	rotErrGood = true
+			//}
+			//if rotErrGood {
+			//	// Prefer the smaller magnitude error to avoid problems where one of the walls falls away...
+			//	if math.Abs(leftRotErr) < math.Abs(rightRotError) {
+			//		rotationErrorMMs = leftRotErr*0.8 - rightRotError*0.2
+			//	} else {
+			//		rotationErrorMMs = -rightRotError*0.8 + leftRotErr*0.2
+			//	}
+			//} else {
+			//	rotationErrorMMs *= 0.9
+			//}
+			//
+			//// positive if we're too far right
+			//txErrorSq := math.Copysign(translationErrorMMs*translationErrorMMs, translationErrorMMs)
+			//// positive if we're rotated too far clockwise
+			//rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
+			//
+			//scaledTxErr := txErrorSq * speed / 20000
+			//scaledRotErr := rotErrorSq * speed / 1000
+			//
+			//fmt.Printf("Control: S %.1f R %.2f T %.2f\n", speed/127, scaledRotErr/127, scaledTxErr/127)
+			//s.headingHolder.SetControlInputs(-scaledRotErr/127, speed/127, -scaledTxErr/127)
 		}
 
-		tnKp := float64(m.tnKp.Get()) / 1000
-		tnKi := float64(m.tnKi.Get()) / 10000
-		tnKd := float64(m.tnKd.Get()) / 10000
-		rotKp := float64(m.rotKp.Get()) / 1000
-		rotKi := float64(m.rotKi.Get()) / 10000
-		rotKd := float64(m.rotKd.Get()) / 10000
+		hh.SetThrottle(0)
 
-		scaledTxErr := tnKp*tnError + tnKi*tnErrorInt + tnKd*dTnError
-		scaledRotErr := rotKp*rotError + rotKi*rotErrorInt + rotKd*dRotError
-		_ = scaledRotErr
-		fmt.Println("TX P", tnError, "I", tnErrorInt, "D", dTnError)
-
-		if -80 < tnError && tnError < 80 &&
-			-80 < rotError && rotError < 80 {
-			// Only speed up if we're in the middle...
-			if speed < float64(m.topSpeed.Get()) {
-				speed += float64(m.speedRampUp.Get())
-			}
-		} else if -100 > tnError || tnError > 100 ||
-			-40 > rotError || rotError > 40 {
-			// Slow down if we get too close to the wall
-			if speed > baseSpeed {
-				speed -= float64(m.speedRampDown.Get())
-			}
+		fl := frontLeft.BestGuess()
+		if fl > 300 {
+			fl = 300
 		}
-		//
-		//fl := clamp(speed-scaledTxErr-scaledRotErr, speed*2)
-		//fr := clamp(speed+scaledTxErr+scaledRotErr, speed*2)
-		//bl := clamp(speed+scaledTxErr-scaledRotErr, speed*2)
-		//br := clamp(speed-scaledTxErr+scaledRotErr, speed*2)
-		//
-		//fmt.Printf("%v Speeds: FL=%d FR=%d BL=%d BR=%d\n", timeSinceLastReading, fl, fr, bl, br)
-		//m.Propeller.SetMotorSpeeds(fl, fr, bl, br)
+		fr := frontRight.BestGuess()
+		if fr > 300 {
+			fr = 300
+		}
 
-		m.headingHolder.SetControlInputs(0, 1, -scaledTxErr/127)
+		leftTurnConfidence := -1000*lastTurnSign + leftFore.BestGuess() + leftRear.BestGuess() + frontLeft.BestGuess() - frontRight.BestGuess()
+		rightTurnConfidence := 1000*lastTurnSign + rightFore.BestGuess() + rightRear.BestGuess() - frontLeft.BestGuess() + frontRight.BestGuess()
 
-		lastReadingTime = readingTime
-		lastTnError = tnError
-		lastRotError = rotError
+		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence)
+
+		var sign float64
+		if leftTurnConfidence > rightTurnConfidence {
+			fmt.Println("Turning left...")
+			sign = -1
+		} else {
+			fmt.Println("Turning right...")
+			sign = 1
+		}
+
+		startHeading := s.hw.CurrentHeading()
+		fmt.Println("Turn start heading:", startHeading)
+		hh.AddHeadingDelta(sign * 45)
+		_ = hh.Wait(ctx)
+
+		lastTurnSign = int(sign)
 	}
-
-	fmt.Println("Stopping...")
 }
 
 func clamp(v float64, limit float64) int8 {
@@ -447,7 +427,7 @@ func (f *Filter) IsFar() bool {
 }
 
 func (f *Filter) IsGood() bool {
-	return f.BestGuess() > 0 && f.BestGuess() < 450
+	return f.BestGuess() > 0 && f.BestGuess() < 200
 }
 
 func (f *Filter) BestGuess() int {
@@ -464,37 +444,34 @@ func (f *Filter) BestGuess() int {
 	return goodSamples[len(goodSamples)/2]
 }
 
-func (m *SLSTMode) sleepIfPaused(ctx context.Context) {
-	for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
-		m.Propeller.SetMotorSpeeds(0, 0)
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-func (m *SLSTMode) stopSequence() {
-	if !m.running {
+func (s *SLSTMode) stopSequence() {
+	if !s.running {
 		fmt.Println("Not running")
 		return
 	}
 	fmt.Println("Stopping sequence...")
 
-	m.cancelSequence()
-	m.cancelSequence = nil
-	m.sequenceWG.Wait()
-	m.running = false
-	atomic.StoreInt32(&m.paused, 0)
+	s.cancelSequence()
+	s.cancelSequence = nil
+	s.sequenceWG.Wait()
+	s.running = false
+	atomic.StoreInt32(&s.paused, 0)
+
+	s.hw.StopMotorControl()
+
+	fmt.Println("Stopped sequence...")
 }
 
-func (m *SLSTMode) pauseOrResumeSequence() {
-	if atomic.LoadInt32(&m.paused) == 1 {
+func (s *SLSTMode) pauseOrResumeSequence() {
+	if atomic.LoadInt32(&s.paused) == 1 {
 		fmt.Println("Resuming sequence...")
-		atomic.StoreInt32(&m.paused, 0)
+		atomic.StoreInt32(&s.paused, 0)
 	} else {
 		fmt.Println("Pausing sequence...")
-		atomic.StoreInt32(&m.paused, 1)
+		atomic.StoreInt32(&s.paused, 1)
 	}
 }
 
-func (m *SLSTMode) OnJoystickEvent(event *joystick.Event) {
-	m.joystickEvents <- event
+func (s *SLSTMode) OnJoystickEvent(event *joystick.Event) {
+	s.joystickEvents <- event
 }
