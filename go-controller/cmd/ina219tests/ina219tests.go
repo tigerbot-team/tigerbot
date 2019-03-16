@@ -34,13 +34,13 @@ func main() {
 		return
 	}
 
-	err = ina219A.Configure(2.0)
+	err = ina219A.Configure(0.1, 2.0)
 	if err != nil {
 		fmt.Println("Failed to configure ina219B", err)
 		return
 	}
 
-	ina219B.Configure(1.0)
+	ina219B.Configure(0.05, 1.0)
 
 	for range time.NewTicker(500 * time.Millisecond).C {
 		voltage, err := ina219A.ReadBusVoltage()

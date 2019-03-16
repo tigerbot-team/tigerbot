@@ -17,13 +17,11 @@ const (
 	RegCurrent     = 4
 	RegCalibration = 5
 
-	ShuntOhms = 0.1
-
 	BusVoltageLSB = 0.004
 )
 
 type Interface interface {
-	Configure(maxCurrent float64) error
+	Configure(shuntOhms float64, maxCurrent float64) error
 	ReadBusVoltage() (float64, error)
 	ReadCurrent() (float64, error)
 	ReadPower() (float64, error)
@@ -50,10 +48,10 @@ func NewI2C(deviceFile string, addr int) (Interface, error) {
 	}, nil
 }
 
-func (m *INA219) Configure(maxCurrent float64) error {
+func (m *INA219) Configure(shuntOhms float64, maxCurrent float64) error {
 	// Write Calibration register
 	m.currentLSB = maxCurrent / (1 << 15)
-	cval := CalculateCalibrationValue(m.currentLSB, ShuntOhms)
+	cval := CalculateCalibrationValue(m.currentLSB, shuntOhms)
 	fmt.Printf("INA219 calibration value: 0x%x\n", cval)
 	err := m.dev.WriteReg(RegCalibration, []byte{byte(cval >> 8), byte(cval)})
 	return err

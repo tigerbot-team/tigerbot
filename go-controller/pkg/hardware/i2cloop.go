@@ -195,7 +195,12 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
 			continue
 		}
-		err = pwrSen.Configure(10)
+		shuntOhms := 0.1
+		if addr == ina219.Addr2 {
+			// Motor sensor has a smaller shunt.
+			shuntOhms = 0.05
+		}
+		err = pwrSen.Configure(shuntOhms, 10)
 		if err != nil {
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
 			continue
