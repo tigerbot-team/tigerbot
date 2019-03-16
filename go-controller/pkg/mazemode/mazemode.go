@@ -13,23 +13,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	. "github.com/tigerbot-team/tigerbot/go-controller/pkg/tunable"
 )
 
 type MazeMode struct {
-	i2cLock        sync.Mutex
-	Propeller      propeller.Interface
-	headingHolder  *headingholder.HeadingHolder
+	hw hardware.Interface
+
 	cancel         context.CancelFunc
 	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
-	soundChannel   chan string
 
 	running        bool
 	cancelSequence context.CancelFunc
@@ -39,52 +34,33 @@ type MazeMode struct {
 
 	tunables Tunables
 
-	turnEntryThresh     *Tunable
+	turnEntryThreshMM   *Tunable
 	turnExitThresh      *Tunable
 	turnExitRatioThresh *Tunable
 
-	turnRotationSpeed *Tunable
-	turnThrottle      *Tunable
-	turnTranslate     *Tunable
+	turnThrottlePct *Tunable
 
-	cornerSensorOffset      *Tunable
-	cornerSensorAngleOffset *Tunable
-	clearanceReturnFactor   *Tunable
-
-	frontDistanceSpeedUpThresh  *Tunable
-	cornerDistanceSpeedUpThresh *Tunable
-	baseSpeed                   *Tunable
-	topSpeed                    *Tunable
-	speedRampUp                 *Tunable
-	speedRampDown               *Tunable
+	frontDistanceSpeedUpThreshMM *Tunable
+	baseSpeedPct                 *Tunable
+	topSpeedPct                  *Tunable
+	speedRampUp                  *Tunable
+	speedRampDown                *Tunable
 }
 
-func New(hw *hardware.Interface, soundChannel chan string) *MazeMode {
+func New(hw hardware.Interface) *MazeMode {
 	mm := &MazeMode{
-		Propeller:      hw.Motors,
+		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
-		soundChannel:   soundChannel,
 	}
 
-	mm.headingHolder = headingholder.New(&mm.i2cLock, hw.Motors)
+	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 20)
+	mm.turnThrottlePct = mm.tunables.Create("Turn throttle %", 0)
 
-	mm.turnEntryThresh = mm.tunables.Create("Turn entry threshold", 300)
-	mm.turnExitThresh = mm.tunables.Create("Turn exit threshold", 78)
-
-	mm.turnRotationSpeed = mm.tunables.Create("Turn rotation speed (100ths)", 35)
-	mm.turnThrottle = mm.tunables.Create("Turn throttle (100ths)", 18)
-	mm.turnTranslate = mm.tunables.Create("Turn translate (100ths)", 0)
-
-	mm.cornerSensorOffset = mm.tunables.Create("Corner sensor offset", -12)
-	mm.cornerSensorAngleOffset = mm.tunables.Create("Corner sensor angle offset", -8)
-	mm.clearanceReturnFactor = mm.tunables.Create("Clearance return factor", 90)
-
-	mm.frontDistanceSpeedUpThresh = mm.tunables.Create("Front distance speed up thresh", 350)
-	mm.cornerDistanceSpeedUpThresh = mm.tunables.Create("Corner distance speed up thresh", 80)
-	mm.baseSpeed = mm.tunables.Create("Base speed", 40)
-	mm.topSpeed = mm.tunables.Create("Top speed", 65)
-	mm.speedRampUp = mm.tunables.Create("Speed ramp up ", 5)
-	mm.speedRampDown = mm.tunables.Create("Speed ramp down", 10)
+	mm.frontDistanceSpeedUpThreshMM = mm.tunables.Create("Front distance speed up thresh", 350)
+	mm.baseSpeedPct = mm.tunables.Create("Base speed %", 10)
+	mm.topSpeedPct = mm.tunables.Create("Top speed %", 15)
+	mm.speedRampUp = mm.tunables.Create("Speed ramp up %/loop", 1)
+	mm.speedRampDown = mm.tunables.Create("Speed ramp down %/loop", 1)
 
 	return mm
 }
@@ -180,8 +156,6 @@ func (m *MazeMode) startSequence() {
 	m.running = true
 	atomic.StoreInt32(&m.paused, 0)
 
-	m.headingHolder.SetControlInputs(0, 0, 0)
-
 	seqCtx, cancel := context.WithCancel(context.Background())
 	m.cancelSequence = cancel
 	m.sequenceWG.Add(1)
@@ -190,143 +164,101 @@ func (m *MazeMode) startSequence() {
 
 func (m *MazeMode) runSequence(ctx context.Context) {
 	defer m.sequenceWG.Done()
-
-	m.i2cLock.Lock()
-	mx, err := mux.New("/dev/i2c-1")
-	m.i2cLock.Unlock()
-	if err != nil {
-		fmt.Println("Failed to open mux", err)
-		return
-	}
-
-	var tofs []tofsensor.Interface
-	defer func() {
-		for _, tof := range tofs {
-			tof.Close()
-		}
-	}()
-	for _, port := range []int{
-		mux.BusTOFSideLeft,
-		mux.BusTOFFrontLeft,
-		mux.BusTOFForward,
-		mux.BusTOFFrontRight,
-		mux.BusTOFSideRight,
-	} {
-		m.i2cLock.Lock()
-		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
-		m.i2cLock.Unlock()
-		if err != nil {
-			fmt.Println("Failed to open sensor", err)
-			return
-		}
-		m.i2cLock.Lock()
-		err = tof.StartContinuousMeasurements()
-		m.i2cLock.Unlock()
-		if err != nil {
-			fmt.Println("Failed to start continuous measurements", err)
-			return
-		}
-		tofs = append(tofs, tof)
-	}
-
 	defer fmt.Println("Exiting sequence loop")
 
+	// Create time-of-flight reading filters; should filter out any stray readings.
 	var filters []*Filter
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		filters = append(filters, &Filter{})
 	}
 
 	readSensors := func() {
 		// Read the sensors
 		msg := ""
-		for j, tof := range tofs {
-			reading := "-"
-			m.i2cLock.Lock()
-			readingInMM, err := tof.GetNextContinuousMeasurement()
-			m.i2cLock.Unlock()
+		readings := m.hw.CurrentDistanceReadings()
+		for j, r := range readings.Readings {
+			prettyPrinted := "-"
+			readingInMM, err := r.DistanceMM, r.Error
 			filters[j].Accumulate(readingInMM)
 			if readingInMM == tofsensor.RangeTooFar {
-				reading = ">2000mm"
+				prettyPrinted = ">2000mm"
 			} else if err != nil {
-				reading = "<failed>"
+				prettyPrinted = "<failed>"
 			} else {
-				reading = fmt.Sprintf("%dmm", readingInMM)
+				prettyPrinted = fmt.Sprintf("%dmm", readingInMM)
 			}
-			msg += fmt.Sprintf("%s:=%5s/%5dmm ", filters[j].Name, reading, filters[j].BestGuess())
+			msg += fmt.Sprintf("%s:=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
 		}
 		fmt.Println(msg)
 	}
 
-	sideLeft := filters[0]
-	sideLeft.Name = "L"
-	forwardLeft := filters[1]
-	forwardLeft.Name = "FL"
-	forward := filters[2]
-	forward.Name = "F"
-	forwardRight := filters[3]
-	forwardRight.Name = "FR"
-	sideRight := filters[4]
-	sideRight.Name = "R"
-	_ = forwardRight
-	_ = forwardLeft
-	_ = sideLeft
-	_ = sideRight
+	leftRear := filters[0]
+	leftRear.Name = "LR"
+	leftFore := filters[1]
+	leftFore.Name = "LF"
+	frontLeft := filters[2]
+	frontLeft.Name = "FL"
+	frontRight := filters[3]
+	frontRight.Name = "FR"
+	rightFore := filters[4]
+	rightFore.Name = "RF"
+	rightRear := filters[5]
+	rightRear.Name = "RR"
 
-	readSensors()
-	readSensors()
-	readSensors()
+	// We use the absolute haeding hold mode so we can do things like "turn right 90 degrees".
+	hh := m.hw.StartHeadingHoldMode()
 
-	m.sequenceWG.Add(1)
-	go m.headingHolder.Loop(ctx, &m.sequenceWG)
-
-	m.soundChannel <- "/sounds/ready.wav"
-
+	// Let the user know that we're ready, then wait for the "GO" signal.
+	m.hw.PlaySound("/sounds/ready.wav")
 	m.startWG.Wait()
 
-	readSensors()
-	readSensors()
-
 	const (
-		wallSeparationMMs = 400
+		wallSeparationMMs = 550
 		botWidthMMs       = 200
 		clearanceMMs      = (wallSeparationMMs - botWidthMMs) / 2
 	)
 
-	var targetSideClearance float64 = clearanceMMs
-	var translationErrorMMs float64 // positive if we're too far right
-	var rotationErrorMMs float64    // positive if we're rotated too far clockwise
-
-	var turnRejectCounter = 0
+	//var targetSideClearance float64 = clearanceMMs
+	//var translationErrorMMs float64 // positive if we're too far right
+	//var rotationErrorMMs float64    // positive if we're rotated too far clockwise
 
 	for ctx.Err() == nil {
 		// Main loop, alternates between following the walls until we detect a wall in front, and then
 		// making turns.
 
-		var speed float64 = float64(m.baseSpeed.Get())
+		var speed float64 = float64(m.baseSpeedPct.Get())
 
 		fmt.Println("Following the walls...")
 		for ctx.Err() == nil {
-			m.sleepIfPaused(ctx)
-			baseSpeed := float64(m.baseSpeed.Get())
+			for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
+				// Bot is paused.
+				hh.SetThrottle(0)
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			baseSpeed := float64(m.baseSpeedPct.Get())
 			readSensors()
 
 			// If we reach a wall in front, break out and do the turn.
-			if turnRejectCounter <= 0 && !forward.IsFar() {
-				forwardGuess := forward.BestGuess()
-				if forwardGuess < m.turnEntryThresh.Get() {
-					log.Println("Reached wall in front")
-					break
-				}
+			var numGoodForwardReadings int
+			var sum int
+			if frontLeft.IsGood() {
+				numGoodForwardReadings++
+				sum += frontLeft.BestGuess()
+			}
+			if frontRight.IsGood() {
+				numGoodForwardReadings++
+				sum += frontRight.BestGuess()
 			}
 
-			if turnRejectCounter > 0 {
-				turnRejectCounter--
+			forwardGuess := sum / 2
+			if numGoodForwardReadings > 0 && forwardGuess < m.turnEntryThreshMM.Get() {
+				log.Println("Reached wall in front")
+				break
 			}
 
 			// Ramp up the speed on the straights...
-			if (forward.IsFar() || forward.BestGuess() > m.frontDistanceSpeedUpThresh.Get()) &&
-				(forwardLeft.IsFar() || forwardLeft.BestGuess() > m.cornerDistanceSpeedUpThresh.Get()) &&
-				(forwardRight.IsFar() || forwardRight.BestGuess() > m.cornerDistanceSpeedUpThresh.Get()) {
+			if forwardGuess > m.frontDistanceSpeedUpThreshMM.Get() {
 				speed += float64(m.speedRampUp.Get())
 			} else {
 				speed -= float64(m.speedRampDown.Get())
@@ -334,113 +266,89 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			if speed < baseSpeed {
 				speed = baseSpeed
 			}
-			if speed > float64(m.topSpeed.Get()) {
-				speed = float64(m.topSpeed.Get())
+			if speed > float64(m.topSpeedPct.Get()) {
+				speed = float64(m.topSpeedPct.Get())
 			}
 
-			cornerSensorOffset := m.cornerSensorOffset.Get()
-			cornerSensorAngleOffset := float64(m.cornerSensorAngleOffset.Get())
-			frontLeftHorizEstMMs := float64(forwardLeft.BestGuess()+cornerSensorOffset) *
-				(100.0 + cornerSensorAngleOffset) / 100 / math.Sqrt2
-			frontRightHorizEstMMs := float64(forwardRight.BestGuess()+cornerSensorOffset) *
-				(100.0 + cornerSensorAngleOffset) / 100 / math.Sqrt2
-			clearandReturnFactor := float64(m.clearanceReturnFactor.Get())
+			hh.SetThrottle(speed / 100)
 
-			// Calculate our translational error.  We do our best to deal with missing sensor readings.
-			if sideLeft.IsGood() && sideRight.IsGood() {
-				// We have readings from both sides of the bot, try to stay in the middle.
-				leftGuess := float64(sideLeft.BestGuess())
-				if forwardLeft.IsGood() {
-					leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
-				}
-				rightGuess := float64(sideRight.BestGuess())
-				if forwardRight.IsGood() {
-					rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
-				}
-
-				// Since we know we're in the middle, update the target clearance with actual measured values.
-				translationErrorMMs = float64(leftGuess - rightGuess)
-
-				actualClearance := float64(leftGuess+rightGuess) / 2
-				targetSideClearance = targetSideClearance*0.95 + actualClearance*0.05
-			} else if sideLeft.IsGood() {
-				leftGuess := float64(sideLeft.BestGuess())
-				if forwardLeft.IsGood() {
-					leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
-				}
-				translationErrorMMs = leftGuess - targetSideClearance
-
-				// Since we're not sure where we are, slowly go back to the default clearance.
-				targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
-			} else if sideRight.IsGood() {
-				rightGuess := float64(sideRight.BestGuess())
-				if forwardRight.IsGood() {
-					rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
-				}
-				translationErrorMMs = targetSideClearance - rightGuess
-
-				// Since we're not sure where we are, slowly go back to the default clearance.
-				targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
-			} else {
-				// No idea, dissipate the error so we don't.
-				translationErrorMMs = translationErrorMMs * 0.8
-			}
-
-			var leftRotErr, rightRotError float64
-			rotErrGood := false
-			if forwardLeft.IsGood() && sideLeft.IsGood() {
-				leftRotErr = frontLeftHorizEstMMs - float64(sideLeft.BestGuess())
-				rotErrGood = true
-			}
-			if forwardRight.IsGood() && sideRight.IsGood() {
-				rightRotError = frontRightHorizEstMMs - float64(sideRight.BestGuess())
-				rotErrGood = true
-			}
-			if rotErrGood {
-				// Prefer the smaller magnitude error to avoid problems where one of the walls falls away...
-				if math.Abs(leftRotErr) < math.Abs(rightRotError) {
-					rotationErrorMMs = leftRotErr*0.8 - rightRotError*0.2
-				} else {
-					rotationErrorMMs = -rightRotError*0.8 + leftRotErr*0.2
-				}
-			} else {
-				rotationErrorMMs *= 0.9
-			}
-
-			// positive if we're too far right
-			txErrorSq := math.Copysign(translationErrorMMs*translationErrorMMs, translationErrorMMs)
-			// positive if we're rotated too far clockwise
-			rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
-
-			scaledTxErr := txErrorSq * speed / 20000
-			scaledRotErr := rotErrorSq * speed / 1000
-
-			fmt.Printf("Control: S %.1f R %.2f T %.2f\n", speed/127, scaledRotErr/127, scaledTxErr/127)
-			m.headingHolder.SetControlInputs(-scaledRotErr/127, speed/127, -scaledTxErr/127)
+			//// Calculate our translational error.  We do our best to deal with missing sensor readings.
+			//if leftRear.IsGood() && rightFore.IsGood() {
+			//	// We have readings from both sides of the bot, try to stay in the middle.
+			//	leftGuess := float64(leftRear.BestGuess())
+			//	if leftFore.IsGood() {
+			//		leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
+			//	}
+			//	rightGuess := float64(rightFore.BestGuess())
+			//	if frontRight.IsGood() {
+			//		rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
+			//	}
+			//
+			//	// Since we know we're in the middle, update the target clearance with actual measured values.
+			//	translationErrorMMs = float64(leftGuess - rightGuess)
+			//
+			//	actualClearance := float64(leftGuess+rightGuess) / 2
+			//	targetSideClearance = targetSideClearance*0.95 + actualClearance*0.05
+			//} else if leftRear.IsGood() {
+			//	leftGuess := float64(leftRear.BestGuess())
+			//	if leftFore.IsGood() {
+			//		leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
+			//	}
+			//	translationErrorMMs = leftGuess - targetSideClearance
+			//
+			//	// Since we're not sure where we are, slowly go back to the default clearance.
+			//	targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
+			//} else if rightFore.IsGood() {
+			//	rightGuess := float64(rightFore.BestGuess())
+			//	if frontRight.IsGood() {
+			//		rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
+			//	}
+			//	translationErrorMMs = targetSideClearance - rightGuess
+			//
+			//	// Since we're not sure where we are, slowly go back to the default clearance.
+			//	targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
+			//} else {
+			//	// No idea, dissipate the error so we don't.
+			//	translationErrorMMs = translationErrorMMs * 0.8
+			//}
+			//
+			//var leftRotErr, rightRotError float64
+			//rotErrGood := false
+			//if leftFore.IsGood() && leftRear.IsGood() {
+			//	leftRotErr = frontLeftHorizEstMMs - float64(leftRear.BestGuess())
+			//	rotErrGood = true
+			//}
+			//if frontRight.IsGood() && rightFore.IsGood() {
+			//	rightRotError = frontRightHorizEstMMs - float64(rightFore.BestGuess())
+			//	rotErrGood = true
+			//}
+			//if rotErrGood {
+			//	// Prefer the smaller magnitude error to avoid problems where one of the walls falls away...
+			//	if math.Abs(leftRotErr) < math.Abs(rightRotError) {
+			//		rotationErrorMMs = leftRotErr*0.8 - rightRotError*0.2
+			//	} else {
+			//		rotationErrorMMs = -rightRotError*0.8 + leftRotErr*0.2
+			//	}
+			//} else {
+			//	rotationErrorMMs *= 0.9
+			//}
+			//
+			//// positive if we're too far right
+			//txErrorSq := math.Copysign(translationErrorMMs*translationErrorMMs, translationErrorMMs)
+			//// positive if we're rotated too far clockwise
+			//rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
+			//
+			//scaledTxErr := txErrorSq * speed / 20000
+			//scaledRotErr := rotErrorSq * speed / 1000
+			//
+			//fmt.Printf("Control: S %.1f R %.2f T %.2f\n", speed/127, scaledRotErr/127, scaledTxErr/127)
+			//m.headingHolder.SetControlInputs(-scaledRotErr/127, speed/127, -scaledTxErr/127)
 		}
 
-		var leftTurnConfidence int
-		if forwardLeft.IsFar() {
-			leftTurnConfidence += 1000
-		} else {
-			leftTurnConfidence += forwardLeft.BestGuess()
-		}
-		if sideLeft.IsFar() {
-			leftTurnConfidence += 1000
-		} else {
-			leftTurnConfidence += sideLeft.BestGuess()
-		}
-		var rightTurnConfidence int
-		if forwardRight.IsFar() {
-			rightTurnConfidence += 1000
-		} else {
-			rightTurnConfidence += forwardRight.BestGuess()
-		}
-		if sideRight.IsFar() {
-			rightTurnConfidence += 1000
-		} else {
-			rightTurnConfidence += sideRight.BestGuess()
-		}
+		hh.SetThrottle(0)
+
+		leftTurnConfidence := leftFore.BestGuess() + leftRear.BestGuess()
+		rightTurnConfidence := rightFore.BestGuess() + rightRear.BestGuess()
 
 		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence)
 
@@ -453,51 +361,10 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			sign = 1
 		}
 
-		startHeading := m.headingHolder.CurrentHeading()
+		startHeading := m.hw.CurrentHeading()
 		fmt.Println("Turn start heading:", startHeading)
-
-		var lastHeading float64
-		for ctx.Err() == nil {
-			m.sleepIfPaused(ctx)
-
-			turnRotationSpeed := float64(m.turnRotationSpeed.Get()) / 100
-			turnThrottle := float64(m.turnThrottle.Get()) / 100
-			turnTranslate := float64(m.turnThrottle.Get()) / 100
-
-			currentHeading := m.headingHolder.CurrentHeading()
-
-			if math.Abs(currentHeading-startHeading) > 70 {
-				turnRotationSpeed /= 3
-				turnThrottle /= 3
-				turnTranslate /= 3
-			}
-
-			m.headingHolder.SetControlInputs(turnRotationSpeed*sign, turnThrottle, sign*turnTranslate)
-
-			if currentHeading != lastHeading {
-				fmt.Println("Heading:", currentHeading)
-			}
-			turnExitThresh := float64(m.turnExitThresh.Get())
-			if sign > 0 {
-				if currentHeading > startHeading+turnExitThresh {
-					fmt.Println("Turn finished:", currentHeading)
-
-					m.headingHolder.SetControlInputs(0, turnThrottle, 0)
-					break
-				}
-			} else {
-				if currentHeading < startHeading-turnExitThresh {
-					fmt.Println("Turn finished:", currentHeading)
-					m.headingHolder.SetControlInputs(0, turnThrottle, 0)
-					break
-				}
-			}
-			time.Sleep(5 * time.Millisecond)
-			lastHeading = currentHeading
-		}
-
-		// Prevent another turn before the Filter buffers have cycled.
-		turnRejectCounter = 5
+		hh.AddHeadingDelta(sign * 90)
+		hh.Wait(ctx)
 	}
 }
 
@@ -562,13 +429,6 @@ func (f *Filter) BestGuess() int {
 	return goodSamples[len(goodSamples)/2]
 }
 
-func (m *MazeMode) sleepIfPaused(ctx context.Context) {
-	for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
-		m.headingHolder.SetControlInputs(0, 0, 0)
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
 func (m *MazeMode) stopSequence() {
 	if !m.running {
 		fmt.Println("Not running")
@@ -582,7 +442,7 @@ func (m *MazeMode) stopSequence() {
 	m.running = false
 	atomic.StoreInt32(&m.paused, 0)
 
-	m.headingHolder.SetControlInputs(0, 0, 0)
+	m.hw.StopMotorControl()
 
 	fmt.Println("Stopped sequence...")
 }

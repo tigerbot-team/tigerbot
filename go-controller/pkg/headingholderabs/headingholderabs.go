@@ -15,52 +15,95 @@ type RawControl interface {
 }
 
 func New(prop RawControl) *HeadingHolder {
-	return &HeadingHolder{
+	hh := &HeadingHolder{
 		Motors: prop,
 	}
+	hh.onNewReading = sync.NewCond(&hh.controlLock)
+	return hh
 }
 
 type HeadingHolder struct {
 	Motors RawControl
+
+	onNewReading *sync.Cond
 
 	controlLock sync.Mutex
 	controls
 }
 
 type controls struct {
-	desiredHeading float64
+	targetHeading  float64
 	currentHeading float64
 	throttle       float64
 }
 
-func (y *HeadingHolder) SetHeading(desiredHeaading float64) {
-	y.controlLock.Lock()
-	defer y.controlLock.Unlock()
-	y.desiredHeading = desiredHeaading
+func (h *HeadingHolder) SetHeading(desiredHeaading float64) {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
+	h.targetHeading = desiredHeaading
 }
 
-func (y *HeadingHolder) AddHeadingDelta(delta float64) {
-	y.controlLock.Lock()
-	defer y.controlLock.Unlock()
-	y.desiredHeading += delta
+func (h *HeadingHolder) AddHeadingDelta(delta float64) {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
+	h.targetHeading += delta
 }
 
-func (y *HeadingHolder) SetThrottle(throttle float64) {
-	y.controlLock.Lock()
-	defer y.controlLock.Unlock()
-	y.throttle = throttle
+func (h *HeadingHolder) SetThrottle(throttle float64) {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
+	h.throttle = throttle
 }
 
-func (y *HeadingHolder) CurrentHeading() float64 {
-	y.controlLock.Lock()
-	defer y.controlLock.Unlock()
+func (h *HeadingHolder) CurrentHeading() float64 {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
 
-	return y.currentHeading
+	return h.currentHeading
 }
 
-func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
+func (h *HeadingHolder) TargetHeading() float64 {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
+
+	return h.targetHeading
+}
+
+func (h *HeadingHolder) Wait(ctx context.Context) error {
+	lastAngleError := 0.0
+	for {
+		h.controlLock.Lock()
+		if ctx.Err() != nil {
+			h.controlLock.Unlock()
+			return ctx.Err()
+		}
+		h.onNewReading.Wait()
+		tH := h.targetHeading
+		cH := h.currentHeading
+		h.controlLock.Unlock()
+
+		angleError := tH - cH
+		if angleError < 0.5 {
+			return nil
+		}
+		if lastAngleError != 0 {
+			if math.Signbit(angleError) != math.Signbit(lastAngleError) {
+				// Must have passed the angle.
+				return nil
+			}
+		}
+		lastAngleError = angleError
+	}
+}
+
+func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer fmt.Println("Heading holder loop exited")
+	defer func() {
+		h.controlLock.Lock()
+		h.onNewReading.Broadcast()
+		h.controlLock.Unlock()
+	}()
 
 	m, err := imu.NewSPI("/dev/spidev0.1")
 	if err != nil {
@@ -119,14 +162,15 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		}
 
 		// Grab the current control values.
-		y.controlLock.Lock()
-		controls := y.controls
-		y.currentHeading = headingEstimate
-		y.controlLock.Unlock()
+		h.controlLock.Lock()
+		controls := h.controls
+		h.currentHeading = headingEstimate
+		h.onNewReading.Broadcast()
+		h.controlLock.Unlock()
 
 		// Update our target heading accordingly.
 		loopTimeSecs := loopTime.Seconds()
-		targetHeading := controls.desiredHeading
+		targetHeading := controls.targetHeading
 
 		const maxLeadDegrees = 20
 		if targetHeading > headingEstimate+maxLeadDegrees {
@@ -183,11 +227,11 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		l := scaleAndClamp(frontLeft*scale, 127)
 		r := scaleAndClamp(frontRight*scale, 127)
 
-		y.Motors.SetMotorSpeeds(l, r)
+		h.Motors.SetMotorSpeeds(l, r)
 
 		lastHeadingError = headingError
 	}
-	y.Motors.SetMotorSpeeds(0, 0)
+	h.Motors.SetMotorSpeeds(0, 0)
 }
 
 func scaleAndClamp(value, multiplier float64) int8 {

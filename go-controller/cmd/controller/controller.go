@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
@@ -61,6 +63,7 @@ func main() {
 
 	allModes := []Mode{
 		rcmode.New("GUN MODE", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
+		mazemode.New(hw),
 		pausemode.New(hw),
 		testmode.New(hw),
 	}
