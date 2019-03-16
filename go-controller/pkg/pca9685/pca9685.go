@@ -120,6 +120,11 @@ func (p *PCA9685) SetPWM(port int, value float64) error {
 }
 
 func (p *PCA9685) Close() error {
+	// Trigger a reset
+	err := p.dev.WriteReg(RegMode1, []byte{0x01})
+	if err != nil {
+		fmt.Println("Failed to reset servos: ", err)
+	}
 	return p.dev.Close()
 }
 

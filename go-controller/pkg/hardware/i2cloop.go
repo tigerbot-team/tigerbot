@@ -213,7 +213,14 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		fmt.Println("Failed open PCA9685 ", err)
 		return
 	}
-	defer servos.Close()
+	defer func() {
+		err = mx.SelectSinglePort(mux.BusOthers)
+		if err != nil {
+			fmt.Println("Failed to select port when shutting down servos: ", err)
+			return
+		}
+		_ = servos.Close()
+	}()
 	err = servos.Configure()
 	if err != nil {
 		fmt.Println("Failed configure PCA9685 ", err)
