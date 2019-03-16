@@ -90,7 +90,7 @@ func New(hw *hardware.Interface, soundChannel chan string) *MazeMode {
 }
 
 func (m *MazeMode) Name() string {
-	return "Maze mode"
+	return "MAZE MODE"
 }
 
 func (m *MazeMode) StartupSound() string {

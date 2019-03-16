@@ -20,7 +20,7 @@ type PauseMode struct {
 }
 
 func (t *PauseMode) Name() string {
-	return "Pause mode"
+	return "PAUSE MODE"
 }
 
 func (m *PauseMode) StartupSound() string {

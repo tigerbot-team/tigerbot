@@ -22,7 +22,7 @@ type TestMode struct {
 }
 
 func (t *TestMode) Name() string {
-	return "Test mode"
+	return "TEST MODE"
 }
 
 func (m *TestMode) StartupSound() string {

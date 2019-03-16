@@ -3,6 +3,7 @@ package screen
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"os"
 	"sync"
 	"time"
@@ -11,10 +12,46 @@ import (
 )
 
 var (
-	Lock sync.Mutex
+	lock sync.Mutex
 
-	BusVoltages = make([]float64, 2)
+	busVoltages = make([]float64, 2)
+	leds        = make([]color.RGBA, 2)
+	mode        string
 )
+
+func SetBusVoltage(n int, bv float64) {
+	lock.Lock()
+	defer lock.Unlock()
+	if n < 0 || n >= len(busVoltages) {
+		return
+	}
+	busVoltages[n] = bv
+}
+func SetBusVoltages(bvs []float64) {
+	lock.Lock()
+	defer lock.Unlock()
+	busVoltages = bvs
+}
+
+func SetMode(m string) {
+	lock.Lock()
+	defer lock.Unlock()
+	mode = m
+}
+
+func SetLED(n int, r, g, b float64) {
+	lock.Lock()
+	defer lock.Unlock()
+	if n < 0 || n >= len(leds) {
+		return
+	}
+	leds[n] = color.RGBA{
+		A: 1,
+		R: uint8(r * 255),
+		G: uint8(g * 255),
+		B: uint8(b * 255),
+	}
+}
 
 func LoopUpdatingScreen(ctx context.Context) {
 	f, err := os.OpenFile("/dev/fb1", os.O_RDWR, 0666)
@@ -32,42 +69,44 @@ func LoopUpdatingScreen(ctx context.Context) {
 		}
 		const S = 128
 		dc := gg.NewContext(S, S)
-		dc.SetRGBA(1, 0.9, 0, 1)
-		//headingLock.Lock()
-		//j := headingEstimate
-		//headingLock.Unlock()
-		//for i := 0; i < 360; i += 15 {
-		//	dc.Push()
-		//	dc.RotateAbout(gg.Radians(float64(i)+j), S/2, S/2)
-		//	dc.DrawEllipse(S/2, S/2, S*7/16, S/8)
-		//	dc.Fill()
-		//	dc.Pop()
-		//}
 
+		ledsCopy := make([]color.RGBA, 2)
+		lock.Lock()
+		for i, c := range leds {
+			ledsCopy[i] = c
+		}
+		lock.Unlock()
+
+		for i, c := range ledsCopy {
+			dc.SetRGB(float64(c.R)/255, float64(c.G)/255, float64(c.B)/255)
+			dc.DrawRectangle(0, float64(i*(128/len(ledsCopy))), 50, float64(128/len(ledsCopy)))
+			dc.Fill()
+		}
+
+		yellow(dc)
 		dc.Push()
 		dc.Translate(60, 5)
 		dc.DrawString("CHARGE LVL", 0, 10)
 
-		Lock.Lock()
-		voltage := BusVoltages[0]
-		Lock.Unlock()
+		lock.Lock()
+		voltage := busVoltages[0]
+		lock.Unlock()
+		dc.Translate(0, lineHeight)
 		drawPowerBar(dc, voltage)
-		Lock.Lock()
-		voltage = BusVoltages[1]
-		Lock.Unlock()
+		lock.Lock()
+		voltage = busVoltages[1]
+		lock.Unlock()
 		dc.Translate(34, 0)
 		drawPowerBar(dc, voltage)
 		dc.Translate(-34, 0)
 
-		//dc.SetRGBA(1, 0.9, 0, 1)
-		//
-		//dc.Translate(14, 30)
-		//dc.Rotate(gg.Radians(1))
-		//dc.Scale(0.5, 1.0)
-		//dc.DrawRegularPolygon(3, 0, 0, 14, 0)
-		//dc.Fill()
-		//
-		//dc.Pop()
+		lock.Lock()
+		m := mode
+		lock.Unlock()
+		dc.SetRGBA(0.1, 0.1, 0, 0.2)
+		dc.Fill()
+		yellow(dc)
+		dc.DrawString(m, 0, overallBarHeight+lineHeight*2)
 
 		var buf [128 * 128 * 2]byte
 		for y := 0; y < S; y++ {
@@ -100,9 +139,27 @@ func LoopUpdatingScreen(ctx context.Context) {
 	}
 }
 
+func yellow(dc *gg.Context) {
+	dc.SetRGBA(1, 0.9, 0, 1)
+}
+
 const (
 	minCellVoltage = 3
 	maxCellVoltage = 4.2
+)
+
+const (
+	lineHeight       = 12
+	gap              = 2
+	bottomBarHeight  = 10
+	bottomBarWidth   = 30
+	upperBarInset    = gap
+	upperBarWidth    = bottomBarWidth - (upperBarInset * 2)
+	upperBarHeight   = 3
+	gapBetweenBars   = gap
+	upperBarInterval = gapBetweenBars + upperBarHeight
+	numUpperBars     = 10
+	overallBarHeight = bottomBarHeight + numUpperBars*upperBarInterval
 )
 
 func drawPowerBar(dc *gg.Context, voltage float64) {
@@ -117,17 +174,25 @@ func drawPowerBar(dc *gg.Context, voltage float64) {
 	charge := (cellVoltage - minCellVoltage) / (maxCellVoltage - minCellVoltage)
 
 	// Draw the larger power bar at the bottom. Colour depends on charge level.
+
 	if charge < 0.1 {
 		dc.SetRGBA(1, 0.2, 0, 1)
 	}
-	dc.DrawRectangle(0, 70, 30, 10)
-	for n := 2; n < 13; n++ {
-		if charge >= (float64(n) / 13) {
-			dc.DrawRectangle(2, 75-float64(n)*5, 26, 3)
+	dc.DrawRectangle(0, overallBarHeight-bottomBarHeight, bottomBarWidth, bottomBarHeight)
+
+	for n := 1; n < numUpperBars; n++ {
+		if charge >= (float64(n) / numUpperBars) {
+			dc.DrawRectangle(upperBarInset,
+				float64(numUpperBars-n)*upperBarInterval, upperBarWidth, upperBarHeight)
 		}
 	}
 	dc.Fill()
-	dc.DrawString(fmt.Sprintf("%.1fv", voltage), -2, 93)
+	vString := fmt.Sprintf("%.1fv", voltage)
+	var offset float64 = 0
+	if len(vString) > 4 {
+		offset = -2
+	}
+	dc.DrawString(vString, offset, overallBarHeight+lineHeight)
 }
 
 func DrawWarning(dc *gg.Context) {

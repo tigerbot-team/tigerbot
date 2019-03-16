@@ -330,9 +330,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 					continue
 				}
 				fmt.Printf("Bus %v: %.2fV %.2fA %.2fW\n", i, bv, bc, bp)
-				screen.Lock.Lock()
-				screen.BusVoltages[i] = bv
-				screen.Lock.Unlock()
+				screen.SetBusVoltage(i, bv)
 			}
 			lastPowerReadingTime = time.Now()
 		}

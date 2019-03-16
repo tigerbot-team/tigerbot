@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
@@ -58,12 +60,13 @@ func main() {
 	hw.PlaySound("/sounds/tigerbotstart.wav")
 
 	allModes := []Mode{
-		rcmode.New("Duck shoot mode", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
+		rcmode.New("GUN MODE", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
 		pausemode.New(hw),
 		testmode.New(hw),
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
+	screen.SetMode(activeMode.Name())
 	activeMode.Start(ctx)
 	activeModeIdx := 0
 
@@ -77,6 +80,7 @@ func main() {
 		activeModeIdx = (activeModeIdx + len(allModes)) % len(allModes)
 		activeMode = allModes[activeModeIdx]
 		fmt.Printf("----- %s -----\n", activeMode.Name())
+		screen.SetMode(activeMode.Name())
 
 		hw.PlaySound(activeMode.StartupSound())
 
