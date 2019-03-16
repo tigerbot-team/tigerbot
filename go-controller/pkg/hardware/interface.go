@@ -57,7 +57,7 @@ func (d DistanceReadings) String() string {
 
 type Reading struct {
 	DistanceMM int
-	Error      error
+	Error      error `json:"-"`
 }
 
 func (r Reading) String() string {

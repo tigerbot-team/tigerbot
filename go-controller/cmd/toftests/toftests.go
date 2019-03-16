@@ -1,11 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
@@ -58,19 +63,26 @@ func main() {
 		return
 	}
 
+	go Serve()
+
 	var l sync.Mutex
 	readSensors := func() {
 		// Read the sensors
 		msgs := []string{}
 		var wg sync.WaitGroup
 		start := time.Now()
+		var currentReads hardware.DistanceReadings
+		currentReads.CaptureTime = time.Now()
+		currentReads.Readings = make([]hardware.Reading, len(tofs))
 		for j, tof := range tofs {
 			j := j
 			tof := tof
 			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				reading := "-"
 				readingInMM, err := tof.GetNextContinuousMeasurement()
+				currentReads.Readings[j] = hardware.Reading{readingInMM, err}
 				if readingInMM == tofsensor.RangeTooFar {
 					reading = ">2000mm"
 				} else if err != nil {
@@ -81,10 +93,12 @@ func main() {
 				l.Lock()
 				msgs = append(msgs, fmt.Sprintf("%d: %s  ", j, reading))
 				l.Unlock()
-				wg.Done()
 			}()
 		}
 		wg.Wait()
+		lock.Lock()
+		readings = currentReads
+		lock.Unlock()
 		duration := time.Since(start)
 		sort.Strings(msgs)
 		fmt.Println(strings.Join(msgs, ""), " ", duration)
@@ -93,4 +107,27 @@ func main() {
 	for range time.NewTicker(100 * time.Millisecond).C {
 		readSensors()
 	}
+}
+
+var lock sync.Mutex
+var readings hardware.DistanceReadings
+
+func Serve() {
+	fmt.Println("Serving...")
+	tofHandler := func(w http.ResponseWriter, req *http.Request) {
+		var data []byte
+		func() {
+			lock.Lock()
+			defer lock.Unlock()
+			var err error
+			data, err = json.Marshal(readings)
+			if err != nil {
+				panic(err)
+			}
+		}()
+		_, _ = w.Write(data)
+	}
+
+	http.HandleFunc("/tofs", tofHandler)
+	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
 }
