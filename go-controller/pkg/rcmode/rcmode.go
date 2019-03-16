@@ -114,6 +114,10 @@ func (m *RCMode) loop(ctx context.Context) {
 			m.servoController.OnJoystickEvent(event)
 			yaw, throttle := mix(leftStickX, leftStickY, rightStickX, rightStickY)
 			motorController.SetYawAndThrottle(yaw, throttle)
+
+			m.hardware.SetServo(8, clamp(0.3+throttle/2-yaw/3, 0.2, 1))  // 0 is arm down, 1 is arm up
+			m.hardware.SetServo(10, clamp(0.7-throttle/2-yaw/3, 0, 0.8)) // 0 is arm up, 1 is arm down
+			m.hardware.SetServo(9, clamp(-yaw/2+0.5, 0.25, 0.75))
 		}
 
 	}
@@ -151,4 +155,14 @@ func applyExpo(value float64, expo float64) float64 {
 	absExpo := math.Pow(absVal, expo)
 	signedExpo := math.Copysign(absExpo, value)
 	return signedExpo
+}
+
+func clamp(f, min, max float64) float64 {
+	if f < min {
+		return min
+	}
+	if f > max {
+		return max
+	}
+	return f
 }
