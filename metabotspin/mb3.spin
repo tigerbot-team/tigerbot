@@ -38,7 +38,8 @@ CON
   servo2 = 30
   readready = 31
   motorshutdowntime = 100
-  maxpwmramp = 100
+  maxpwmramp = 50
+  maxspeed = 800
 
 OBJ
   quad :  "encoder"
@@ -212,6 +213,7 @@ PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desir
         newspeed := 0
 
       newspeed := (lastspeed[i] - maxpwmramp) #> newspeed <# (lastspeed[i] + maxpwmramp)  ' set a maximum PWM ramp
+      newspeed := newspeed <# maxspeed  ' set a maximum PWM value
       setMotorSpeed(i, newspeed)
       lastspeed[i] := newspeed
       
