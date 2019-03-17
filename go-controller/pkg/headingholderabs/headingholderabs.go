@@ -71,6 +71,7 @@ func (h *HeadingHolder) TargetHeading() float64 {
 
 func (h *HeadingHolder) Wait(ctx context.Context) error {
 	lastAngleError := 0.0
+	numIterationsAroundZero := 0
 	for {
 		h.controlLock.Lock()
 		if ctx.Err() != nil {
@@ -83,14 +84,24 @@ func (h *HeadingHolder) Wait(ctx context.Context) error {
 		h.controlLock.Unlock()
 
 		angleError := tH - cH
-		if angleError < 0.5 {
-			return nil
-		}
+		fmt.Printf("HH: wait angle error: %.2f last: %.2f\n", angleError, lastAngleError)
+		const (
+			angleThresh = 1
+			iterThresh  = 7
+		)
+		var deltaMagnitude = 5.0
 		if lastAngleError != 0 {
-			if math.Signbit(angleError) != math.Signbit(lastAngleError) {
-				// Must have passed the angle.
-				return nil
-			}
+			delta := lastAngleError - angleError
+			deltaMagnitude = math.Abs(float64(delta))
+		}
+		if angleError > -angleThresh && angleError < angleThresh ||
+			angleError > 0 && lastAngleError < 0 ||
+			angleError < 0 && lastAngleError > 0 ||
+			deltaMagnitude < 0.1 {
+			numIterationsAroundZero++
+		}
+		if numIterationsAroundZero > iterThresh {
+			return nil
 		}
 		lastAngleError = angleError
 	}
@@ -138,9 +149,10 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 	const (
 		kp                     = 0.007
-		ki                     = 0.0
-		kd                     = -0.00007
-		maxIntegral            = 1
+		ki                     = 0.03
+		kd                     = 0.0001
+		maxIntegral            = 0.3
+		maxD                   = 100
 		maxRotationThrottle    = 0.1
 		maxThrottleDeltaPerSec = 0.2
 	)
@@ -172,16 +184,14 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		loopTimeSecs := loopTime.Seconds()
 		targetHeading := controls.targetHeading
 
-		const maxLeadDegrees = 20
-		if targetHeading > headingEstimate+maxLeadDegrees {
-			targetHeading = headingEstimate + maxLeadDegrees
-		} else if targetHeading < headingEstimate-maxLeadDegrees {
-			targetHeading = headingEstimate - maxLeadDegrees
-		}
-
 		// Calculate the error/derivative/integral.
 		headingError := targetHeading - headingEstimate
 		dHeadingError := (headingError - lastHeadingError) / loopTimeSecs
+		if dHeadingError > maxD {
+			dHeadingError = maxD
+		} else if dHeadingError < -maxD {
+			dHeadingError = -maxD
+		}
 		iHeadingError += headingError * loopTimeSecs
 		if iHeadingError > maxIntegral {
 			iHeadingError = maxIntegral
@@ -200,7 +210,7 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			motorRotationSpeed = -maxRotationThrottle
 		}
 
-		fmt.Printf("HH: %v %d Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
+		fmt.Printf("HH: %v %d Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.3f\n",
 			loopTime, len(yawReadings), headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
 		targetThrottle := controls.throttle

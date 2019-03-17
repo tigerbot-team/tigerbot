@@ -53,7 +53,7 @@ func New(hw hardware.Interface) *MazeMode {
 		joystickEvents: make(chan *joystick.Event),
 	}
 
-	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 20)
+	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 280)
 	mm.turnThrottlePct = mm.tunables.Create("Turn throttle %", 0)
 
 	mm.frontDistanceSpeedUpThreshMM = mm.tunables.Create("Front distance speed up thresh", 350)
@@ -189,7 +189,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			} else {
 				prettyPrinted = fmt.Sprintf("%dmm", readingInMM)
 			}
-			msg += fmt.Sprintf("%s:=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
+			msg += fmt.Sprintf("%s=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
 		}
 		fmt.Println(msg)
 	}
@@ -230,7 +230,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 		var speed float64 = float64(m.baseSpeedPct.Get())
 
-		fmt.Println("Following the walls...")
+		fmt.Println("MAZE: Following the walls...")
 		for ctx.Err() == nil {
 			for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
 				// Bot is paused.
@@ -254,7 +254,11 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			}
 
 			forwardGuess := sum / 2
-			if numGoodForwardReadings > 0 && forwardGuess < m.turnEntryThreshMM.Get() {
+			fwdThresh := m.turnEntryThreshMM.Get()
+			if numGoodForwardReadings > 0 {
+				fmt.Printf("MAZE: Wall at %dmm vs thresh %dmm\n", forwardGuess, fwdThresh)
+			}
+			if numGoodForwardReadings > 0 && forwardGuess < fwdThresh {
 				log.Println("Reached wall in front")
 				break
 			}
@@ -345,7 +349,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			//scaledTxErr := txErrorSq * speed / 20000
 			//scaledRotErr := rotErrorSq * speed / 1000
 			//
-			//fmt.Printf("Control: S %.1f R %.2f T %.2f\n", speed/127, scaledRotErr/127, scaledTxErr/127)
+			//fmt.Printf("MAZE: Control: S %.1f R %.2f T %.2f\n", speed/127, scaledRotErr/127, scaledTxErr/127)
 			//m.headingHolder.SetControlInputs(-scaledRotErr/127, speed/127, -scaledTxErr/127)
 		}
 
@@ -354,21 +358,52 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		leftTurnConfidence := leftFore.BestGuess() + leftRear.BestGuess()
 		rightTurnConfidence := rightFore.BestGuess() + rightRear.BestGuess()
 
-		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence)
+		fmt.Println("MAZE: Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence)
 
 		var sign float64
 		if leftTurnConfidence > rightTurnConfidence {
-			fmt.Println("Turning left...")
+			fmt.Println("MAZE: Turning left...")
 			sign = -1
 		} else {
-			fmt.Println("Turning right...")
+			fmt.Println("MAZE: Turning right...")
 			sign = 1
 		}
 
 		startHeading := m.hw.CurrentHeading()
-		fmt.Println("Turn start heading:", startHeading)
+		fmt.Println("MAZE: Turn start heading:", startHeading)
 		hh.AddHeadingDelta(sign * 90)
-		hh.Wait(ctx)
+		_ = hh.Wait(ctx)
+
+		// Flush the filters.
+		readSensors()
+		readSensors()
+		readSensors()
+		readSensors()
+		readSensors()
+
+		rotationEstimates := []float64{}
+		if leftFore.BestGuess() < 350 && leftRear.BestGuess() < 350 {
+			rotationEstimates = append(rotationEstimates, float64(leftFore.BestGuess()-leftRear.BestGuess()))
+		}
+		if rightFore.BestGuess() < 350 && rightRear.BestGuess() < 350 {
+			rotationEstimates = append(rotationEstimates, float64(-rightFore.BestGuess()+rightRear.BestGuess()))
+		}
+		if len(rotationEstimates) > 0 {
+			var sum float64
+			for _, r := range rotationEstimates {
+				sum += r
+			}
+			avg := sum / float64(len(rotationEstimates))
+			rotEst := math.Atan(avg/110) * 360 / (2 * math.Pi)
+			fmt.Printf("MAZE: Estimated offset: %.2f degrees\n", rotEst)
+
+			if rotEst > 1 {
+				rotEst = 1
+			} else if rotEst < -1 {
+				rotEst = -1
+			}
+			hh.AddHeadingDelta(-rotEst)
+		}
 	}
 }
 
@@ -435,10 +470,10 @@ func (f *Filter) BestGuess() int {
 
 func (m *MazeMode) stopSequence() {
 	if !m.running {
-		fmt.Println("Not running")
+		fmt.Println("MAZE: Not running")
 		return
 	}
-	fmt.Println("Stopping sequence...")
+	fmt.Println("MAZE: Stopping sequence...")
 
 	m.cancelSequence()
 	m.cancelSequence = nil
@@ -448,15 +483,15 @@ func (m *MazeMode) stopSequence() {
 
 	m.hw.StopMotorControl()
 
-	fmt.Println("Stopped sequence...")
+	fmt.Println("MAZE: Stopped sequence...")
 }
 
 func (m *MazeMode) pauseOrResumeSequence() {
 	if atomic.LoadInt32(&m.paused) == 1 {
-		fmt.Println("Resuming sequence...")
+		fmt.Println("MAZE: Resuming sequence...")
 		atomic.StoreInt32(&m.paused, 0)
 	} else {
-		fmt.Println("Pausing sequence...")
+		fmt.Println("MAZE: Pausing sequence...")
 		atomic.StoreInt32(&m.paused, 1)
 	}
 }
