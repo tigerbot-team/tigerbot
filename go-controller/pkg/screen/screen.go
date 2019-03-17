@@ -114,12 +114,12 @@ func LoopUpdatingScreen(ctx context.Context) {
 		voltage := busVoltages[0]
 		lock.Unlock()
 		dc.Translate(0, lineHeight)
-		drawPowerBar(dc, voltage)
+		drawPowerBar(dc, voltage, invert)
 		lock.Lock()
 		voltage = busVoltages[1]
 		lock.Unlock()
 		dc.Translate(34, 0)
-		drawPowerBar(dc, voltage)
+		drawPowerBar(dc, voltage, invert)
 		dc.Translate(-34, 0)
 
 		lock.Lock()
@@ -231,7 +231,7 @@ const (
 	overallBarHeight = bottomBarHeight + numUpperBars*upperBarInterval
 )
 
-func drawPowerBar(dc *gg.Context, voltage float64) {
+func drawPowerBar(dc *gg.Context, voltage float64, invert bool) {
 	var cellVoltage float64
 	if voltage > 9 {
 		// assume the 4-cell pack
@@ -245,7 +245,13 @@ func drawPowerBar(dc *gg.Context, voltage float64) {
 	// Draw the larger power bar at the bottom. Colour depends on charge level.
 
 	if charge < 0.1 {
-		dc.SetRGBA(1, 0.2, 0, 1)
+		if invert {
+			dc.SetRGBA(1, 0.2, 0, 1)
+		} else {
+			dc.SetRGBA(.1, 0.02, 0, 1)
+		}
+	} else {
+		yellow(dc)
 	}
 	dc.DrawRectangle(0, overallBarHeight-bottomBarHeight, bottomBarWidth, bottomBarHeight)
 
@@ -262,12 +268,4 @@ func drawPowerBar(dc *gg.Context, voltage float64) {
 		offset = -2
 	}
 	dc.DrawString(vString, offset, overallBarHeight+lineHeight)
-}
-
-func DrawWarning(dc *gg.Context) {
-	dc.SetRGB(1, 0.2, 0)
-	dc.DrawRegularPolygon(3, 0, 0, 14, 0)
-	dc.Fill()
-	dc.SetRGBA(0, 0, 0, 0.9)
-	dc.DrawString("!", -3, 3)
 }
