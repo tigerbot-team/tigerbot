@@ -233,6 +233,52 @@ func (m *NebulaMode) fatal(err error) {
 	panic(err)
 }
 
+func (m *NebulaMode) calculateVisitOrder(img []gocv.Mat) []int {
+	averageHue := make([]int, len(img))
+	hueUsed := make([]bool, len(img))
+	for ii := range img {
+		averageHue[ii] = m.calculateAverageHue(img[ii])
+		hueUsed[ii] = false
+	}
+	var targets []*rainbow.HSVRange
+	for _, colour := range m.config.Sequence {
+		targets = append(targets, rainbow.Balls[colour])
+	}
+	bestMatchCost, bestMatchOrder := m.findBestMatch(targets, averageHue, hueUsed)
+	return bestMatchOrder
+}
+
+func (m *NebulaMode) calculateAverageHue(img gocv.Mat) int {
+	//...
+}
+
+func (m *NebulaMode) findBestMatch(targets, averageHue, hueUsed) (int, []int) {
+	var (
+		minCost  int
+		minOrder []int
+	)
+	for ic, choiceHue := range averageHue {
+		if hueUsed[ic] {
+			continue
+		}
+		choiceCost := m.calculateCost(targets[0], choiceHue)
+		hueUsedCopy := make([]bool, len(hueUsed))
+		copy(hueUsedCopy, hueUsed)
+		hueUsedCopy[ic] = true
+		nextCost, nextOrder := m.findBestMatch(targets[1:], averageHue, hueUsedCopy)
+		totalCost = choiceCost + nextCost
+		if (minOrder == nil) || (totalCost < minCost) {
+			minCost = totalCost
+			minOrder = append([]int{ic}, nextOrder...)
+		}
+	}
+	return minCost, minOrder
+}
+
+func (m *NebulaMode) calculateCost(targetHSVRange *rainbow.HSVRange, choiceHue int) {
+	//...
+}
+
 // runSequence is a goroutine that reads from the camera and controls the motors.
 func (m *NebulaMode) runSequence(ctx context.Context) {
 	defer close(m.sequenceDone)
@@ -312,7 +358,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 	// Calculate the order we need to visit the corners, by
 	// matching photos to colours.
-	visitOrder := calculateVisitOrder(img, m.config.Sequence, m.config.Balls)
+	visitOrder := calculateVisitOrder(img)
 
 	for _, index := range visitOrder {
 		// Rotating phase.
