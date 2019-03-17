@@ -31,7 +31,6 @@ const (
 )
 
 type RainbowConfig struct {
-	FPS                   int
 	RotateSpeed           float64
 	SlowRotateSpeed       float64
 	LimitSpeed            float64
@@ -81,7 +80,6 @@ type NebulaMode struct {
 	// State of balls searching.
 	phase                   Phase
 	targetColour            string
-	perceivedSize           int
 	ballX                   int
 	roughDirectionCount     int
 	ballFixed               bool
@@ -102,7 +100,6 @@ func New(hw *hardware.Interface, soundsToPlay chan string) *NebulaMode {
 		joystickEvents: make(chan *joystick.Event),
 		phase:          Rotating,
 		config: RainbowConfig{
-			FPS:                   15,
 			RotateSpeed:           16,
 			SlowRotateSpeed:       5,
 			LimitSpeed:            80,
@@ -340,9 +337,6 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 	}
 	defer webcam.Close()
 
-	// Capture 15 frames per second.
-	webcam.Set(gocv.VideoCaptureFPS, float64(m.config.FPS))
-
 	img := gocv.NewMat()
 	defer img.Close()
 
@@ -364,37 +358,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		if numFramesRead > 0 {
-			timeSinceLastFrame := time.Since(lastFrameTime)
-			skipFrames := int64(timeSinceLastFrame) / (int64(time.Second) / int64(m.config.FPS))
-			if skipFrames > 0 {
-				fmt.Printf("Skipping %v frames\n", skipFrames)
-				webcam.Grab(int(skipFrames))
-			}
-		}
-
-		// This blocks until the next frame is ready.
-		if ok := webcam.Read(img); !ok {
-			fmt.Printf("cannot read device\n")
-			time.Sleep(1 * time.Millisecond)
-			continue
-		}
-		thisFrameTime := time.Now()
-		codeTime := time.Since(lastFrameTime)
-		if int64(codeTime) < int64(time.Second)/int64(m.config.FPS+1) {
-			fmt.Printf("Code running too fast: %v\n", codeTime)
-		}
-		lastFrameTime = thisFrameTime
-		numFramesRead++
-
-		if img.Empty() {
-			fmt.Printf("no image on device\n")
-			time.Sleep(1 * time.Millisecond)
-			continue
-		}
-
 		m.targetColour = m.config.Sequence[m.targetBallIdx]
-		m.processImage(img, forward)
 
 		select {
 		case <-m.startTrigger:
@@ -495,75 +459,10 @@ func (m *NebulaMode) announceTargetBall() {
 }
 
 func (m *NebulaMode) reset() {
-	m.perceivedSize = 0
 	m.ballX = 0
 	m.roughDirectionCount = 0
 	m.phase = Rotating
 	m.ballFixed = false
-}
-
-func (m *NebulaMode) processImage(img gocv.Mat, distanceSensor *Filter) {
-	w := img.Cols()
-	h := img.Rows()
-	if w != 640 || h != 480 {
-		fmt.Printf("Read image %v x %v\n", img.Cols(), img.Rows())
-	}
-
-	if atomic.LoadInt32(&m.savePicture) == 1 {
-		m.pictureIndex++
-		saveFile := fmt.Sprintf("/tmp/image-%v.jpg", m.pictureIndex)
-		success := gocv.IMWrite(saveFile, img)
-		fmt.Printf("TestMode: wrote %v? %v\n", saveFile, success)
-		atomic.StoreInt32(&m.savePicture, 0)
-	}
-
-	hsv := gocv.NewMat()
-	defer hsv.Close()
-	gocv.CvtColor(img, hsv, gocv.ColorBGRToHSV)
-	hsvRange := m.config.Balls[m.targetColour]
-	pos, err := rainbow.FindBallPosition(hsv, &hsvRange)
-	if err == nil {
-		fmt.Printf("Found at %#v\n", pos)
-		m.ballX = pos.X
-		m.perceivedSize = pos.Radius
-		if m.ballX >= (m.config.XStraightAhead-m.config.XPlusOrMinus) && m.ballX <= (m.config.XStraightAhead+m.config.XPlusOrMinus) {
-			fmt.Println("Ball seen roughly ahead")
-			m.roughDirectionCount++
-			m.ballFixed = true
-			if !distanceSensor.IsFar() {
-				distanceMM := distanceSensor.BestGuess()
-				yMin := int(240 * (1 - float64(m.config.DeltaHMaxMM)/(float64(distanceMM)*m.config.TanTheta)))
-				yMax := int(240 * (1 - float64(m.config.DeltaHMinMM)/(float64(distanceMM)*m.config.TanTheta)))
-				if pos.Y < yMin {
-					fmt.Printf("Ball above expected Y range: %v < %v\n", pos.Y, yMin)
-					if m.config.FilterYCoord {
-						m.ballFixed = false
-					}
-				} else if pos.Y > yMax {
-					fmt.Printf("Ball below expected Y range: %v > %v\n", pos.Y, yMax)
-					if m.config.FilterYCoord {
-						m.ballFixed = false
-					}
-				} else {
-					fmt.Printf("Ball within expected Y range: %v < %v < %v\n", yMin, pos.Y, yMax)
-				}
-			}
-		}
-		m.ballInView = true
-	} else {
-		fmt.Printf("Not found: %v\n", err)
-		m.roughDirectionCount = 0
-		m.ballFixed = false
-		m.ballInView = false
-	}
-}
-
-func (m *NebulaMode) roughDirectionKnown() bool {
-	return m.roughDirectionCount >= 2
-}
-
-func (m *NebulaMode) nowCloseEnough() bool {
-	return m.perceivedSize > 120
 }
 
 func (m *NebulaMode) getDirectionAdjust() float64 {
