@@ -39,7 +39,7 @@ CON
   readready = 31
   motorshutdowntime = 100
   maxpwmramp = 50
-  maxspeed = 800
+  maxspeed = 500
 
 OBJ
   quad :  "encoder"
