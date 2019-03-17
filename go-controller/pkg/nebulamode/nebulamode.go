@@ -10,12 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"sort"
-
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbow"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	"gocv.io/x/gocv"
@@ -37,9 +34,7 @@ type RainbowConfig struct {
 	ForwardSpeed          float64
 	ForwardSlowSpeed      float64
 	XStraightAhead        int
-	XPlusOrMinus          int
 	DirectionAdjustFactor float64
-	CloseEnoughSize       int
 	Sequence              []string
 	Balls                 map[string]rainbow.HSVRange
 
@@ -48,27 +43,15 @@ type RainbowConfig struct {
 	CornerSlowDownThresh              int
 
 	ForwardReverseThreshold int
-
-	// Height offset in mm from the camera centreline to the lowest reasonable ball centre
-	// height; positive/negative if that ball centre height is above/below the camera height.
-	DeltaHMinMM int
-	// Height offset in mm from the camera centreline to the highest reasonable ball centre
-	// height; positive/negative if that ball centre height is above/below the camera height.
-	DeltaHMaxMM int
-	// Vertical field of view factor as tan(theta), where theta is the angle that the camera
-	// captures (in 640x480 video mode) above and below its centreline.
-	TanTheta float64
-	// Whether to filter out apparent 'balls' that aren't in the expected Y range.
-	FilterYCoord bool
 }
 
 type NebulaMode struct {
-	Propeller      propeller.Interface
+	hw hardware.Interface
+
 	cancel         context.CancelFunc
 	startTrigger   chan struct{}
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
-	soundsToPlay   chan string
 
 	running        bool
 	targetBallIdx  int
@@ -85,7 +68,6 @@ type NebulaMode struct {
 	ballFixed               bool
 	advanceReverseStartTime time.Time
 	advanceDuration         time.Duration
-	savePicture             int32
 	pictureIndex            int
 	ballInView              bool
 
@@ -93,10 +75,9 @@ type NebulaMode struct {
 	config RainbowConfig
 }
 
-func New(hw *hardware.Interface, soundsToPlay chan string) *NebulaMode {
+func New(hw hardware.Interface) *NebulaMode {
 	m := &NebulaMode{
-		Propeller:      hw.Motors,
-		soundsToPlay:   soundsToPlay,
+		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
 		phase:          Rotating,
 		config: RainbowConfig{
@@ -106,9 +87,7 @@ func New(hw *hardware.Interface, soundsToPlay chan string) *NebulaMode {
 			ForwardSpeed:          35,
 			ForwardSlowSpeed:      6,
 			XStraightAhead:        320,
-			XPlusOrMinus:          80,
 			DirectionAdjustFactor: 0.03,
-			CloseEnoughSize:       150,
 			Sequence:              []string{"red", "blue", "yellow", "green"},
 			Balls:                 map[string]rainbow.HSVRange{},
 
@@ -117,14 +96,6 @@ func New(hw *hardware.Interface, soundsToPlay chan string) *NebulaMode {
 			CornerSlowDownThresh:              60,
 
 			ForwardReverseThreshold: 450,
-
-			DeltaHMinMM: -28,
-			DeltaHMaxMM: 17,
-			// tan(24.4 degrees) * 480 / 1232, following
-			// https://www.raspberrypi.org/documentation/hardware/camera/README.md and
-			// https://github.com/waveform80/picamera/blob/master/docs/fov.rst
-			TanTheta:     0.177,
-			FilterYCoord: false,
 		},
 		startTrigger: make(chan struct{}),
 	}
@@ -156,7 +127,7 @@ func New(hw *hardware.Interface, soundsToPlay chan string) *NebulaMode {
 }
 
 func (m *NebulaMode) Name() string {
-	return "Rainbow mode"
+	return "NEBULA MODE"
 }
 
 func (m *NebulaMode) StartupSound() string {
@@ -175,7 +146,6 @@ func (m *NebulaMode) Stop() {
 	m.stopWG.Wait()
 }
 
-// loop processes input and starts/stops the goroutine that does the actual CV work.
 func (m *NebulaMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
 	defer m.stopSequence()
@@ -193,17 +163,17 @@ func (m *NebulaMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
+						fmt.Println("Getting ready!")
 						m.startSequence()
 					case joystick.ButtonSquare:
 						m.stopSequence()
 					case joystick.ButtonTriangle:
 						m.pauseOrResumeSequence()
-					case joystick.ButtonCircle:
-						atomic.StoreInt32(&m.savePicture, 1)
 					}
 				} else {
 					switch event.Number {
 					case joystick.ButtonR1:
+						fmt.Println("GO!")
 						close(m.startTrigger)
 						m.announceTargetBall()
 					}
@@ -230,22 +200,6 @@ func (m *NebulaMode) startSequence() {
 	go m.runSequence(seqCtx)
 }
 
-func clamp(v float64, limit float64) int8 {
-	if v < -limit {
-		v = -limit
-	}
-	if v > limit {
-		v = limit
-	}
-	if v <= math.MinInt8 {
-		return math.MinInt8
-	}
-	if v >= math.MaxInt8 {
-		return math.MaxInt8
-	}
-	return int8(v)
-}
-
 func (m *NebulaMode) setSpeeds(forwards, sideways, rotation float64) {
 	fl := clamp(forwards-sideways-rotation, m.config.LimitSpeed)
 	fr := clamp(forwards+sideways+rotation, m.config.LimitSpeed)
@@ -256,105 +210,187 @@ func (m *NebulaMode) setSpeeds(forwards, sideways, rotation float64) {
 	m.Propeller.SetMotorSpeeds(fl, fr)
 }
 
-// runSequence is a goroutine that reads form the camera and controls the motors.
-func (m *NebulaMode) runSequence(ctx context.Context) {
-	defer close(m.sequenceDone)
-
-	mx, err := mux.New("/dev/i2c-1")
-	if err != nil {
-		fmt.Println("Failed to open mux", err)
-		return
-	}
-
-	var tofs []tofsensor.Interface
-	defer func() {
-		for _, tof := range tofs {
-			tof.Close()
-		}
-	}()
-	for _, port := range []int{
-		mux.BusTOFSideLeft,
-		mux.BusTOFFrontLeft,
-		mux.BusTOFForward,
-		mux.BusTOFFrontRight,
-		mux.BusTOFSideRight,
-	} {
-		tof, err := tofsensor.NewMuxed("/dev/i2c-1", 0x29, mx, port)
-		if err != nil {
-			fmt.Println("Failed to open sensor", err)
-			return
-		}
-		err = tof.StartContinuousMeasurements()
-		if err != nil {
-			fmt.Println("Failed to start continuous measurements", err)
-			return
-		}
-		tofs = append(tofs, tof)
-	}
-
-	var filters []*Filter
-	for i := 0; i < 5; i++ {
-		filters = append(filters, &Filter{})
-	}
-
-	readSensors := func() {
-		// Read the sensors
-		for j, tof := range tofs {
-			reading := "-"
-			readingInMM, err := tof.GetNextContinuousMeasurement()
-			filters[j].Accumulate(readingInMM)
-			if readingInMM == tofsensor.RangeTooFar {
-				reading = ">2000mm"
-			} else if err != nil {
-				reading = "<failed>"
-			} else {
-				reading = fmt.Sprintf("%dmm", readingInMM)
-			}
-			fmt.Printf("%s:=%5s/%5dmm ", filters[j].Name, reading, filters[j].BestGuess())
-		}
-		fmt.Println()
-	}
-
-	sideLeft := filters[0]
-	sideLeft.Name = "L"
-	forwardLeft := filters[1]
-	forwardLeft.Name = "FL"
-	forward := filters[2]
-	forward.Name = "F"
-	forwardRight := filters[3]
-	forwardRight.Name = "FR"
-	sideRight := filters[4]
-	sideRight.Name = "R"
-
-	for i := 0; i < 5; i++ {
-		readSensors()
-	}
-
-	webcam, err := gocv.VideoCaptureDevice(0)
-	if err != nil {
-		fmt.Printf("error opening video capture device: %v\n", 0)
+func (m *NebulaMode) takePicture() (img gocv.Mat, err error) {
+	webcam, werr := gocv.VideoCaptureDevice(0)
+	if werr != nil {
+		err = fmt.Errorf("error opening video capture device: %v", werr)
 		return
 	}
 	defer webcam.Close()
 
 	img := gocv.NewMat()
-	defer img.Close()
+	if ok := webcam.Read(img); !ok {
+		img.Close()
+		err = fmt.Errorf("cannot read picture from webcam device")
+		return
+	}
+	return
+}
+
+func (m *NebulaMode) fatal(err error) {
+	// Placeholder for what to do if we hit a fatal error.
+	// Callers assume that this does not return normally.
+	panic(err)
+}
+
+// runSequence is a goroutine that reads from the camera and controls the motors.
+func (m *NebulaMode) runSequence(ctx context.Context) {
+	defer close(m.sequenceDone)
+	defer fmt.Println("Exiting sequence loop")
+
+	// Create time-of-flight reading filters; should filter out any stray readings.
+	var filters []*mazemode.Filter
+	for i := 0; i < 6; i++ {
+		filters = append(filters, &mazemode.Filter{})
+	}
+
+	var readings hardware.DistanceReadings
+
+	readSensors := func() {
+		// Read the sensors
+		msg := ""
+		readings = m.hw.CurrentDistanceReadings(readings.Revision)
+		for j, r := range readings.Readings {
+			prettyPrinted := "-"
+			readingInMM, err := r.DistanceMM, r.Error
+			filters[j].Accumulate(readingInMM)
+			if readingInMM == tofsensor.RangeTooFar {
+				prettyPrinted = ">2000mm"
+			} else if err != nil {
+				prettyPrinted = "<failed>"
+			} else {
+				prettyPrinted = fmt.Sprintf("%dmm", readingInMM)
+			}
+			msg += fmt.Sprintf("%s=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
+		}
+		fmt.Println(msg)
+	}
+
+	leftRear := filters[0]
+	leftRear.Name = "LR"
+	leftFore := filters[1]
+	leftFore.Name = "LF"
+	frontLeft := filters[2]
+	frontLeft.Name = "FL"
+	frontRight := filters[3]
+	frontRight.Name = "FR"
+	rightFore := filters[4]
+	rightFore.Name = "RF"
+	rightRear := filters[5]
+	rightRear.Name = "RR"
 
 	startTime := time.Now()
+
+	// We use the absolute heading hold mode so we can do things like "turn right 90 degrees".
+	hh := m.hw.StartHeadingHoldMode()
+
+	var (
+		img [4]gocv.Mat
+		err error
+	)
+
+	// Store initial heading.  Images 0, 1, 2, 3 will be at +45,
+	// +135, +225 and +315 w.r.t. this initial heading.
+	initialHeading := hw.CurrentHeading()
+	cornerHeadings := [4]float64{
+		initialHeading + 45,
+		initialHeading + 45 + 90,
+		initialHeading + 45 + 90 + 90,
+		initialHeading + 45 + 90 + 90 + 90,
+	}
+
+	// Turn to take photos of the four corners.
+	for ii, cornerHeading := range cornerHeadings {
+		hh.SetHeading(cornerHeading)
+		_ = hh.Wait(ctx)
+		img[ii], err = m.takePicture()
+		if err != nil {
+			m.fatal(err)
+		}
+		defer img[ii].Close()
+	}
+
+	// Calculate the order we need to visit the corners, by
+	// matching photos to colours.
+	visitOrder := calculateVisitOrder(img, m.config.Sequence, m.config.Balls)
+
+	for _, index := range visitOrder {
+		// Rotating phase.
+		hh.SetHeading(cornerHeadings[index])
+		_ = hh.Wait(ctx)
+		// Advancing phase.
+		hh.SetThrottle(m.config.ForwardSpeed)
+		advanceFastStart := time.Now()
+		var (
+			advanceFastDuration time.Duration
+			advanceSlowStart    time.Time
+			advanceSlowDuration time.Duration
+		)
+		for ctx.Err() == nil {
+			readSensors()
+			fmt.Println("Target:", index, "Advancing")
+
+			closeEnough :=
+				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) ||
+					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold)
+
+			closeEnoughToSlowDown :=
+				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh) ||
+					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh)
+
+			if closeEnough {
+				advanceSlowDuration = time.Since(advanceSlowStart)
+				break
+			}
+
+			// We're approaching the ball but not yet close enough.
+			if closeEnoughToSlowDown {
+				fmt.Println("Slowing...")
+				advanceFastDuration = time.Since(advanceFastStart)
+				hh.SetThrottle(m.config.ForwardSlowSpeed)
+				advanceSlowStart = time.Now()
+			}
+		}
+		// Reversing phase.
+		hh.SetThrottle(-m.config.ForwardSpeed)
+		reverseStart := time.Now()
+		reverseDuration := time.Duration(
+			((advanceFastDuration * m.config.ForwardSpeed) +
+				(advanceSlowDuration * m.config.ForwardSlowSpeed)) /
+				m.config.ForwardSpeed)
+		for ctx.Err() == nil {
+			readSensors()
+			fmt.Println("Target:", index, "Reversing")
+
+			closeEnough :=
+				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) ||
+					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold)
+
+			closeEnoughToSlowDown :=
+				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh) ||
+					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh)
+
+			if closeEnough {
+				break
+			}
+
+			// We're approaching the ball but not yet close enough.
+			if closeEnoughToSlowDown {
+				fmt.Println("Slowing...")
+				hh.SetThrottle(m.config.ForwardSlowSpeed)
+				advanceSlowStart := time.Now()
+			}
+		}
+	}
 
 	m.reset()
 	fmt.Println("Next target ball: ", m.config.Sequence[m.targetBallIdx])
 
 	defer fmt.Println("Exiting sequence loop")
 
-	var (
-		lastFrameTime time.Time
-		numFramesRead int
-	)
-
 	for m.targetBallIdx < len(m.config.Sequence) && ctx.Err() == nil {
 		for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
-			m.Propeller.SetMotorSpeeds(0, 0)
+			hh.SetThrottle(0)
 			time.Sleep(100 * time.Millisecond)
 		}
 
@@ -404,43 +440,6 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			// Fall through.
 		}
 
-		if m.phase == Advancing {
-			fmt.Println("Target:", m.targetColour, "Advancing")
-
-			closeEnough := !forward.IsFar() && forward.BestGuess() <= m.config.ForwardCornerDetectionThreshold &&
-				!forwardRight.IsFar() && forwardRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold &&
-				!forwardLeft.IsFar() && forwardLeft.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold
-
-			closeEnoughToSlowDown := !forward.IsFar() && forward.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh ||
-				!forwardRight.IsFar() && forwardRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh ||
-				!forwardLeft.IsFar() && forwardLeft.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh
-
-			if m.ballFixed && !closeEnough {
-				// We're approaching the ball but not yet close enough.
-				sideways := m.getTOFDifference()
-				rotation := m.getDirectionAdjust()
-				if closeEnoughToSlowDown {
-					fmt.Println("Slowing...")
-					m.setSpeeds(m.config.ForwardSlowSpeed, sideways, rotation)
-				} else {
-					m.setSpeeds(m.config.ForwardSpeed, sideways, rotation)
-				}
-				continue
-			} else {
-				// Either we've lost the ball, or we're close enough, so we should
-				// switch to reversing.
-				m.phase = Reversing
-				m.advanceDuration = time.Since(m.advanceReverseStartTime)
-				m.advanceReverseStartTime = time.Now()
-				m.setSpeeds(-m.config.ForwardSpeed, 0, 0)
-				if !m.ballFixed {
-					// We haven't found the current ball yet.
-					continue
-				}
-				// Fall through (=> we're close enough).
-			}
-		}
-
 		fmt.Println("Reached target ball:", m.targetColour, "in", time.Since(startTime))
 		m.targetBallIdx++
 		if m.targetBallIdx < len(m.config.Sequence) {
@@ -455,7 +454,9 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 }
 
 func (m *NebulaMode) announceTargetBall() {
-	m.soundsToPlay <- fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[m.targetBallIdx])
+	m.hw.PlaySound(
+		fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[m.targetBallIdx]),
+	)
 }
 
 func (m *NebulaMode) reset() {
@@ -475,10 +476,10 @@ func (m *NebulaMode) getTOFDifference() float64 {
 
 func (m *NebulaMode) stopSequence() {
 	if !m.running {
-		fmt.Println("Not running")
+		fmt.Println("NEBULA: Not running")
 		return
 	}
-	fmt.Println("Stopping sequence...")
+	fmt.Println("NEBULA: Stopping sequence...")
 
 	m.cancelSequence()
 	m.cancelSequence = nil
@@ -502,47 +503,18 @@ func (m *NebulaMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
-type Filter struct {
-	Name    string
-	samples []int
-}
-
-func (f *Filter) Accumulate(sample int) {
-	f.samples = append(f.samples, sample)
-	if len(f.samples) > 3 {
-		f.samples = f.samples[1:]
+func clamp(v float64, limit float64) int8 {
+	if v < -limit {
+		v = -limit
 	}
-}
-
-func (f *Filter) IsFar() bool {
-	// Look backwards in the samples
-	for i := len(f.samples) - 1; i >= 0; i-- {
-		if f.samples[i] > 400 {
-			// 400mm is far by definition.
-			return true
-		}
-		if f.samples[i] > 0 {
-			// any recent non-far sample means we're not far.
-			return false
-		}
+	if v > limit {
+		v = limit
 	}
-	return true
-}
-
-func (f *Filter) IsGood() bool {
-	return f.BestGuess() > 0 && f.BestGuess() < 200
-}
-
-func (f *Filter) BestGuess() int {
-	var goodSamples []int
-	for _, s := range f.samples {
-		if s != 0 && s < tofsensor.RangeTooFar {
-			goodSamples = append(goodSamples, s)
-		}
+	if v <= math.MinInt8 {
+		return math.MinInt8
 	}
-	if len(goodSamples) == 0 {
-		return 0
+	if v >= math.MaxInt8 {
+		return math.MaxInt8
 	}
-	sort.Ints(goodSamples)
-	return goodSamples[len(goodSamples)/2]
+	return int8(v)
 }
