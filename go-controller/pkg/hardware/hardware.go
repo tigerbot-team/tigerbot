@@ -95,8 +95,8 @@ func (h *Hardware) CurrentHeading() float64 {
 	return h.imu.CurrentHeading()
 }
 
-func (h *Hardware) CurrentDistanceReadings() DistanceReadings {
-	return h.i2c.CurrentDistanceReadings()
+func (h *Hardware) CurrentDistanceReadings(rev revision) DistanceReadings {
+	return h.i2c.CurrentDistanceReadings(rev)
 }
 
 func (h *Hardware) SetServo(n int, value float64) {

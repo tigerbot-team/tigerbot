@@ -39,6 +39,8 @@ type I2CController struct {
 	prop        propeller.Interface
 	tofsEnabled bool
 
+	revisionUpdated  *sync.Cond
+	nextRevision     revision
 	distanceReadings DistanceReadings
 }
 
@@ -55,12 +57,16 @@ type pwmValue float64
 func (pwmValue) pwmsOnly() {}
 
 func NewI2CController() *I2CController {
-	return &I2CController{
+	c := &I2CController{
 		pwmPorts:            map[int]pwmTypes{},
 		pwmPortsWithUpdates: map[int]bool{},
 
 		tofsEnabled: true,
+
+		nextRevision: 1,
 	}
+	c.revisionUpdated = sync.NewCond(&c.lock)
+	return c
 }
 
 func (c *I2CController) SetToFsEnabled(enabled bool) {
@@ -90,15 +96,13 @@ func (c *I2CController) SetPWM(n int, value float64) {
 	c.lock.Unlock()
 }
 
-func (c *I2CController) CurrentDistanceReadings() DistanceReadings {
+func (c *I2CController) CurrentDistanceReadings(rev revision) DistanceReadings {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	// Avoid returning anything until the first reading has completed.
-	for c.distanceReadings.CaptureTime.IsZero() {
-		c.lock.Unlock()
-		time.Sleep(10 * time.Millisecond)
-		c.lock.Lock()
+	// Wait for a new revision.
+	for c.distanceReadings.Revision <= rev {
+		c.revisionUpdated.Wait()
 	}
 
 	return c.distanceReadings
@@ -185,7 +189,9 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		readings := DistanceReadings{
 			CaptureTime: time.Now(),
 			Readings:    make([]Reading, len(tofs)),
+			Revision:    c.nextRevision,
 		}
+		c.nextRevision++
 		if err != nil {
 			screen.SetNotice(NoteMux, screen.LevelErr)
 			fmt.Println("Failed to select mux port", err)
@@ -292,6 +298,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			fmt.Println("ToF readings:", readings)
 			c.lock.Lock()
 			c.distanceReadings = readings
+			c.revisionUpdated.Broadcast()
 			c.lock.Unlock()
 		}
 

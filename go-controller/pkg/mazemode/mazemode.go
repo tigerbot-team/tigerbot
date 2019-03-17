@@ -172,10 +172,12 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		filters = append(filters, &Filter{})
 	}
 
+	var readings hardware.DistanceReadings
+
 	readSensors := func() {
 		// Read the sensors
 		msg := ""
-		readings := m.hw.CurrentDistanceReadings()
+		readings = m.hw.CurrentDistanceReadings(readings.Revision)
 		for j, r := range readings.Readings {
 			prettyPrinted := "-"
 			readingInMM, err := r.DistanceMM, r.Error
