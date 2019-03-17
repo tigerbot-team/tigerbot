@@ -128,8 +128,10 @@ func (p *PCA9685) Close() error {
 	return p.dev.Close()
 }
 
+var dummySingleton = &dummyServo{}
+
 func Dummy() Interface {
-	return &dummyServo{}
+	return dummySingleton
 }
 
 type dummyServo struct {

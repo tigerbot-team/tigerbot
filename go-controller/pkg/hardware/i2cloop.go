@@ -244,12 +244,8 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		powerSensors = append(powerSensors, pwrSen)
 	}
 
-	servos, err := pca9685.New("/dev/i2c-1")
-	if err != nil {
-		fmt.Println("Failed open PCA9685 ", err)
-		screen.SetNotice(NoteServo, screen.LevelErr)
-		return
-	}
+	dummyServos := pca9685.Dummy()
+	var servos = dummyServos
 	defer func() {
 		err = mx.SelectSinglePort(mux.BusOthers)
 		if err != nil {
@@ -259,20 +255,56 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		}
 		_ = servos.Close()
 	}()
-	err = servos.Configure()
+
+	var lastServoInitTime time.Time
+
+	resetOrDummyOutServos := func() error {
+		fmt.Println("Resetting servos...")
+		lastServoInitTime = time.Now()
+		if servos != dummyServos {
+			fmt.Println("Closing old servo controller.")
+			_ = servos.Close()
+			servos = dummyServos
+		}
+		err = mx.SelectSinglePort(mux.BusOthers)
+		if err != nil {
+			screen.SetNotice(NoteMux, screen.LevelErr)
+			fmt.Println("Failed to select mux port", err)
+			return err
+		}
+		servos, err = pca9685.New("/dev/i2c-1")
+		if err != nil {
+			fmt.Println("Failed open PCA9685 ", err)
+			screen.SetNotice(NoteServo, screen.LevelErr)
+			servos = dummyServos
+		}
+		fmt.Println("Opened PCA9685.")
+		err = servos.Configure()
+		if err != nil {
+			fmt.Println("Failed to configure PCA9685", err)
+			screen.SetNotice(NoteServo, screen.LevelErr)
+			servos = dummyServos
+		}
+		fmt.Println("Configured PCA9685.")
+		if servos != dummyServos {
+			screen.ClearNotice(NoteServo)
+		}
+
+		// We may have been reset, queue servo updates for all the ports.
+		c.lock.Lock()
+		for n := range c.pwmPorts {
+			c.pwmPortsWithUpdates[n] = true
+		}
+		c.lock.Unlock()
+
+		return nil
+	}
+	err = resetOrDummyOutServos()
 	if err != nil {
-		fmt.Println("Failed configure PCA9685 ", err)
-		screen.SetNotice(NoteServo, screen.LevelErr)
+		fmt.Println("Failed to select port when initialising servos: ", err)
+		screen.SetNotice(NoteMux, screen.LevelErr)
 		return
 	}
-	screen.ClearNotice(NoteServo)
-
-	// We may have been reset, queue servo updates for all the ports.
-	c.lock.Lock()
-	for n := range c.pwmPorts {
-		c.pwmPortsWithUpdates[n] = true
-	}
-	c.lock.Unlock()
 
 	ticker := time.NewTicker(25 * time.Millisecond)
 
@@ -339,10 +371,14 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			fmt.Println("Failed to read encoders", err)
 		}
 
-		c.lock.Lock()
-		pwmUpdates := c.pwmPortsWithUpdates
-		c.pwmPortsWithUpdates = make(map[int]bool)
-		c.lock.Unlock()
+		if servos == dummyServos && time.Since(lastServoInitTime) > 1*time.Second {
+			err = resetOrDummyOutServos()
+			if err != nil {
+				screen.SetNotice(NoteMux, screen.LevelErr)
+				fmt.Println("Failed to select mux port while initialising servos", err)
+				return
+			}
+		}
 
 		err = mx.SelectSinglePort(mux.BusOthers)
 		if err != nil {
@@ -350,7 +386,11 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			fmt.Println("Failed to update mux port", err)
 			return
 		}
-		for n := range pwmUpdates {
+		c.lock.Lock()
+		pwmUpdatesCopy := c.pwmPortsWithUpdates
+		c.pwmPortsWithUpdates = make(map[int]bool)
+		c.lock.Unlock()
+		for n := range pwmUpdatesCopy {
 			c.lock.Lock()
 			value := c.pwmPorts[n]
 			c.lock.Unlock()
@@ -364,9 +404,12 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			if err != nil {
 				fmt.Println("Failed to update servo/PWM port ", n, ": ", err)
 				screen.SetNotice(NoteServo, screen.LevelErr)
-				return
+				servos = dummyServos
+				break
 			}
-			screen.ClearNotice(NoteServo)
+			if servos != dummyServos {
+				screen.ClearNotice(NoteServo)
+			}
 		}
 
 		if time.Since(lastPowerReadingTime) > 1*time.Second {
