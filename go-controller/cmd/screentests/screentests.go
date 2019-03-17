@@ -20,6 +20,8 @@ func main() {
 	screen.SetLED(1, 0, 1, 0)
 
 	reader := bufio.NewReader(os.Stdin)
+	errors := make(map[string]bool)
+	level := screen.LevelInfo
 	for {
 		fmt.Print("> ")
 		line, err := reader.ReadString('\n')
@@ -28,6 +30,17 @@ func main() {
 			return
 		}
 
-		screen.SetMode(strings.TrimSpace(line))
+		if errors[line] {
+			screen.ClearNotice(strings.TrimSpace(line))
+			delete(errors, line)
+		} else {
+			screen.SetNotice(strings.TrimSpace(line), level)
+			errors[line] = true
+		}
+		if level == screen.LevelInfo {
+			level = screen.LevelErr
+		} else {
+			level = screen.LevelInfo
+		}
 	}
 }

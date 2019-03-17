@@ -5,10 +5,18 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/fogleman/gg"
+)
+
+type NoticeLevel string
+
+const (
+	LevelErr  NoticeLevel = "e"
+	LevelInfo NoticeLevel = "i"
 )
 
 var (
@@ -17,6 +25,7 @@ var (
 	busVoltages = make([]float64, 2)
 	leds        = make([]color.RGBA, 2)
 	mode        string
+	notices     = make(map[string]NoticeLevel)
 )
 
 func SetBusVoltage(n int, bv float64) {
@@ -53,6 +62,18 @@ func SetLED(n int, r, g, b float64) {
 	}
 }
 
+func SetNotice(msg string, level NoticeLevel) {
+	lock.Lock()
+	defer lock.Unlock()
+	notices[msg] = level
+}
+
+func ClearNotice(msg string) {
+	lock.Lock()
+	defer lock.Unlock()
+	delete(notices, msg)
+}
+
 func LoopUpdatingScreen(ctx context.Context) {
 	f, err := os.OpenFile("/dev/fb1", os.O_RDWR, 0666)
 	if err != nil {
@@ -60,6 +81,7 @@ func LoopUpdatingScreen(ctx context.Context) {
 		return
 	}
 
+	invert := false
 	for range time.NewTicker(500 * time.Millisecond).C {
 		if ctx.Err() != nil {
 			var buf [128 * 128 * 2]byte
@@ -108,6 +130,41 @@ func LoopUpdatingScreen(ctx context.Context) {
 		yellow(dc)
 		dc.DrawString(m, 0, overallBarHeight+lineHeight*2)
 
+		var errorsCopy []string
+		lock.Lock()
+		for msg, lvl := range notices {
+			errorsCopy = append(errorsCopy, string(lvl)+msg)
+		}
+		lock.Unlock()
+		sort.Strings(errorsCopy)
+
+		for i, msg := range errorsCopy {
+			lvl := msg[:1]
+			msg := msg[1:]
+			if invert {
+				black(dc)
+			} else {
+				if NoticeLevel(lvl) == LevelErr {
+					red(dc)
+				} else {
+					green(dc)
+				}
+			}
+			dc.DrawRectangle(4, float64(i)*lineHeight, 56, lineHeight)
+			dc.Fill()
+			if invert {
+				if NoticeLevel(lvl) == LevelErr {
+					red(dc)
+				} else {
+					green(dc)
+				}
+			} else {
+				black(dc)
+			}
+			w, _ := dc.MeasureString(msg)
+			dc.DrawString(msg, 4+56/2-w/2, float64(i)*lineHeight+lineHeight-2)
+		}
+
 		var buf [128 * 128 * 2]byte
 		for y := 0; y < S; y++ {
 			for x := 0; x < S; x++ {
@@ -136,7 +193,19 @@ func LoopUpdatingScreen(ctx context.Context) {
 			}
 			time.Sleep(10 * time.Microsecond)
 		}
+		invert = !invert
 	}
+}
+
+func black(dc *gg.Context) {
+	dc.SetRGB(0, 0, 0)
+}
+
+func red(dc *gg.Context) {
+	dc.SetRGB(0.9, 0, 0)
+}
+func green(dc *gg.Context) {
+	dc.SetRGB(0, 0.9, 0)
 }
 
 func yellow(dc *gg.Context) {

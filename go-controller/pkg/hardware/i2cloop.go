@@ -18,7 +18,15 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 )
 
-const NumServoPorts = 16
+const (
+	NumServoPorts = 16
+
+	NoteMux      = "MUX"
+	NoteProp     = "PROP"
+	NoteTOFs     = "DISTANCE"
+	NoteServo    = "SERVO"
+	NotePowerMon = "PWR MON"
+)
 
 type I2CController struct {
 	lock sync.Mutex
@@ -117,6 +125,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 
 	mx, err := mux.New("/dev/i2c-1")
 	if err != nil {
+		screen.SetNotice(NoteMux, screen.LevelErr)
 		fmt.Println("Failed to open mux", err)
 		return
 	}
@@ -127,9 +136,12 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		fmt.Println("Failed to select mux port", err)
 		return
 	}
+	screen.ClearNotice(NoteMux)
+
 	prop, err := propeller.New()
 	if err != nil {
 		fmt.Println("Failed to open prop", err)
+		screen.SetNotice(NoteProp, screen.LevelErr)
 		return
 	}
 	defer prop.Close()
@@ -175,19 +187,35 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			Readings:    make([]Reading, len(tofs)),
 		}
 		if err != nil {
+			screen.SetNotice(NoteMux, screen.LevelErr)
+			fmt.Println("Failed to select mux port", err)
 			return readings, err
 		}
+		someErrors := false
 		for j, tof := range tofs {
 			readingInMM, err := tof.GetNextContinuousMeasurement()
 			readings.Readings[j] = Reading{
 				DistanceMM: readingInMM,
 				Error:      err,
 			}
+			if err != nil {
+				someErrors = true
+			}
+			if someErrors {
+				screen.SetNotice(NoteTOFs, screen.LevelErr)
+			} else {
+				screen.ClearNotice(NoteTOFs)
+			}
 		}
 		return readings, nil
 	}
 
 	err = mx.SelectSinglePort(mux.BusOthers)
+	if err != nil {
+		screen.SetNotice(NoteMux, screen.LevelErr)
+		fmt.Println("Failed to select mux port", err)
+		return
+	}
 	var powerSensors []ina219.Interface
 	for _, addr := range []int{0x41, 0x44} {
 		pwrSen, err := ina219.NewI2C("/dev/i2c-1", addr)
@@ -211,12 +239,14 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	servos, err := pca9685.New("/dev/i2c-1")
 	if err != nil {
 		fmt.Println("Failed open PCA9685 ", err)
+		screen.SetNotice(NoteServo, screen.LevelErr)
 		return
 	}
 	defer func() {
 		err = mx.SelectSinglePort(mux.BusOthers)
 		if err != nil {
 			fmt.Println("Failed to select port when shutting down servos: ", err)
+			screen.SetNotice(NoteMux, screen.LevelErr)
 			return
 		}
 		_ = servos.Close()
@@ -224,8 +254,11 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	err = servos.Configure()
 	if err != nil {
 		fmt.Println("Failed configure PCA9685 ", err)
+		screen.SetNotice(NoteServo, screen.LevelErr)
 		return
 	}
+	screen.ClearNotice(NoteServo)
+
 	// We may have been reset, queue servo updates for all the ports.
 	c.lock.Lock()
 	for n := range c.pwmPorts {
@@ -268,6 +301,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		// Speeds have changed
 		err = mx.SelectSinglePort(mux.BusPropeller)
 		if err != nil {
+			screen.SetNotice(NoteMux, screen.LevelErr)
 			fmt.Println("Failed to update mux port", err)
 			return
 		}
@@ -275,17 +309,21 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			err = prop.SetMotorSpeeds(l, r)
 			if err != nil {
 				fmt.Println("Failed to update motor speeds", err)
+				screen.SetNotice(NoteProp, screen.LevelErr)
 				return
 			}
 			lastL, lastR = l, r
+			screen.ClearNotice(NoteProp)
 		}
 
 		m1, m2, err := prop.GetEncoderPositions()
 		if err == nil {
 			fmt.Println("Motor positions: ", m1, " ", m2)
+			screen.ClearNotice(NoteProp)
 			err = prop.StartEncoderRead()
 			if err != nil {
 				fmt.Println("Failed to start encoder read", err)
+				screen.SetNotice(NoteProp, screen.LevelErr)
 				return
 			}
 		} else if err != propeller.ErrNotReady {
@@ -298,6 +336,11 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		c.lock.Unlock()
 
 		err = mx.SelectSinglePort(mux.BusOthers)
+		if err != nil {
+			screen.SetNotice(NoteMux, screen.LevelErr)
+			fmt.Println("Failed to update mux port", err)
+			return
+		}
 		for n := range pwmUpdates {
 			c.lock.Lock()
 			value := c.pwmPorts[n]
@@ -311,25 +354,31 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			}
 			if err != nil {
 				fmt.Println("Failed to update servo/PWM port ", n, ": ", err)
+				screen.SetNotice(NoteServo, screen.LevelErr)
 				return
 			}
+			screen.ClearNotice(NoteServo)
 		}
 
 		if time.Since(lastPowerReadingTime) > 1*time.Second {
 			for i, ps := range powerSensors {
 				bv, err := ps.ReadBusVoltage()
 				if err != nil {
+					screen.SetNotice(NotePowerMon, screen.LevelErr)
 					continue
 				}
 				bc, err := ps.ReadCurrent()
 				if err != nil {
+					screen.SetNotice(NotePowerMon, screen.LevelErr)
 					continue
 				}
 				bp, err := ps.ReadPower()
 				if err != nil {
+					screen.SetNotice(NotePowerMon, screen.LevelErr)
 					continue
 				}
 				fmt.Printf("Bus %v: %.2fV %.2fA %.2fW\n", i, bv, bc, bp)
+				screen.ClearNotice(NotePowerMon)
 				screen.SetBusVoltage(i, bv)
 			}
 			lastPowerReadingTime = time.Now()

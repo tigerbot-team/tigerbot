@@ -48,9 +48,6 @@ func main() {
 	// Hook Ctrl-C etc.
 	registerSignalHandlers(cancel)
 
-	// Wait for the joystick and kick off a background thread to read from it.
-	joystickEvents := initJoystick(cancel, ctx)
-
 	// Initialise the hardware.
 	hw := hardware.New()
 	defer func() {
@@ -59,6 +56,9 @@ func main() {
 		time.Sleep(100 * time.Millisecond)
 	}()
 	hw.Start(ctx)
+
+	// Wait for the joystick and kick off a background thread to read from it.
+	joystickEvents := initJoystick(cancel, ctx)
 
 	hw.PlaySound("/sounds/tigerbotstart.wav")
 
@@ -158,8 +158,10 @@ func initJoystick(cancel context.CancelFunc, ctx context.Context) chan *joystick
 			jDev = "/dev/input/js0"
 		}
 		j, err := joystick.NewJoystick(jDev)
+		const noJoy = "NO JOY"
 		if err != nil {
 			if firstLog {
+				screen.SetNotice(noJoy, screen.LevelErr)
 				fmt.Printf("Waiting for joystick: %v.\n", err)
 				firstLog = false
 			}
@@ -167,6 +169,7 @@ func initJoystick(cancel context.CancelFunc, ctx context.Context) chan *joystick
 			continue
 		}
 
+		screen.ClearNotice(noJoy)
 		fmt.Printf("Opened joystick\n")
 		go func() {
 			defer cancel()
