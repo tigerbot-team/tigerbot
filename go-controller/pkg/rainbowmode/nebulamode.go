@@ -1,4 +1,4 @@
-package rainbowmode
+package nebulamode
 
 import (
 	"context"
@@ -63,7 +63,7 @@ type RainbowConfig struct {
 	FilterYCoord bool
 }
 
-type RainbowMode struct {
+type NebulaMode struct {
 	Propeller      propeller.Interface
 	cancel         context.CancelFunc
 	startTrigger   chan struct{}
@@ -95,8 +95,8 @@ type RainbowMode struct {
 	config RainbowConfig
 }
 
-func New(hw *hardware.Interface, soundsToPlay chan string) *RainbowMode {
-	m := &RainbowMode{
+func New(hw *hardware.Interface, soundsToPlay chan string) *NebulaMode {
+	m := &NebulaMode{
 		Propeller:      hw.Motors,
 		soundsToPlay:   soundsToPlay,
 		joystickEvents: make(chan *joystick.Event),
@@ -158,28 +158,28 @@ func New(hw *hardware.Interface, soundsToPlay chan string) *RainbowMode {
 	return m
 }
 
-func (m *RainbowMode) Name() string {
+func (m *NebulaMode) Name() string {
 	return "Rainbow mode"
 }
 
-func (m *RainbowMode) StartupSound() string {
-	return "/sounds/rainbowmode.wav"
+func (m *NebulaMode) StartupSound() string {
+	return "/sounds/nebulamode.wav"
 }
 
-func (m *RainbowMode) Start(ctx context.Context) {
+func (m *NebulaMode) Start(ctx context.Context) {
 	m.stopWG.Add(1)
 	var loopCtx context.Context
 	loopCtx, m.cancel = context.WithCancel(ctx)
 	go m.loop(loopCtx)
 }
 
-func (m *RainbowMode) Stop() {
+func (m *NebulaMode) Stop() {
 	m.cancel()
 	m.stopWG.Wait()
 }
 
 // loop processes input and starts/stops the goroutine that does the actual CV work.
-func (m *RainbowMode) loop(ctx context.Context) {
+func (m *NebulaMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
 	defer m.stopSequence()
 
@@ -216,7 +216,7 @@ func (m *RainbowMode) loop(ctx context.Context) {
 	}
 }
 
-func (m *RainbowMode) startSequence() {
+func (m *NebulaMode) startSequence() {
 	if m.running {
 		fmt.Println("Already running")
 		return
@@ -249,7 +249,7 @@ func clamp(v float64, limit float64) int8 {
 	return int8(v)
 }
 
-func (m *RainbowMode) setSpeeds(forwards, sideways, rotation float64) {
+func (m *NebulaMode) setSpeeds(forwards, sideways, rotation float64) {
 	fl := clamp(forwards-sideways-rotation, m.config.LimitSpeed)
 	fr := clamp(forwards+sideways+rotation, m.config.LimitSpeed)
 	bl := clamp(forwards+sideways-rotation, m.config.LimitSpeed)
@@ -260,7 +260,7 @@ func (m *RainbowMode) setSpeeds(forwards, sideways, rotation float64) {
 }
 
 // runSequence is a goroutine that reads form the camera and controls the motors.
-func (m *RainbowMode) runSequence(ctx context.Context) {
+func (m *NebulaMode) runSequence(ctx context.Context) {
 	defer close(m.sequenceDone)
 
 	mx, err := mux.New("/dev/i2c-1")
@@ -490,11 +490,11 @@ func (m *RainbowMode) runSequence(ctx context.Context) {
 	m.Propeller.SetMotorSpeeds(0, 0)
 }
 
-func (m *RainbowMode) announceTargetBall() {
+func (m *NebulaMode) announceTargetBall() {
 	m.soundsToPlay <- fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[m.targetBallIdx])
 }
 
-func (m *RainbowMode) reset() {
+func (m *NebulaMode) reset() {
 	m.perceivedSize = 0
 	m.ballX = 0
 	m.roughDirectionCount = 0
@@ -502,7 +502,7 @@ func (m *RainbowMode) reset() {
 	m.ballFixed = false
 }
 
-func (m *RainbowMode) processImage(img gocv.Mat, distanceSensor *Filter) {
+func (m *NebulaMode) processImage(img gocv.Mat, distanceSensor *Filter) {
 	w := img.Cols()
 	h := img.Rows()
 	if w != 640 || h != 480 {
@@ -558,23 +558,23 @@ func (m *RainbowMode) processImage(img gocv.Mat, distanceSensor *Filter) {
 	}
 }
 
-func (m *RainbowMode) roughDirectionKnown() bool {
+func (m *NebulaMode) roughDirectionKnown() bool {
 	return m.roughDirectionCount >= 2
 }
 
-func (m *RainbowMode) nowCloseEnough() bool {
+func (m *NebulaMode) nowCloseEnough() bool {
 	return m.perceivedSize > 120
 }
 
-func (m *RainbowMode) getDirectionAdjust() float64 {
+func (m *NebulaMode) getDirectionAdjust() float64 {
 	return m.config.DirectionAdjustFactor * float64(m.config.XStraightAhead-m.ballX)
 }
 
-func (m *RainbowMode) getTOFDifference() float64 {
+func (m *NebulaMode) getTOFDifference() float64 {
 	return float64(0)
 }
 
-func (m *RainbowMode) stopSequence() {
+func (m *NebulaMode) stopSequence() {
 	if !m.running {
 		fmt.Println("Not running")
 		return
@@ -589,7 +589,7 @@ func (m *RainbowMode) stopSequence() {
 	atomic.StoreInt32(&m.paused, 0)
 }
 
-func (m *RainbowMode) pauseOrResumeSequence() {
+func (m *NebulaMode) pauseOrResumeSequence() {
 	if atomic.LoadInt32(&m.paused) == 1 {
 		fmt.Println("Resuming sequence...")
 		atomic.StoreInt32(&m.paused, 0)
@@ -599,7 +599,7 @@ func (m *RainbowMode) pauseOrResumeSequence() {
 	}
 }
 
-func (m *RainbowMode) OnJoystickEvent(event *joystick.Event) {
+func (m *NebulaMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
