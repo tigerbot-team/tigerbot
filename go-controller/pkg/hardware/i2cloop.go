@@ -157,7 +157,9 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		}
 	}()
 	for _, port := range []int{
-		0, 1, 2, 3, 4, 5,
+		mux.BusTOFLeftRear, mux.BusTOFLeftFront,
+		mux.BusTOFForwardLeft, mux.BusTOFForwardRight,
+		mux.BusTOFRightFront, mux.BusTOFRightRear,
 	} {
 		fmt.Println("Initialising ToF ", port)
 

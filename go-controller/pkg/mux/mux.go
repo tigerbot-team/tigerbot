@@ -10,11 +10,11 @@ const (
 	MuxAddr = 0x70
 
 	BusTOFForwardLeft  = 0
-	BusTOFForwardRight = 1
-	BusTOFLeftFront    = 2
-	BusTOFLeftRear     = 3
-	BusTOFRightFront   = 4
-	BusTOFRightRear    = 5
+	BusTOFForwardRight = 4
+	BusTOFLeftFront    = 1
+	BusTOFLeftRear     = 2
+	BusTOFRightFront   = 5
+	BusTOFRightRear    = 3
 
 	BusOthers = 6
 
