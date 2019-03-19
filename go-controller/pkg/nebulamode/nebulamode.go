@@ -102,8 +102,12 @@ func New(hw hardware.Interface) *NebulaMode {
 
 			ForwardReverseThreshold: 450,
 
-			// Assuming we still take 640x480 photos...
-			CentralRegion: image.Rect(300, 220, 340, 260),
+			// Percentages of the width and height of a
+			// corner photo that we use, centred around
+			// the centroid, to determine the colour in
+			// that corner.
+			CentralRegionXPercent: 10,
+			CentralRegionYPercent: 10,
 		},
 		startTrigger: make(chan struct{}),
 	}
@@ -218,7 +222,7 @@ func (m *NebulaMode) setSpeeds(forwards, sideways, rotation float64) {
 	m.Propeller.SetMotorSpeeds(fl, fr)
 }
 
-func (m *NebulaMode) takePicture() (img gocv.Mat, err error) {
+func (m *NebulaMode) takePicture() (hsv gocv.Mat, err error) {
 	webcam, werr := gocv.VideoCaptureDevice(0)
 	if werr != nil {
 		err = fmt.Errorf("error opening video capture device: %v", werr)
@@ -227,11 +231,13 @@ func (m *NebulaMode) takePicture() (img gocv.Mat, err error) {
 	defer webcam.Close()
 
 	img := gocv.NewMat()
+	defer img.Close()
 	if ok := webcam.Read(img); !ok {
-		img.Close()
 		err = fmt.Errorf("cannot read picture from webcam device")
 		return
 	}
+	hsv = gocv.NewMat()
+	gocv.CvtColor(img, hsv, gocv.ColorBGRToHSV)
 	return
 }
 
@@ -241,11 +247,11 @@ func (m *NebulaMode) fatal(err error) {
 	panic(err)
 }
 
-func (m *NebulaMode) calculateVisitOrder(img []gocv.Mat) []int {
-	averageHue := make([]int, len(img))
-	hueUsed := make([]bool, len(img))
-	for ii := range img {
-		averageHue[ii] = m.calculateAverageHue(img[ii])
+func (m *NebulaMode) calculateVisitOrder(hsv []gocv.Mat) []int {
+	averageHue := make([]int, len(hsv))
+	hueUsed := make([]bool, len(hsv))
+	for ii := range hsv {
+		averageHue[ii] = m.calculateAverageHue(hsv[ii])
 		hueUsed[ii] = false
 	}
 	var targets []*rainbow.HSVRange
@@ -256,13 +262,18 @@ func (m *NebulaMode) calculateVisitOrder(img []gocv.Mat) []int {
 	return bestMatchOrder
 }
 
-func (m *NebulaMode) calculateAverageHue(img gocv.Mat) int {
-	cropped := img.Region(m.config.CentralRegion)
+func (m *NebulaMode) calculateAverageHue(hsv gocv.Mat) int {
+	w := hsv.Cols() / 2
+	h := hsv.Rows() / 2
+	dw := (w * m.config.CentralRegionXPercent) / 100
+	dh := (h * m.config.CentralRegionYPercent) / 100
+	centralRegion := image.Rect(w-dw, h-dh, w+dw, h+dh)
+	cropped := hsv.Region(centralRegion)
 	mean = cropped.Mean()
 	return math.Round(mean.Val1)
 }
 
-func (m *NebulaMode) findBestMatch(targets, averageHue, hueUsed) (int, []int) {
+func (m *NebulaMode) findBestMatch(targets, averageHue, hueUsed) (float64, []int) {
 	var (
 		minCost  int
 		minOrder []int
@@ -272,21 +283,47 @@ func (m *NebulaMode) findBestMatch(targets, averageHue, hueUsed) (int, []int) {
 			continue
 		}
 		choiceCost := m.calculateCost(targets[0], choiceHue)
-		hueUsedCopy := make([]bool, len(hueUsed))
-		copy(hueUsedCopy, hueUsed)
-		hueUsedCopy[ic] = true
-		nextCost, nextOrder := m.findBestMatch(targets[1:], averageHue, hueUsedCopy)
-		totalCost = choiceCost + nextCost
-		if (minOrder == nil) || (totalCost < minCost) {
-			minCost = totalCost
-			minOrder = append([]int{ic}, nextOrder...)
+		choiceOrder := []int{ic}
+		if len(targets) > 1 {
+			// This is not the last target.
+			hueUsedCopy := make([]bool, len(hueUsed))
+			copy(hueUsedCopy, hueUsed)
+			hueUsedCopy[ic] = true
+			nextCost, nextOrder := m.findBestMatch(targets[1:], averageHue, hueUsedCopy)
+			choiceCost = choiceCost + nextCost
+			choiceOrder = append(choiceOrder, nextOrder...)
+		}
+		if (minOrder == nil) || (choiceCost < minCost) {
+			minCost = choiceCost
+			minOrder = choiceOrder
 		}
 	}
 	return minCost, minOrder
 }
 
-func (m *NebulaMode) calculateCost(targetHSVRange *rainbow.HSVRange, choiceHue int) {
-	//...
+func (m *NebulaMode) calculateCost(targetHSVRange *rainbow.HSVRange, choiceHue int) float64 {
+	if targetHSVRange.HueMin <= targetHSVRange.HueMax {
+		// Non-wrapped hue range.
+		if choiceHue < targetHSVRange.HueMin {
+			return math.Pow(targetHSVRange.HueMin-choiceHue, 2)
+		} else if choiceHue < targetHSVRange.HueMax {
+			return math.Pow(choiceHue-targetHSVRange.HueMax, 2)
+		} else {
+			return 0
+		}
+	} else {
+		// Wrapped hue range.
+		if choiceHue >= targetHSVRange.HueMin {
+			return 0
+		} else if choiceHue <= targetHSVRange.HueMax {
+			return 0
+		} else {
+			delta := math.Min(
+				targetHSVRange.HueMin-choiceHue,
+				choiceHue-targetHSVRange.HueMax)
+			return math.Pow(delta, 2)
+		}
+	}
 }
 
 // runSequence is a goroutine that reads from the camera and controls the motors.
@@ -341,7 +378,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 	hh := m.hw.StartHeadingHoldMode()
 
 	var (
-		img [4]gocv.Mat
+		hsv [4]gocv.Mat
 		err error
 	)
 
@@ -359,16 +396,16 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 	for ii, cornerHeading := range cornerHeadings {
 		hh.SetHeading(cornerHeading)
 		_ = hh.Wait(ctx)
-		img[ii], err = m.takePicture()
+		hsv[ii], err = m.takePicture()
 		if err != nil {
 			m.fatal(err)
 		}
-		defer img[ii].Close()
+		defer hsv[ii].Close()
 	}
 
 	// Calculate the order we need to visit the corners, by
 	// matching photos to colours.
-	visitOrder := calculateVisitOrder(img)
+	visitOrder := calculateVisitOrder(hsv)
 
 	for _, index := range visitOrder {
 		// Rotating phase.
