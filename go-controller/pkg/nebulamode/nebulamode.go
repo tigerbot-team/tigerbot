@@ -2,6 +2,7 @@ package nebulamode
 
 import (
 	"context"
+	"image"
 	"io/ioutil"
 	"math"
 	"sync"
@@ -43,6 +44,10 @@ type RainbowConfig struct {
 	CornerSlowDownThresh              int
 
 	ForwardReverseThreshold int
+
+	// The part of a still corner photo that we look at to
+	// determine the colour in that corner.
+	CentralRegion image.Rectangle
 }
 
 type NebulaMode struct {
@@ -96,6 +101,9 @@ func New(hw hardware.Interface) *NebulaMode {
 			CornerSlowDownThresh:              60,
 
 			ForwardReverseThreshold: 450,
+
+			// Assuming we still take 640x480 photos...
+			CentralRegion: image.Rect(300, 220, 340, 260),
 		},
 		startTrigger: make(chan struct{}),
 	}
@@ -249,7 +257,9 @@ func (m *NebulaMode) calculateVisitOrder(img []gocv.Mat) []int {
 }
 
 func (m *NebulaMode) calculateAverageHue(img gocv.Mat) int {
-	//...
+	cropped := img.Region(m.config.CentralRegion)
+	mean = cropped.Mean()
+	return math.Round(mean.Val1)
 }
 
 func (m *NebulaMode) findBestMatch(targets, averageHue, hueUsed) (int, []int) {
