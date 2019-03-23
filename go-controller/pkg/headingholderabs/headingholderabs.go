@@ -148,7 +148,7 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var iHeadingError float64
 
 	const (
-		kp                     = 0.007
+		kp                     = 0.01
 		ki                     = 0.03
 		kd                     = 0.0001
 		maxIntegral            = 0.3

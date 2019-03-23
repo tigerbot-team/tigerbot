@@ -80,12 +80,12 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var iHeadingError float64
 
 	const (
-		kp                     = 0.009
-		ki                     = 0.0
+		kp                     = 0.02
+		ki                     = 0.03
 		kd                     = -0.00007
 		maxIntegral            = .1
 		maxMotorSpeed          = 2.0
-		maxThrottleDeltaPerSec = 1
+		maxThrottleDeltaPerSec = 2
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()
@@ -128,6 +128,9 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		headingError := targetHeading - headingEstimate
 		dHeadingError := (headingError - lastHeadingError) / loopTimeSecs
 		iHeadingError += headingError * loopTimeSecs
+		if targetYaw != 0 {
+			iHeadingError = 0
+		}
 		if iHeadingError > maxIntegral {
 			iHeadingError = maxIntegral
 		} else if iHeadingError < -maxIntegral {
