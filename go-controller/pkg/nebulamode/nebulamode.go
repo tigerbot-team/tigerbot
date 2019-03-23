@@ -51,6 +51,8 @@ type NebulaMode struct {
 
 	pictureIndex int
 
+	visitOrder []int
+
 	// Config
 	config NebulaConfig
 }
@@ -345,11 +347,6 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 	startTime := time.Now()
 
-	var (
-		hsv [4]gocv.Mat
-		err error
-	)
-
 	// Store initial heading.  Images 0, 1, 2, 3 will be at +45,
 	// +135, +225 and +315 w.r.t. this initial heading.
 	initialHeading := m.hw.CurrentHeading()
@@ -360,22 +357,31 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		initialHeading + 45 + 90 + 90 + 90,
 	}
 
-	// Turn to take photos of the four corners.
-	for ii, cornerHeading := range cornerHeadings {
-		hh.SetHeading(cornerHeading)
-		_ = hh.Wait(ctx)
-		hsv[ii], err = m.takePicture()
-		if err != nil {
-			m.fatal(err)
+	// If we don't already know the visit order, i.e. this is our
+	// first run.
+	if m.visitOrder == nil {
+
+		var (
+			hsv [4]gocv.Mat
+			err error
+		)
+
+		// Turn to take photos of the four corners.
+		for ii, cornerHeading := range cornerHeadings {
+			hh.SetHeading(cornerHeading)
+			_ = hh.Wait(ctx)
+			hsv[ii], err = m.takePicture()
+			if err != nil {
+				m.fatal(err)
+			}
+			defer hsv[ii].Close()
 		}
-		defer hsv[ii].Close()
+		// Calculate the order we need to visit the corners, by
+		// matching photos to colours.
+		m.visitOrder = m.calculateVisitOrder(hsv)
 	}
 
-	// Calculate the order we need to visit the corners, by
-	// matching photos to colours.
-	visitOrder := m.calculateVisitOrder(hsv)
-
-	for ii, index := range visitOrder {
+	for ii, index := range m.visitOrder {
 
 		fmt.Println("Next target ball: ", m.config.Sequence[ii])
 		m.announceTargetBall(ii)
