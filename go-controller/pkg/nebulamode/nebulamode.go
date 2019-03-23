@@ -20,30 +20,14 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
-type Phase int
-
-const (
-	Rotating Phase = iota
-	Advancing
-	Reversing
-)
-
 type RainbowConfig struct {
-	RotateSpeed           float64
-	SlowRotateSpeed       float64
-	LimitSpeed            float64
-	ForwardSpeed          float64
-	ForwardSlowSpeed      float64
-	XStraightAhead        int
-	DirectionAdjustFactor float64
-	Sequence              []string
-	Balls                 map[string]rainbow.HSVRange
+	ForwardSpeed     float64
+	ForwardSlowSpeed float64
+	Sequence         []string
+	Balls            map[string]rainbow.HSVRange
 
-	ForwardCornerDetectionThreshold   int
-	ForwardLRCornerDetectionThreshold int
-	CornerSlowDownThresh              int
-
-	ForwardReverseThreshold int
+	ForwardCornerDetectionThreshold int
+	CornerSlowDownThresh            int
 
 	// The part of a still corner photo that we look at to
 	// determine the colour in that corner.
@@ -66,17 +50,6 @@ type NebulaMode struct {
 
 	paused int32
 
-	// State of balls searching.
-	phase                   Phase
-	targetColour            string
-	ballX                   int
-	roughDirectionCount     int
-	ballFixed               bool
-	advanceReverseStartTime time.Time
-	advanceDuration         time.Duration
-	pictureIndex            int
-	ballInView              bool
-
 	// Config
 	config RainbowConfig
 }
@@ -85,23 +58,14 @@ func New(hw hardware.Interface) *NebulaMode {
 	m := &NebulaMode{
 		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
-		phase:          Rotating,
 		config: RainbowConfig{
-			RotateSpeed:           16,
-			SlowRotateSpeed:       5,
-			LimitSpeed:            80,
-			ForwardSpeed:          35,
-			ForwardSlowSpeed:      6,
-			XStraightAhead:        320,
-			DirectionAdjustFactor: 0.03,
-			Sequence:              []string{"red", "blue", "yellow", "green"},
-			Balls:                 map[string]rainbow.HSVRange{},
+			ForwardSpeed:     35,
+			ForwardSlowSpeed: 6,
+			Sequence:         []string{"red", "blue", "yellow", "green"},
+			Balls:            map[string]rainbow.HSVRange{},
 
-			ForwardCornerDetectionThreshold:   120,
-			ForwardLRCornerDetectionThreshold: 78,
-			CornerSlowDownThresh:              60,
-
-			ForwardReverseThreshold: 450,
+			ForwardCornerDetectionThreshold: 120,
+			CornerSlowDownThresh:            60,
 
 			// Percentages of the width and height of a
 			// corner photo that we use, centred around
@@ -188,7 +152,6 @@ func (m *NebulaMode) loop(ctx context.Context) {
 					case joystick.ButtonR1:
 						fmt.Println("GO!")
 						close(m.startTrigger)
-						m.announceTargetBall()
 					}
 				}
 			}
@@ -249,7 +212,7 @@ func (m *NebulaMode) calculateVisitOrder(hsv [4]gocv.Mat) []int {
 	for _, colour := range m.config.Sequence {
 		targets = append(targets, rainbow.Balls[colour])
 	}
-	bestMatchCost, bestMatchOrder := m.findBestMatch(targets, averageHue, hueUsed)
+	_, bestMatchOrder := m.findBestMatch(targets, averageHue, hueUsed)
 	return bestMatchOrder
 }
 
@@ -362,6 +325,17 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 	rightRear := filters[5]
 	rightRear.Name = "RR"
 
+	for ctx.Err() == nil {
+		select {
+		case <-m.startTrigger:
+			// Get going.
+			break
+		default:
+			// Don't move yet.
+			continue
+		}
+	}
+
 	startTime := time.Now()
 
 	// We use the absolute heading hold mode so we can do things like "turn right 90 degrees".
@@ -397,13 +371,19 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 	// matching photos to colours.
 	visitOrder := m.calculateVisitOrder(hsv)
 
-	for _, index := range visitOrder {
+	for ii, index := range visitOrder {
+
+		fmt.Println("Next target ball: ", m.config.Sequence[ii])
+		m.announceTargetBall(ii)
+
 		// Rotating phase.
 		hh.SetHeading(cornerHeadings[index])
 		_ = hh.Wait(ctx)
+
 		// Advancing phase.
 		hh.SetThrottle(m.config.ForwardSpeed)
 		advanceFastStart := time.Now()
+		movingFast := true
 		var (
 			advanceFastDuration time.Duration
 			advanceSlowStart    time.Time
@@ -419,21 +399,34 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 			closeEnoughToSlowDown :=
 				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh) ||
-					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh)
+					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh)
 
 			if closeEnough {
-				advanceSlowDuration = time.Since(advanceSlowStart)
+				fmt.Println("Reached target ball:", m.config.Sequence[ii], "in", time.Since(startTime))
+				if movingFast {
+					advanceFastDuration = time.Since(advanceFastStart)
+				} else {
+					advanceSlowDuration = time.Since(advanceSlowStart)
+				}
 				break
 			}
 
 			// We're approaching the ball but not yet close enough.
-			if closeEnoughToSlowDown {
+			if movingFast && closeEnoughToSlowDown {
 				fmt.Println("Slowing...")
 				advanceFastDuration = time.Since(advanceFastStart)
 				hh.SetThrottle(m.config.ForwardSlowSpeed)
 				advanceSlowStart = time.Now()
+				movingFast = false
 			}
 		}
+
+		if ii == 3 {
+			// We've finished.
+			hh.SetThrottle(0)
+			break
+		}
+
 		// Reversing phase.
 		hh.SetThrottle(-m.config.ForwardSpeed)
 		reverseStart := time.Now()
@@ -441,104 +434,16 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			((float64(advanceFastDuration) * m.config.ForwardSpeed) +
 				(float64(advanceSlowDuration) * m.config.ForwardSlowSpeed)) /
 				m.config.ForwardSpeed)
-		for ctx.Err() == nil {
+		for (ctx.Err() == nil) && (time.Since(reverseStart) < reverseDuration) {
 			readSensors()
-			fmt.Println("Target:", index, "Reversing")
-
-			closeEnough :=
-				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) ||
-					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold)
-
-			closeEnoughToSlowDown :=
-				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh) ||
-					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardLRCornerDetectionThreshold+m.config.CornerSlowDownThresh)
-
-			if closeEnough {
-				break
-			}
-
-			// We're approaching the ball but not yet close enough.
-			if closeEnoughToSlowDown {
-				fmt.Println("Slowing...")
-				hh.SetThrottle(m.config.ForwardSlowSpeed)
-				advanceSlowStart := time.Now()
-			}
 		}
 	}
-
-	m.reset()
-	fmt.Println("Next target ball: ", m.config.Sequence[m.targetBallIdx])
-
-	defer fmt.Println("Exiting sequence loop")
-
-	for m.targetBallIdx < len(m.config.Sequence) && ctx.Err() == nil {
-		for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
-			hh.SetThrottle(0)
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		m.targetColour = m.config.Sequence[m.targetBallIdx]
-
-		select {
-		case <-m.startTrigger:
-			// Do rest of loop: moving etc.
-		default:
-			// Don't move yet.
-			continue
-		}
-
-		readSensors()
-
-		if m.phase == Reversing {
-			fmt.Println("Target:", m.targetColour, "Reversing")
-
-			farEnough := forward.BestGuess() > m.config.ForwardReverseThreshold ||
-				forwardRight.BestGuess() > m.config.ForwardReverseThreshold ||
-				forwardLeft.BestGuess() > m.config.ForwardReverseThreshold
-
-			if farEnough {
-				fmt.Println("Far enough away from wall, stopping reversing")
-			}
-			if !farEnough && time.Since(m.advanceReverseStartTime) < m.advanceDuration {
-				continue
-			}
-			m.reset()
-			m.phase = Rotating
-			// Fall through.
-		}
-
-		fmt.Println("Reached target ball:", m.targetColour, "in", time.Since(startTime))
-		m.targetBallIdx++
-		if m.targetBallIdx < len(m.config.Sequence) {
-			fmt.Println("Next target ball: ", m.config.Sequence[m.targetBallIdx])
-			m.announceTargetBall()
-		} else {
-			fmt.Println("Done!!")
-		}
-	}
-
-	hh.SetThrottle(0)
 }
 
-func (m *NebulaMode) announceTargetBall() {
+func (m *NebulaMode) announceTargetBall(ii int) {
 	m.hw.PlaySound(
-		fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[m.targetBallIdx]),
+		fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[ii]),
 	)
-}
-
-func (m *NebulaMode) reset() {
-	m.ballX = 0
-	m.roughDirectionCount = 0
-	m.phase = Rotating
-	m.ballFixed = false
-}
-
-func (m *NebulaMode) getDirectionAdjust() float64 {
-	return m.config.DirectionAdjustFactor * float64(m.config.XStraightAhead-m.ballX)
-}
-
-func (m *NebulaMode) getTOFDifference() float64 {
-	return float64(0)
 }
 
 func (m *NebulaMode) stopSequence() {
@@ -568,20 +473,4 @@ func (m *NebulaMode) pauseOrResumeSequence() {
 
 func (m *NebulaMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
-}
-
-func clamp(v float64, limit float64) int8 {
-	if v < -limit {
-		v = -limit
-	}
-	if v > limit {
-		v = limit
-	}
-	if v <= math.MinInt8 {
-		return math.MinInt8
-	}
-	if v >= math.MaxInt8 {
-		return math.MaxInt8
-	}
-	return int8(v)
 }
