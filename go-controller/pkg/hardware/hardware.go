@@ -99,6 +99,10 @@ func (h *Hardware) CurrentDistanceReadings(rev revision) DistanceReadings {
 	return h.i2c.CurrentDistanceReadings(rev)
 }
 
+func (h *Hardware) CurrentMotorDistances() (l, r float64) {
+	return h.i2c.CurrentMotorDistances()
+}
+
 func (h *Hardware) SetServo(n int, value float64) {
 	h.i2c.SetServo(n, value)
 }

@@ -26,6 +26,8 @@ const (
 	NoteTOFs     = "DISTANCE"
 	NoteServo    = "SERVO"
 	NotePowerMon = "PWR MON"
+
+	motorToMMScaleFactor = 7.384
 )
 
 type I2CController struct {
@@ -39,9 +41,10 @@ type I2CController struct {
 	prop        propeller.Interface
 	tofsEnabled bool
 
-	revisionUpdated  *sync.Cond
-	nextRevision     revision
-	distanceReadings DistanceReadings
+	revisionUpdated               *sync.Cond
+	nextRevision                  revision
+	distanceReadings              DistanceReadings
+	leftMotorDist, rightMotorDist float64
 }
 
 type pwmTypes interface {
@@ -106,6 +109,12 @@ func (c *I2CController) CurrentDistanceReadings(rev revision) DistanceReadings {
 	}
 
 	return c.distanceReadings
+}
+func (c *I2CController) CurrentMotorDistances() (l, r float64) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	return c.leftMotorDist, c.rightMotorDist
 }
 
 func (c *I2CController) Loop(ctx context.Context, initDone *sync.WaitGroup) {
@@ -360,6 +369,8 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		m1, m2, err := prop.GetEncoderPositions()
 		if err == nil {
 			fmt.Println("Motor positions: ", m1, " ", m2)
+			c.leftMotorDist = float64(-m1) * motorToMMScaleFactor
+			c.rightMotorDist = float64(-m2) * motorToMMScaleFactor
 			screen.ClearNotice(NoteProp)
 			err = prop.StartEncoderRead()
 			if err != nil {

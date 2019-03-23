@@ -21,6 +21,7 @@ type Interface interface {
 	// Read the current state of the hardware.  Reads the current best guess from cache.
 	CurrentHeading() float64
 	CurrentDistanceReadings(revision revision) DistanceReadings
+	CurrentMotorDistances() (l, r float64)
 
 	SetServo(port int, value float64)
 	SetPWM(port int, value float64)
@@ -83,5 +84,6 @@ type I2CInterface interface {
 	SetServo(n int, value float64)
 	SetPWM(n int, value float64)
 	CurrentDistanceReadings(revision revision) DistanceReadings
+	CurrentMotorDistances() (l, r float64)
 	Loop(context context.Context, initDone *sync.WaitGroup)
 }
