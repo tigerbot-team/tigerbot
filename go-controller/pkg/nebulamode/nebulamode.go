@@ -438,8 +438,8 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		hh.SetThrottle(-m.config.ForwardSpeed)
 		reverseStart := time.Now()
 		reverseDuration := time.Duration(
-			((advanceFastDuration * m.config.ForwardSpeed) +
-				(advanceSlowDuration * m.config.ForwardSlowSpeed)) /
+			((float64(advanceFastDuration) * m.config.ForwardSpeed) +
+				(float64(advanceSlowDuration) * m.config.ForwardSlowSpeed)) /
 				m.config.ForwardSpeed)
 		for ctx.Err() == nil {
 			readSensors()
