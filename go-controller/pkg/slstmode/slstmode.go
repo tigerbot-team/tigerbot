@@ -55,7 +55,7 @@ func New(hw hardware.Interface) *SLSTMode {
 		joystickEvents: make(chan *joystick.Event),
 	}
 
-	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 380)
+	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 280)
 	mm.turnEntryFrontDeltaMinMM = mm.tunables.Create("Turn entry front delta min MM", 50)
 	mm.turnEntryFrontDeltaMaxMM = mm.tunables.Create("Turn entry front delta max MM", 180)
 	mm.turnEntrySideDeltaMinMM = mm.tunables.Create("Turn entry side delta min MM", 30)
@@ -247,6 +247,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 
 		fmt.Println("SLST: Following the walls...")
 		lastCorrectionTime := time.Now()
+		turnDirection := 0
 		for ctx.Err() == nil {
 			for atomic.LoadInt32(&s.paused) == 1 && ctx.Err() == nil {
 				// Bot is paused.
@@ -277,6 +278,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 					if delta > s.turnEntrySideDeltaMinMM.Get() {
 						fmt.Println("SLST: Good to turn on the left ", delta)
 						goodToTurn = true
+						turnDirection -= 1
 					}
 				}
 				if rightFore.IsGood() && rightRear.IsGood() {
@@ -287,6 +289,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 					if delta > s.turnEntrySideDeltaMinMM.Get() {
 						fmt.Println("SLST: Good to turn on the right ", delta)
 						goodToTurn = true
+						turnDirection += 1
 					}
 				}
 
@@ -357,8 +360,8 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 
 		flushSensors()
 
-		leftTurnConfidence := leftFore.BestGuess() + leftRear.BestGuess() + frontLeft.BestGuess() - frontRight.BestGuess()
-		rightTurnConfidence := rightFore.BestGuess() + rightRear.BestGuess() - frontLeft.BestGuess() + frontRight.BestGuess()
+		leftTurnConfidence := -turnDirection*1000 + leftFore.BestGuess() + leftRear.BestGuess() + frontLeft.BestGuess() - frontRight.BestGuess()
+		rightTurnConfidence := turnDirection*1000 + rightFore.BestGuess() + rightRear.BestGuess() - frontLeft.BestGuess() + frontRight.BestGuess()
 
 		fmt.Println("Left confidence:", leftTurnConfidence, "Right confidence:", rightTurnConfidence)
 
