@@ -8,7 +8,6 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"fmt"
-	"log"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -176,7 +175,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 	readSensors := func() {
 		// Read the sensors
-		msg := ""
+		msg := "MAZE readings "
 		readings = m.hw.CurrentDistanceReadings(readings.Revision)
 		for j, r := range readings.Readings {
 			prettyPrinted := "-"
@@ -252,19 +251,27 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				numGoodForwardReadings++
 				sum += frontRight.BestGuess()
 			}
-
-			forwardGuess := sum / 2
-			fwdThresh := m.turnEntryThreshMM.Get()
-			if numGoodForwardReadings > 0 {
-				fmt.Printf("MAZE: Wall at %dmm vs thresh %dmm\n", forwardGuess, fwdThresh)
+			if frontLeft.IsGood() && frontRight.IsGood() {
+				if math.Abs(float64(frontLeft.BestGuess()-frontRight.BestGuess())) > 150 {
+					fmt.Println("MAZE: Large difference between front readings, false reading?")
+					numGoodForwardReadings = 0
+				}
 			}
-			if numGoodForwardReadings > 0 && forwardGuess < fwdThresh {
-				log.Println("Reached wall in front")
-				break
+
+			var forwardGuess float64 = 2001
+			if numGoodForwardReadings > 0 {
+				fwdThresh := float64(m.turnEntryThreshMM.Get())
+				fmt.Printf("MAZE: Wall at %.1fmm vs thresh %.1fmm\n", forwardGuess, fwdThresh)
+				forwardGuess = float64(sum) / float64(numGoodForwardReadings)
+
+				if numGoodForwardReadings > 0 && forwardGuess < fwdThresh {
+					fmt.Println("MAZE: Reached wall in front")
+					break
+				}
 			}
 
 			// Ramp up the speed on the straights...
-			if forwardGuess > m.frontDistanceSpeedUpThreshMM.Get() {
+			if forwardGuess > float64(m.frontDistanceSpeedUpThreshMM.Get()) {
 				speed += float64(m.speedRampUp.Get())
 			} else {
 				speed -= float64(m.speedRampDown.Get())
@@ -382,10 +389,18 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		readSensors()
 
 		rotationEstimates := []float64{}
-		if leftFore.BestGuess() < 350 && leftRear.BestGuess() < 350 {
+		if leftFore.BestGuess() < 350 && leftRear.BestGuess() < 350 && math.Abs(float64(leftFore.BestGuess()-leftRear.BestGuess())) < 50 {
 			rotationEstimates = append(rotationEstimates, float64(leftFore.BestGuess()-leftRear.BestGuess()))
 		}
-		if rightFore.BestGuess() < 350 && rightRear.BestGuess() < 350 {
+		if leftFore.BestGuess() < 100 {
+			fmt.Println("Too close to left wall, applying a delta")
+			hh.AddHeadingDelta(.2)
+		}
+		if rightFore.BestGuess() < 100 {
+			fmt.Println("Too close to right wall, applying a delta")
+			hh.AddHeadingDelta(-.2)
+		}
+		if rightFore.BestGuess() < 350 && rightRear.BestGuess() < 350 && math.Abs(float64(rightFore.BestGuess()-rightRear.BestGuess())) < 50 {
 			rotationEstimates = append(rotationEstimates, float64(-rightFore.BestGuess()+rightRear.BestGuess()))
 		}
 		if len(rotationEstimates) > 0 {
@@ -451,7 +466,7 @@ func (f *Filter) IsFar() bool {
 }
 
 func (f *Filter) IsGood() bool {
-	return f.BestGuess() > 0 && f.BestGuess() < 200
+	return f.BestGuess() > 10 && f.BestGuess() < 1500
 }
 
 func (f *Filter) BestGuess() int {
