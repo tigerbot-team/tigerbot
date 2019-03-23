@@ -49,6 +49,8 @@ type NebulaMode struct {
 
 	paused int32
 
+	pictureIndex int
+
 	// Config
 	config NebulaConfig
 }
@@ -185,8 +187,22 @@ func (m *NebulaMode) takePicture() (hsv gocv.Mat, err error) {
 		err = fmt.Errorf("cannot read picture from webcam device")
 		return
 	}
+	if img.Empty() {
+		err = fmt.Errorf("no image on device")
+		return
+	}
+	fmt.Printf("Read image %v x %v\n", img.Cols(), img.Rows())
+	m.savePicture(img)
 	hsv = gocv.NewMat()
 	gocv.CvtColor(img, hsv, gocv.ColorBGRToHSV)
+	return
+}
+
+func (m *NebulaMode) savePicture(img gocv.Mat) {
+	m.pictureIndex++
+	saveFile := fmt.Sprintf("/tmp/nebula-image-%v.jpg", m.pictureIndex)
+	success := gocv.IMWrite(saveFile, img)
+	fmt.Printf("NEBULA: wrote %v? %v\n", saveFile, success)
 	return
 }
 
