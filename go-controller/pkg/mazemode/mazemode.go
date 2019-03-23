@@ -311,7 +311,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 					if correction > 2 {
 						correction = 2
 					} else if correction < -2 {
-						correction = 2
+						correction = -2
 					}
 					fmt.Printf("MAZE: Making correction: %.2f\n", correction)
 					hh.AddHeadingDelta(correction)
