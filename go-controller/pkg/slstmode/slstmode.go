@@ -44,6 +44,9 @@ type SLSTMode struct {
 	topSpeedPct                  *Tunable
 	speedRampUp                  *Tunable
 	speedRampDown                *Tunable
+	turnEntryFrontDeltaMaxMM     *Tunable
+	turnEntryFrontDeltaMinMM     *Tunable
+	turnEntrySideDeltaMinMM      *Tunable
 }
 
 func New(hw hardware.Interface) *SLSTMode {
@@ -52,12 +55,15 @@ func New(hw hardware.Interface) *SLSTMode {
 		joystickEvents: make(chan *joystick.Event),
 	}
 
-	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 280)
-	mm.turnThrottlePct = mm.tunables.Create("Turn throttle %", 0)
+	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 380)
+	mm.turnEntryFrontDeltaMinMM = mm.tunables.Create("Turn entry front delta min MM", 50)
+	mm.turnEntryFrontDeltaMaxMM = mm.tunables.Create("Turn entry front delta max MM", 180)
+	mm.turnEntrySideDeltaMinMM = mm.tunables.Create("Turn entry side delta min MM", 30)
+	mm.turnThrottlePct = mm.tunables.Create("Turn throttle %", 2)
 
 	mm.frontDistanceSpeedUpThreshMM = mm.tunables.Create("Front distance speed up thresh", 350)
-	mm.baseSpeedPct = mm.tunables.Create("Base speed %", 10)
-	mm.topSpeedPct = mm.tunables.Create("Top speed %", 15)
+	mm.baseSpeedPct = mm.tunables.Create("Base speed %", 20)
+	mm.topSpeedPct = mm.tunables.Create("Top speed %", 20)
 	mm.speedRampUp = mm.tunables.Create("Speed ramp up %/loop", 1)
 	mm.speedRampDown = mm.tunables.Create("Speed ramp down %/loop", 1)
 
@@ -256,7 +262,8 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 				fl := frontLeft.BestGuess()
 				fr := frontRight.BestGuess()
 
-				if math.Abs(float64(fl-fr)) < 50 || math.Abs(float64(fl-fr)) > 180 {
+				if math.Abs(float64(fl-fr)) < s.turnEntryFrontDeltaMinMM.GetFloat() ||
+					math.Abs(float64(fl-fr)) > s.turnEntryFrontDeltaMaxMM.GetFloat() {
 					fmt.Printf("SLST: Rejecting readings, incorrect delta %d between front sensors\n", fl-fr)
 				}
 
@@ -267,7 +274,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 					lr := leftRear.BestGuess()
 
 					delta := lf - lr
-					if delta > 30 {
+					if delta > s.turnEntrySideDeltaMinMM.Get() {
 						fmt.Println("SLST: Good to turn on the left ", delta)
 						goodToTurn = true
 					}
@@ -277,7 +284,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 					rr := rightRear.BestGuess()
 
 					delta := rf - rr
-					if delta > 30 {
+					if delta > s.turnEntrySideDeltaMinMM.Get() {
 						fmt.Println("SLST: Good to turn on the right ", delta)
 						goodToTurn = true
 					}
@@ -346,7 +353,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 			hh.SetThrottle(speed / 100)
 		}
 
-		hh.SetThrottle(0)
+		hh.SetThrottle(s.turnThrottlePct.GetFloat() / 100)
 
 		flushSensors()
 
