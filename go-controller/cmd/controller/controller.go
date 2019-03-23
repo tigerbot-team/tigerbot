@@ -11,6 +11,7 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/nebulamode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
@@ -68,6 +69,7 @@ func main() {
 		slstmode.New(hw),
 		pausemode.New(hw),
 		testmode.New(hw),
+		nebulamode.New(hw),
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
