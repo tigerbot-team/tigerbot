@@ -30,9 +30,11 @@ func main() {
 		}
 	}()
 	for _, port := range []int{
-		0, 1, 2, 3, 4, 5,
+		mux.BusTOFLeftRear, mux.BusTOFLeftFront,
+		mux.BusTOFForwardLeft, mux.BusTOFForwardRight,
+		mux.BusTOFRightFront, mux.BusTOFRightRear,
 	} {
-		fmt.Println("Intiialising ToF ", port)
+		fmt.Println("Initialising ToF ", port)
 
 		err := mx.SelectSinglePort(port)
 		if err != nil {
