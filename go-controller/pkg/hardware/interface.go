@@ -37,7 +37,7 @@ type HeadingAbsolute interface {
 	SetHeading(desiredHeaading float64)
 	AddHeadingDelta(delta float64)
 	SetThrottle(float64)
-	Wait(ctx context.Context) error
+	Wait(ctx context.Context) (residual float64, err error)
 }
 
 type HeadingRelative interface {

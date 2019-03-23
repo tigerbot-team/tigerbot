@@ -84,7 +84,7 @@ func (m *MazeMode) Stop() {
 	m.stopWG.Wait()
 
 	for _, t := range m.tunables.All {
-		fmt.Println("Tunable:", t.Name, "=", t.Value)
+		fmt.Println("MAZE: Tunable:", t.Name, "=", t.Value)
 	}
 }
 
@@ -103,19 +103,19 @@ func (m *MazeMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
-						fmt.Println("Getting ready!")
+						fmt.Println("MAZE: Getting ready!")
 						m.startWG.Add(1)
 						m.startSequence()
 					case joystick.ButtonSquare:
 						m.stopSequence()
-						fmt.Println("Run time:", time.Since(startTime))
+						fmt.Println("MAZE: Run time:", time.Since(startTime))
 					case joystick.ButtonTriangle:
 						m.pauseOrResumeSequence()
 					}
 				} else {
 					switch event.Number {
 					case joystick.ButtonR1:
-						fmt.Println("GO!")
+						fmt.Println("MAZE: GO!")
 						startTime = time.Now()
 						m.startWG.Done()
 					}
@@ -147,11 +147,11 @@ func (m *MazeMode) loop(ctx context.Context) {
 
 func (m *MazeMode) startSequence() {
 	if m.running {
-		fmt.Println("Already running")
+		fmt.Println("MAZE: Already running")
 		return
 	}
 
-	fmt.Println("Starting sequence...")
+	fmt.Println("MAZE: Starting sequence...")
 	m.running = true
 	atomic.StoreInt32(&m.paused, 0)
 
@@ -163,7 +163,7 @@ func (m *MazeMode) startSequence() {
 
 func (m *MazeMode) runSequence(ctx context.Context) {
 	defer m.sequenceWG.Done()
-	defer fmt.Println("Exiting sequence loop")
+	defer fmt.Println("MAZE: Exiting sequence loop")
 
 	// Create time-of-flight reading filters; should filter out any stray readings.
 	var filters []*Filter
@@ -180,7 +180,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		for j, r := range readings.Readings {
 			prettyPrinted := "-"
 			readingInMM, err := r.DistanceMM, r.Error
-			filters[j].Accumulate(readingInMM)
+			filters[j].Accumulate(readingInMM, readings.CaptureTime)
 			if readingInMM == tofsensor.RangeTooFar {
 				prettyPrinted = ">2000mm"
 			} else if err != nil {
@@ -191,6 +191,16 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			msg += fmt.Sprintf("%s=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
 		}
 		fmt.Println(msg)
+	}
+
+	flushSensors := func() {
+		for _, f := range filters {
+			f.Flush()
+		}
+
+		readSensors()
+		readSensors()
+		readSensors()
 	}
 
 	leftRear := filters[0]
@@ -230,6 +240,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		var speed float64 = float64(m.baseSpeedPct.Get())
 
 		fmt.Println("MAZE: Following the walls...")
+		lastCorrectionTime := time.Now()
 		for ctx.Err() == nil {
 			for atomic.LoadInt32(&m.paused) == 1 && ctx.Err() == nil {
 				// Bot is paused.
@@ -270,6 +281,39 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				}
 			}
 
+			if time.Since(lastCorrectionTime) > 500*time.Millisecond {
+				num := 0
+				sum := 0.0
+				lfMMPerS := leftFore.MMPerSecond()
+				if lfMMPerS != 0 {
+					num += 1
+					sum += lfMMPerS
+				}
+				rfMMPerS := rightFore.MMPerSecond()
+				if rfMMPerS != 0 {
+					num += 1
+					sum -= rfMMPerS
+				}
+				lrMMPerS := leftRear.MMPerSecond()
+				if lrMMPerS != 0 {
+					num += 1
+					sum += lrMMPerS
+				}
+				rrMMPerS := rightRear.MMPerSecond()
+				if rrMMPerS != 0 {
+					num += 1
+					sum -= rrMMPerS
+				}
+				fmt.Printf("MAZE: MM/s estimates L: %.1f %.1f R: %.1f %.1f\n", lfMMPerS, lrMMPerS, rfMMPerS, rrMMPerS)
+				if num > 0 {
+					avg := sum / float64(num)
+					correction := 0.01 * -avg * speed
+					fmt.Printf("MAZE: Making correction: %.2f\n", correction)
+					hh.AddHeadingDelta(correction)
+					lastCorrectionTime = time.Now()
+				}
+			}
+
 			// Ramp up the speed on the straights...
 			if forwardGuess > float64(m.frontDistanceSpeedUpThreshMM.Get()) {
 				speed += float64(m.speedRampUp.Get())
@@ -284,83 +328,18 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			}
 
 			hh.SetThrottle(speed / 100)
-
-			// TODO Stay in middle of walls
-
-			//// Calculate our translational error.  We do our best to deal with missing sensor readings.
-			//if leftRear.IsGood() && rightFore.IsGood() {
-			//	// We have readings from both sides of the bot, try to stay in the middle.
-			//	leftGuess := float64(leftRear.BestGuess())
-			//	if leftFore.IsGood() {
-			//		leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
-			//	}
-			//	rightGuess := float64(rightFore.BestGuess())
-			//	if frontRight.IsGood() {
-			//		rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
-			//	}
-			//
-			//	// Since we know we're in the middle, update the target clearance with actual measured values.
-			//	translationErrorMMs = float64(leftGuess - rightGuess)
-			//
-			//	actualClearance := float64(leftGuess+rightGuess) / 2
-			//	targetSideClearance = targetSideClearance*0.95 + actualClearance*0.05
-			//} else if leftRear.IsGood() {
-			//	leftGuess := float64(leftRear.BestGuess())
-			//	if leftFore.IsGood() {
-			//		leftGuess = math.Min(leftGuess, frontLeftHorizEstMMs)
-			//	}
-			//	translationErrorMMs = leftGuess - targetSideClearance
-			//
-			//	// Since we're not sure where we are, slowly go back to the default clearance.
-			//	targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
-			//} else if rightFore.IsGood() {
-			//	rightGuess := float64(rightFore.BestGuess())
-			//	if frontRight.IsGood() {
-			//		rightGuess = math.Min(rightGuess, frontRightHorizEstMMs)
-			//	}
-			//	translationErrorMMs = targetSideClearance - rightGuess
-			//
-			//	// Since we're not sure where we are, slowly go back to the default clearance.
-			//	targetSideClearance = (targetSideClearance*clearandReturnFactor + clearanceMMs*(100-clearandReturnFactor)) / 100
-			//} else {
-			//	// No idea, dissipate the error so we don't.
-			//	translationErrorMMs = translationErrorMMs * 0.8
-			//}
-			//
-			//var leftRotErr, rightRotError float64
-			//rotErrGood := false
-			//if leftFore.IsGood() && leftRear.IsGood() {
-			//	leftRotErr = frontLeftHorizEstMMs - float64(leftRear.BestGuess())
-			//	rotErrGood = true
-			//}
-			//if frontRight.IsGood() && rightFore.IsGood() {
-			//	rightRotError = frontRightHorizEstMMs - float64(rightFore.BestGuess())
-			//	rotErrGood = true
-			//}
-			//if rotErrGood {
-			//	// Prefer the smaller magnitude error to avoid problems where one of the walls falls away...
-			//	if math.Abs(leftRotErr) < math.Abs(rightRotError) {
-			//		rotationErrorMMs = leftRotErr*0.8 - rightRotError*0.2
-			//	} else {
-			//		rotationErrorMMs = -rightRotError*0.8 + leftRotErr*0.2
-			//	}
-			//} else {
-			//	rotationErrorMMs *= 0.9
-			//}
-			//
-			//// positive if we're too far right
-			//txErrorSq := math.Copysign(translationErrorMMs*translationErrorMMs, translationErrorMMs)
-			//// positive if we're rotated too far clockwise
-			//rotErrorSq := math.Copysign(rotationErrorMMs*rotationErrorMMs, rotationErrorMMs)
-			//
-			//scaledTxErr := txErrorSq * speed / 20000
-			//scaledRotErr := rotErrorSq * speed / 1000
-			//
-			//fmt.Printf("MAZE: Control: S %.1f R %.2f T %.2f\n", speed/127, scaledRotErr/127, scaledTxErr/127)
-			//m.headingHolder.SetControlInputs(-scaledRotErr/127, speed/127, -scaledTxErr/127)
 		}
 
 		hh.SetThrottle(0)
+		var rotationEstimates []float64
+
+		flushSensors()
+
+		frontRot := float64(frontLeft.BestGuess() - frontRight.BestGuess())
+		if frontLeft.BestGuess() < 350 && frontRight.BestGuess() < 350 && math.Abs(frontRot) < 50 {
+			fmt.Println("MAZE: Front pre-turn rotation estimate: ", frontRot)
+			rotationEstimates = append(rotationEstimates, float64(frontRight.BestGuess()-frontLeft.BestGuess()))
+		}
 
 		leftTurnConfidence := leftFore.BestGuess() + leftRear.BestGuess()
 		rightTurnConfidence := rightFore.BestGuess() + rightRear.BestGuess()
@@ -378,30 +357,33 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 
 		startHeading := m.hw.CurrentHeading()
 		fmt.Println("MAZE: Turn start heading:", startHeading)
+
 		hh.AddHeadingDelta(sign * 90)
-		_ = hh.Wait(ctx)
-
-		// Flush the filters.
-		readSensors()
-		readSensors()
-		readSensors()
-		readSensors()
-		readSensors()
-
-		rotationEstimates := []float64{}
-		if leftFore.BestGuess() < 350 && leftRear.BestGuess() < 350 && math.Abs(float64(leftFore.BestGuess()-leftRear.BestGuess())) < 50 {
-			rotationEstimates = append(rotationEstimates, float64(leftFore.BestGuess()-leftRear.BestGuess()))
+		measuredErr, err := hh.Wait(ctx)
+		if err != nil {
+			fmt.Println("MAZE: Error from wait: ", err)
+			return
 		}
+
+		flushSensors()
+
 		if leftFore.BestGuess() < 100 {
-			fmt.Println("Too close to left wall, applying a delta")
+			fmt.Println("MAZE: Too close to left wall, applying a delta")
 			hh.AddHeadingDelta(.2)
 		}
 		if rightFore.BestGuess() < 100 {
-			fmt.Println("Too close to right wall, applying a delta")
+			fmt.Println("MAZE: Too close to right wall, applying a delta")
 			hh.AddHeadingDelta(-.2)
 		}
-		if rightFore.BestGuess() < 350 && rightRear.BestGuess() < 350 && math.Abs(float64(rightFore.BestGuess()-rightRear.BestGuess())) < 50 {
-			rotationEstimates = append(rotationEstimates, float64(-rightFore.BestGuess()+rightRear.BestGuess()))
+		leftRot := float64(leftFore.BestGuess() - leftRear.BestGuess())
+		if leftFore.BestGuess() < 350 && leftRear.BestGuess() < 350 && math.Abs(leftRot) < 50 {
+			fmt.Println("MAZE: Left rotation estimate: ", leftRot)
+			rotationEstimates = append(rotationEstimates, leftRot)
+		}
+		rightRot := float64(rightRear.BestGuess() - rightFore.BestGuess())
+		if rightFore.BestGuess() < 350 && rightRear.BestGuess() < 350 && math.Abs(rightRot) < 50 {
+			fmt.Println("MAZE: Right rotation estimate: ", leftRot)
+			rotationEstimates = append(rotationEstimates, rightRot)
 		}
 		if len(rotationEstimates) > 0 {
 			var sum float64
@@ -409,13 +391,13 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				sum += r
 			}
 			avg := sum / float64(len(rotationEstimates))
-			rotEst := math.Atan(avg/110) * 360 / (2 * math.Pi)
-			fmt.Printf("MAZE: Estimated offset: %.2f degrees\n", rotEst)
+			rotEst := math.Atan(avg/110)*360/(2*math.Pi) - measuredErr
+			fmt.Printf("MAZE: Estimated offset: %.2f degrees (mesaured %.2f)\n", rotEst, measuredErr)
 
-			if rotEst > 1 {
-				rotEst = 1
-			} else if rotEst < -1 {
-				rotEst = -1
+			if rotEst > 1.5 {
+				rotEst = 1.5
+			} else if rotEst < -1.5 {
+				rotEst = -1.5
 			}
 			hh.AddHeadingDelta(-rotEst)
 		}
@@ -438,26 +420,51 @@ func clamp(v float64, limit float64) int8 {
 	return int8(v)
 }
 
-type Filter struct {
-	Name    string
-	samples []int
+type filterSample struct {
+	mm   int
+	time time.Time
 }
 
-func (f *Filter) Accumulate(sample int) {
-	f.samples = append(f.samples, sample)
-	if len(f.samples) > 3 {
+const (
+	bufSize       = 20
+	recencyThresh = time.Millisecond * 90
+)
+
+type Filter struct {
+	Name    string
+	samples []filterSample
+}
+
+func (f *Filter) Accumulate(sample int, t time.Time) {
+	f.samples = append(f.samples, filterSample{sample, t})
+	if len(f.samples) > bufSize {
 		f.samples = f.samples[1:]
 	}
 }
 
+func (f *Filter) Flush() {
+	f.samples = f.samples[:0]
+}
+
+func (f *Filter) recentSamples() []filterSample {
+	var result []filterSample
+	for _, s := range f.samples {
+		if time.Since(s.time) < recencyThresh {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 func (f *Filter) IsFar() bool {
 	// Look backwards in the samples
-	for i := len(f.samples) - 1; i >= 0; i-- {
-		if f.samples[i] > 400 {
+	samples := f.recentSamples()
+	for i := len(samples) - 1; i >= 0; i-- {
+		if samples[i].mm > 400 {
 			// 400mm is far by definition.
 			return true
 		}
-		if f.samples[i] > 0 {
+		if samples[i].mm > 0 {
 			// any recent non-far sample means we're not far.
 			return false
 		}
@@ -471,9 +478,9 @@ func (f *Filter) IsGood() bool {
 
 func (f *Filter) BestGuess() int {
 	var goodSamples []int
-	for _, s := range f.samples {
-		if s != 0 && s < tofsensor.RangeTooFar {
-			goodSamples = append(goodSamples, s)
+	for _, s := range f.recentSamples() {
+		if s.mm != 0 && s.mm < tofsensor.RangeTooFar {
+			goodSamples = append(goodSamples, s.mm)
 		}
 	}
 	if len(goodSamples) == 0 {
@@ -481,6 +488,38 @@ func (f *Filter) BestGuess() int {
 	}
 	sort.Ints(goodSamples)
 	return goodSamples[len(goodSamples)/2]
+}
+
+func (f *Filter) MMPerSecond() float64 {
+	var goodSamples2 []filterSample
+	{
+		var goodSamples []filterSample
+		var min = tofsensor.RangeTooFar
+		for _, s := range f.samples {
+			if s.mm != 0 && s.mm < 400 {
+				goodSamples = append(goodSamples, s)
+				if s.mm < min {
+					min = s.mm
+				}
+			}
+		}
+		for _, s := range goodSamples {
+			if s.mm < min+10 {
+				goodSamples2 = append(goodSamples2, s)
+			}
+		}
+		if len(goodSamples2) < 10 {
+			return 0
+		}
+	}
+	last := goodSamples2[len(goodSamples2)-1]
+	first := goodSamples2[0]
+	dTime := last.time.Sub(first.time).Seconds()
+	dMM := last.mm - first.mm
+	if dTime == 0 {
+		return 0
+	}
+	return float64(dMM) / dTime
 }
 
 func (m *MazeMode) stopSequence() {

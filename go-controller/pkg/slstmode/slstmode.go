@@ -378,7 +378,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 		startHeading := s.hw.CurrentHeading()
 		fmt.Println("Turn start heading:", startHeading)
 		hh.AddHeadingDelta(sign * 45)
-		_ = hh.Wait(ctx)
+		_, _ = hh.Wait(ctx)
 
 		lastTurnSign = int(sign)
 	}

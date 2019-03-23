@@ -69,14 +69,14 @@ func (h *HeadingHolder) TargetHeading() float64 {
 	return h.targetHeading
 }
 
-func (h *HeadingHolder) Wait(ctx context.Context) error {
+func (h *HeadingHolder) Wait(ctx context.Context) (float64, error) {
 	lastAngleError := 0.0
 	numIterationsAroundZero := 0
 	for {
 		h.controlLock.Lock()
 		if ctx.Err() != nil {
 			h.controlLock.Unlock()
-			return ctx.Err()
+			return 0, ctx.Err()
 		}
 		h.onNewReading.Wait()
 		tH := h.targetHeading
@@ -101,7 +101,7 @@ func (h *HeadingHolder) Wait(ctx context.Context) error {
 			numIterationsAroundZero++
 		}
 		if numIterationsAroundZero > iterThresh {
-			return nil
+			return angleError, nil
 		}
 		lastAngleError = angleError
 	}
