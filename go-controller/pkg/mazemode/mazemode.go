@@ -216,7 +216,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 	rightRear := filters[5]
 	rightRear.Name = "RR"
 
-	// We use the absolute haeding hold mode so we can do things like "turn right 90 degrees".
+	// We use the absolute heading hold mode so we can do things like "turn right 90 degrees".
 	hh := m.hw.StartHeadingHoldMode()
 
 	// Let the user know that we're ready, then wait for the "GO" signal.
@@ -307,7 +307,12 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				fmt.Printf("MAZE: MM/s estimates L: %.1f %.1f R: %.1f %.1f\n", lfMMPerS, lrMMPerS, rfMMPerS, rrMMPerS)
 				if num > 0 {
 					avg := sum / float64(num)
-					correction := 0.01 * -avg * speed
+					correction := 0.005 * -avg * speed
+					if correction > 2 {
+						correction = 2
+					} else if correction < -2 {
+						correction = 2
+					}
 					fmt.Printf("MAZE: Making correction: %.2f\n", correction)
 					hh.AddHeadingDelta(correction)
 					lastCorrectionTime = time.Now()
