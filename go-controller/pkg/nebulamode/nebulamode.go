@@ -39,14 +39,13 @@ type NebulaMode struct {
 	hw hardware.Interface
 
 	cancel         context.CancelFunc
-	startTrigger   chan struct{}
+	startWG        sync.WaitGroup
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
 
 	running        bool
-	targetBallIdx  int
 	cancelSequence context.CancelFunc
-	sequenceDone   chan struct{}
+	sequenceWG     sync.WaitGroup
 
 	paused int32
 
@@ -74,7 +73,6 @@ func New(hw hardware.Interface) *NebulaMode {
 			CentralRegionXPercent: 10,
 			CentralRegionYPercent: 10,
 		},
-		startTrigger: make(chan struct{}),
 	}
 	for _, colour := range m.config.Sequence {
 		m.config.Balls[colour] = *rainbow.Balls[colour]
@@ -129,9 +127,6 @@ func (m *NebulaMode) loop(ctx context.Context) {
 
 	for {
 		select {
-		case <-m.sequenceDone:
-			m.running = false
-			m.sequenceDone = nil
 		case <-ctx.Done():
 			return
 		case event := <-m.joystickEvents:
@@ -141,6 +136,7 @@ func (m *NebulaMode) loop(ctx context.Context) {
 					switch event.Number {
 					case joystick.ButtonR1:
 						fmt.Println("Getting ready!")
+						m.startWG.Add(1)
 						m.startSequence()
 					case joystick.ButtonSquare:
 						m.stopSequence()
@@ -151,7 +147,7 @@ func (m *NebulaMode) loop(ctx context.Context) {
 					switch event.Number {
 					case joystick.ButtonR1:
 						fmt.Println("GO!")
-						close(m.startTrigger)
+						m.startWG.Done()
 					}
 				}
 			}
@@ -166,13 +162,12 @@ func (m *NebulaMode) startSequence() {
 	}
 
 	fmt.Println("Starting sequence...")
-	m.targetBallIdx = 0
 	m.running = true
 	atomic.StoreInt32(&m.paused, 0)
 
 	seqCtx, cancel := context.WithCancel(context.Background())
 	m.cancelSequence = cancel
-	m.sequenceDone = make(chan struct{})
+	m.sequenceWG.Add(1)
 	go m.runSequence(seqCtx)
 }
 
@@ -281,7 +276,7 @@ func (m *NebulaMode) calculateCost(targetHSVRange *rainbow.HSVRange, choiceHue b
 
 // runSequence is a goroutine that reads from the camera and controls the motors.
 func (m *NebulaMode) runSequence(ctx context.Context) {
-	defer close(m.sequenceDone)
+	defer m.sequenceWG.Done()
 	defer fmt.Println("Exiting sequence loop")
 
 	// Create time-of-flight reading filters; should filter out any stray readings.
@@ -325,21 +320,14 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 	rightRear := filters[5]
 	rightRear.Name = "RR"
 
-	for ctx.Err() == nil {
-		select {
-		case <-m.startTrigger:
-			// Get going.
-			break
-		default:
-			// Don't move yet.
-			continue
-		}
-	}
-
-	startTime := time.Now()
-
 	// We use the absolute heading hold mode so we can do things like "turn right 90 degrees".
 	hh := m.hw.StartHeadingHoldMode()
+
+	// Let the user know that we're ready, then wait for the "GO" signal.
+	m.hw.PlaySound("/sounds/ready.wav")
+	m.startWG.Wait()
+
+	startTime := time.Now()
 
 	var (
 		hsv [4]gocv.Mat
@@ -455,10 +443,13 @@ func (m *NebulaMode) stopSequence() {
 
 	m.cancelSequence()
 	m.cancelSequence = nil
-	<-m.sequenceDone
+	m.sequenceWG.Wait()
 	m.running = false
-	m.sequenceDone = nil
 	atomic.StoreInt32(&m.paused, 0)
+
+	m.hw.StopMotorControl()
+
+	fmt.Println("NEBULA: Stopped sequence...")
 }
 
 func (m *NebulaMode) pauseOrResumeSequence() {
