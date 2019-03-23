@@ -20,7 +20,7 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
-type RainbowConfig struct {
+type NebulaConfig struct {
 	ForwardSpeed     float64
 	ForwardSlowSpeed float64
 	Sequence         []string
@@ -50,14 +50,14 @@ type NebulaMode struct {
 	paused int32
 
 	// Config
-	config RainbowConfig
+	config NebulaConfig
 }
 
 func New(hw hardware.Interface) *NebulaMode {
 	m := &NebulaMode{
 		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
-		config: RainbowConfig{
+		config: NebulaConfig{
 			ForwardSpeed:     35,
 			ForwardSlowSpeed: 6,
 			Sequence:         []string{"red", "blue", "yellow", "green"},
@@ -77,7 +77,7 @@ func New(hw hardware.Interface) *NebulaMode {
 	for _, colour := range m.config.Sequence {
 		m.config.Balls[colour] = *rainbow.Balls[colour]
 	}
-	cfg, err := ioutil.ReadFile("/cfg/rainbow.yaml")
+	cfg, err := ioutil.ReadFile("/cfg/nebula.yaml")
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -93,7 +93,7 @@ func New(hw hardware.Interface) *NebulaMode {
 	if err != nil {
 		fmt.Println(err)
 	} else {
-		err = ioutil.WriteFile("/cfg/rainbow-in-use.yaml", cfgBytes, 0666)
+		err = ioutil.WriteFile("/cfg/nebula-in-use.yaml", cfgBytes, 0666)
 		if err != nil {
 			fmt.Println(err)
 		}
