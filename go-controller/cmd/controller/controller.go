@@ -1,31 +1,24 @@
 package main
 
 import (
-	"fmt"
-	"time"
-
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/slstmode"
-
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
-
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/testmode"
-
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/nebulamode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
-
 	"context"
-
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/nebulamode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pausemode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/slstmode"
 )
 
 type Mode interface {
@@ -67,9 +60,8 @@ func main() {
 		rcmode.New("GUN MODE", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
 		mazemode.New(hw),
 		slstmode.New(hw),
-		pausemode.New(hw),
-		testmode.New(hw),
 		nebulamode.New(hw),
+		pausemode.New(hw),
 	}
 	var activeMode Mode = allModes[0]
 	fmt.Printf("----- %s -----\n", activeMode.Name())
