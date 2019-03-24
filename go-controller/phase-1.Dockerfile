@@ -1,7 +1,7 @@
 # Start with a container that's already set up with OpenCV
 # and do the builds in there.
 
-FROM sgtwilko/rpi-raspbian-opencv:stretch-latest
+FROM sgtwilko/rpi-raspbian-opencv@sha256:448e7eb9158fe1b085237e1db185acfe00eb838bf2a05e959d3e0ba7a145fb46
 
 RUN apt update
 RUN apt install make gcc
