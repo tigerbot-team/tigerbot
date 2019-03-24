@@ -40,7 +40,17 @@ type controls struct {
 func (h *HeadingHolder) SetHeading(desiredHeaading float64) {
 	h.controlLock.Lock()
 	defer h.controlLock.Unlock()
-	h.targetHeading = desiredHeaading
+
+	h.targetHeading = clampHeading(h.currentHeading, desiredHeaading)
+}
+
+func clampHeading(currentHeading float64, desiredHeaading float64) float64 {
+	delta := math.Mod(360+desiredHeaading-currentHeading, 360)
+	if delta > 180 {
+		delta -= 360
+	}
+	tH := currentHeading + delta
+	return tH
 }
 
 func (h *HeadingHolder) AddHeadingDelta(delta float64) {
