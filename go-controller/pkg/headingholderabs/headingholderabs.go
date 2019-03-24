@@ -214,7 +214,7 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			loopTime, len(yawReadings), headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
 		targetThrottle := controls.throttle
-		if math.Abs(targetThrottle) < 0.4 {
+		if math.Abs(targetThrottle) < maxThrottleDelta {
 			filteredThrottle = targetThrottle
 		} else if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
