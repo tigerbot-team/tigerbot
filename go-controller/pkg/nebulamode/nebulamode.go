@@ -91,9 +91,9 @@ func New(hw hardware.Interface) *NebulaMode {
 		}
 	}
 	// Write out the config that we are using.
-	fmt.Printf("Using config: %#v\n", m.config)
+	fmt.Printf("NEBULA: Using config: %#v\n", m.config)
 	cfgBytes, err := yaml.Marshal(&m.config)
-	//fmt.Printf("Marshalled: %#v\n", cfgBytes)
+	//fmt.Printf("NEBULA: Marshalled: %#v\n", cfgBytes)
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -139,7 +139,7 @@ func (m *NebulaMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
-						fmt.Println("Getting ready!")
+						fmt.Println("NEBULA: Getting ready!")
 						m.startWG.Add(1)
 						m.startSequence()
 					case joystick.ButtonSquare:
@@ -150,7 +150,7 @@ func (m *NebulaMode) loop(ctx context.Context) {
 				} else {
 					switch event.Number {
 					case joystick.ButtonR1:
-						fmt.Println("GO!")
+						fmt.Println("NEBULA: GO!")
 						m.startWG.Done()
 					}
 				}
@@ -161,11 +161,11 @@ func (m *NebulaMode) loop(ctx context.Context) {
 
 func (m *NebulaMode) startSequence() {
 	if m.running {
-		fmt.Println("Already running")
+		fmt.Println("NEBULA: Already running")
 		return
 	}
 
-	fmt.Println("Starting sequence...")
+	fmt.Println("NEBULA: Starting sequence...")
 	m.running = true
 	atomic.StoreInt32(&m.paused, 0)
 
@@ -193,7 +193,7 @@ func (m *NebulaMode) takePicture() (hsv gocv.Mat, err error) {
 		err = fmt.Errorf("no image on device")
 		return
 	}
-	fmt.Printf("Read image %v x %v\n", img.Cols(), img.Rows())
+	fmt.Printf("NEBULA: Read image %v x %v\n", img.Cols(), img.Rows())
 	m.savePicture(img)
 	hsv = gocv.NewMat()
 	gocv.CvtColor(img, hsv, gocv.ColorBGRToHSV)
@@ -295,7 +295,7 @@ func (m *NebulaMode) calculateCost(targetHSVRange *rainbow.HSVRange, choiceHue b
 // runSequence is a goroutine that reads from the camera and controls the motors.
 func (m *NebulaMode) runSequence(ctx context.Context) {
 	defer m.sequenceWG.Done()
-	defer fmt.Println("Exiting sequence loop")
+	defer fmt.Println("NEBULA: Exiting sequence loop")
 
 	// Create time-of-flight reading filters; should filter out any stray readings.
 	var filters []*mazemode.Filter
@@ -312,7 +312,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		for j, r := range readings.Readings {
 			prettyPrinted := "-"
 			readingInMM, err := r.DistanceMM, r.Error
-			filters[j].Accumulate(readingInMM)
+			filters[j].Accumulate(readingInMM, readings.CaptureTime)
 			if readingInMM == tofsensor.RangeTooFar {
 				prettyPrinted = ">2000mm"
 			} else if err != nil {
@@ -369,7 +369,8 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		// Turn to take photos of the four corners.
 		for ii, cornerHeading := range cornerHeadings {
 			hh.SetHeading(cornerHeading)
-			_ = hh.Wait(ctx)
+			residualError, _ := hh.Wait(ctx)
+			fmt.Println("NEBULA: Completed turn, residual error: ", residualError)
 			hsv[ii], err = m.takePicture()
 			if err != nil {
 				m.fatal(err)
@@ -383,12 +384,13 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 	for ii, index := range m.visitOrder {
 
-		fmt.Println("Next target ball: ", m.config.Sequence[ii])
+		fmt.Println("NEBULA: Next target ball: ", m.config.Sequence[ii])
 		m.announceTargetBall(ii)
 
 		// Rotating phase.
 		hh.SetHeading(cornerHeadings[index])
-		_ = hh.Wait(ctx)
+		residualError, _ := hh.Wait(ctx)
+		fmt.Println("NEBULA: Completed turn, residual error: ", residualError)
 
 		// Advancing phase.
 		hh.SetThrottle(m.config.ForwardSpeed)
@@ -401,7 +403,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		)
 		for ctx.Err() == nil {
 			readSensors()
-			fmt.Println("Target:", index, "Advancing")
+			fmt.Println("NEBULA: Target:", index, "Advancing")
 
 			closeEnough :=
 				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) ||
@@ -412,7 +414,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh)
 
 			if closeEnough {
-				fmt.Println("Reached target ball:", m.config.Sequence[ii], "in", time.Since(startTime))
+				fmt.Println("NEBULA: Reached target ball:", m.config.Sequence[ii], "in", time.Since(startTime))
 				if movingFast {
 					advanceFastDuration = time.Since(advanceFastStart)
 				} else {
@@ -423,7 +425,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 			// We're approaching the ball but not yet close enough.
 			if movingFast && closeEnoughToSlowDown {
-				fmt.Println("Slowing...")
+				fmt.Println("NEBULA: Slowing...")
 				advanceFastDuration = time.Since(advanceFastStart)
 				hh.SetThrottle(m.config.ForwardSlowSpeed)
 				advanceSlowStart = time.Now()
@@ -476,10 +478,10 @@ func (m *NebulaMode) stopSequence() {
 
 func (m *NebulaMode) pauseOrResumeSequence() {
 	if atomic.LoadInt32(&m.paused) == 1 {
-		fmt.Println("Resuming sequence...")
+		fmt.Println("NEBULA: Resuming sequence...")
 		atomic.StoreInt32(&m.paused, 0)
 	} else {
-		fmt.Println("Pausing sequence...")
+		fmt.Println("NEBULA: Pausing sequence...")
 		atomic.StoreInt32(&m.paused, 1)
 	}
 }
