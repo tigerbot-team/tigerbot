@@ -368,9 +368,13 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 
 		m1, m2, err := prop.GetEncoderPositions()
 		if err == nil {
-			fmt.Println("Motor positions: ", m1, " ", m2)
-			c.leftMotorDist = float64(-m1) * motorToMMScaleFactor
-			c.rightMotorDist = float64(-m2) * motorToMMScaleFactor
+			rightMM := float64(-m2) / motorToMMScaleFactor
+			leftMM := float64(-m1) / motorToMMScaleFactor
+			fmt.Println("Motor positions: ", m1, "=", leftMM, "mm ", m2, "=", rightMM, "mm")
+			c.lock.Lock()
+			c.leftMotorDist = leftMM
+			c.rightMotorDist = rightMM
+			c.lock.Unlock()
 			screen.ClearNotice(NoteProp)
 			err = prop.StartEncoderRead()
 			if err != nil {

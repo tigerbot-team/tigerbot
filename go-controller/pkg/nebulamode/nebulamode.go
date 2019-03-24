@@ -67,15 +67,15 @@ func New(hw hardware.Interface) *NebulaMode {
 			Sequence:         []string{"red", "blue", "yellow", "green"},
 			Balls:            map[string]rainbow.HSVRange{},
 
-			ForwardCornerDetectionThreshold: 180,
-			CornerSlowDownThresh:            60,
+			ForwardCornerDetectionThreshold: 150,
+			CornerSlowDownThresh:            100,
 
 			// Percentages of the width and height of a
 			// corner photo that we use, centred around
 			// the centroid, to determine the colour in
 			// that corner.
-			CentralRegionXPercent: 10,
-			CentralRegionYPercent: 10,
+			CentralRegionXPercent: 20,
+			CentralRegionYPercent: 30,
 		},
 	}
 	for _, colour := range m.config.Sequence {
@@ -392,51 +392,48 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		hh.SetThrottle(0)
 		hh.SetHeading(cornerHeadings[index])
 		residualError, _ := hh.Wait(ctx)
+
 		fmt.Println("NEBULA: Completed turn, residual error: ", residualError)
 
+		time.Sleep(100 * time.Millisecond)
+
 		// Advancing phase.
+		advanceStartL, advanceStartR := m.hw.CurrentMotorDistances()
+
+		distanceTraveledMM := func() float64 {
+			l, r := m.hw.CurrentMotorDistances()
+			return (l - advanceStartL + r - advanceStartR) / 2
+		}
+
 		hh.SetThrottle(m.config.ForwardSpeed)
-		advanceFastStart := time.Now()
+
 		movingFast := true
-		var (
-			advanceFastDuration time.Duration
-			advanceSlowStart    time.Time
-			advanceSlowDuration time.Duration
-		)
 		for ctx.Err() == nil {
 			readSensors()
-			fmt.Println("NEBULA: Target:", index, "Advancing")
+			traveledMM := distanceTraveledMM()
+			fmt.Println("NEBULA: Target colour:", m.config.Sequence[ii], "Advancing", traveledMM, "mm")
+			closeEnoughToSlowDown := traveledMM > 300
 
-			closeEnough :=
-				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) ||
-					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold)
-
-			closeEnoughToSlowDown :=
-				(!frontLeft.IsFar() && frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh) ||
-					(!frontRight.IsFar() && frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold+m.config.CornerSlowDownThresh)
+			closeEnough := closeEnoughToSlowDown &&
+				(frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) &&
+				(frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold)
 
 			if closeEnough {
-				fmt.Println("NEBULA: Reached target ball:", m.config.Sequence[ii], "in", time.Since(startTime))
-				if movingFast {
-					advanceFastDuration = time.Since(advanceFastStart)
-				} else {
-					advanceSlowDuration = time.Since(advanceSlowStart)
-				}
+				fmt.Println("NEBULA: Reached target colour:", m.config.Sequence[ii], "in", time.Since(startTime))
 				break
 			}
 
 			// We're approaching the ball but not yet close enough.
 			if movingFast && closeEnoughToSlowDown {
 				fmt.Println("NEBULA: Slowing...")
-				advanceFastDuration = time.Since(advanceFastStart)
 				hh.SetThrottle(m.config.ForwardSlowSpeed)
-				advanceSlowStart = time.Now()
 				movingFast = false
 			}
 		}
 
 		if ii == 3 {
 			// We've finished.
+			time.Sleep(50 * time.Millisecond) // Hack: we seem to stop a little early on the last target.
 			hh.SetThrottle(0)
 			break
 		}
@@ -444,12 +441,18 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		// Reversing phase.
 		hh.SetThrottle(-m.config.ForwardSpeed)
 		reverseStart := time.Now()
-		reverseDuration := time.Duration(
-			((float64(advanceFastDuration) * m.config.ForwardSpeed) +
-				(float64(advanceSlowDuration) * m.config.ForwardSlowSpeed)) /
-				m.config.ForwardSpeed)
-		for (ctx.Err() == nil) && (time.Since(reverseStart) < reverseDuration) {
+		for ctx.Err() == nil {
 			readSensors()
+
+			distanceFromMiddle := distanceTraveledMM()
+			fmt.Printf("NEBULA: Reversing for %.2fs, distance from middle: %.0fmm\n",
+				time.Since(reverseStart).Seconds(), distanceFromMiddle)
+			if distanceFromMiddle < 100 {
+				hh.SetThrottle(-m.config.ForwardSlowSpeed)
+			}
+			if distanceFromMiddle < 10 {
+				break
+			}
 		}
 	}
 }
