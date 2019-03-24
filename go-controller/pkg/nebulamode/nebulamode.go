@@ -62,12 +62,12 @@ func New(hw hardware.Interface) *NebulaMode {
 		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
 		config: NebulaConfig{
-			ForwardSpeed:     35,
-			ForwardSlowSpeed: 6,
+			ForwardSpeed:     0.2,
+			ForwardSlowSpeed: 0.1,
 			Sequence:         []string{"red", "blue", "yellow", "green"},
 			Balls:            map[string]rainbow.HSVRange{},
 
-			ForwardCornerDetectionThreshold: 120,
+			ForwardCornerDetectionThreshold: 180,
 			CornerSlowDownThresh:            60,
 
 			// Percentages of the width and height of a
@@ -296,6 +296,7 @@ func (m *NebulaMode) calculateCost(targetHSVRange *rainbow.HSVRange, choiceHue b
 func (m *NebulaMode) runSequence(ctx context.Context) {
 	defer m.sequenceWG.Done()
 	defer fmt.Println("NEBULA: Exiting sequence loop")
+	defer m.hw.StopMotorControl()
 
 	// Create time-of-flight reading filters; should filter out any stray readings.
 	var filters []*mazemode.Filter
@@ -388,6 +389,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		m.announceTargetBall(ii)
 
 		// Rotating phase.
+		hh.SetThrottle(0)
 		hh.SetHeading(cornerHeadings[index])
 		residualError, _ := hh.Wait(ctx)
 		fmt.Println("NEBULA: Completed turn, residual error: ", residualError)

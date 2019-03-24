@@ -79,12 +79,15 @@ func (h *Hardware) StartYawAndThrottleMode() HeadingRelative {
 
 func (h *Hardware) StopMotorControl() {
 	if h.cancelCurrentControlMode != nil {
+		fmt.Println("HW: Stopping motor control")
 		h.cancelCurrentControlMode()
 		h.currentControlModeDone.Wait()
 		h.cancelCurrentControlMode = nil
+		fmt.Println("HW: Stopped motor control")
 	}
 	h.imu = nil
 	h.i2c.SetMotorSpeeds(0, 0)
+	time.Sleep(30 * time.Millisecond)
 }
 
 func (h *Hardware) CurrentHeading() float64 {
@@ -112,6 +115,9 @@ func (h *Hardware) SetPWM(n int, value float64) {
 }
 
 func (h *Hardware) PlaySound(path string) {
+	defer func() {
+		recover() // Don't die if the channel is already closed.
+	}()
 	select {
 	case h.soundsToPlay <- path:
 		return
