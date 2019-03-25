@@ -1,18 +1,18 @@
 # Start with a container that's already set up with OpenCV
 # and do the builds in there.
 
-FROM sgtwilko/rpi-raspbian-opencv:stretch-latest
+FROM sgtwilko/rpi-raspbian-opencv@sha256:448e7eb9158fe1b085237e1db185acfe00eb838bf2a05e959d3e0ba7a145fb46
 
 RUN apt update
 RUN apt install make gcc
 RUN apt install wget
-RUN wget https://dl.google.com/go/go1.10.linux-armv6l.tar.gz
+RUN wget https://dl.google.com/go/go1.12.linux-armv6l.tar.gz
 RUN tar -C /usr/local -xzf go*.tar.gz
 
 ENV PATH=$PATH:/usr/local/go/bin
 ENV GOROOT=/usr/local/go/
 ENV GOPATH=/go/
-RUN apt install git
+RUN apt update && apt install git
 
 RUN mkdir -p $GOPATH/src/gocv.io/x/ && \
     cd $GOPATH/src/gocv.io/x/ && \
@@ -31,4 +31,3 @@ RUN bash -c "cd $GOPATH/src/gocv.io/x/gocv && \
 # Build the VL53L0X library
 RUN git clone https://github.com/cassou/VL53L0X_rasp.git
 COPY VL53L0X_1.0.2/ /
-
