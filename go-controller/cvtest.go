@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/nebula"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbow"
 	"gocv.io/x/gocv"
 )
@@ -70,7 +71,7 @@ func loopReadingCamera() {
 
 	for {
 		// This blocks until the next frame is ready.
-		if ok := webcam.Read(img); !ok {
+		if ok := webcam.Read(&img); !ok {
 			fmt.Printf("cannot read device\n")
 			return
 			time.Sleep(1 * time.Millisecond)
@@ -108,7 +109,7 @@ func analyzeFile(filename string) {
 	width := img.Cols()
 	scaleFactor := float64(600) / float64(width)
 	fmt.Printf("Scaling by %v\n", scaleFactor)
-	gocv.Resize(img, img, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
+	gocv.Resize(img, &img, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
 	fmt.Printf("Scaled size = %v x %v\n", img.Cols(), img.Rows())
 
 	// Try to find balls.
@@ -140,8 +141,8 @@ func showImage(img gocv.Mat) {
 }
 
 const (
-	CentralRegionXPercent int = 20
-	CentralRegionYPercent int = 30
+	CentralRegionXPercent int = 10
+	CentralRegionYPercent int = 10
 )
 
 func analyzeNebula(dir string) {
@@ -155,13 +156,23 @@ func analyzeNebula(dir string) {
 		h := img[ii].Rows() / 2
 		dw := (w * CentralRegionXPercent) / 100
 		dh := (h * CentralRegionYPercent) / 100
-		centralRegion := image.Rect(w-dw, h-dh, w+dw, h+dh)
+		dx := dw
+		centralRegion := image.Rect(w-dw-dx, h-dh, w+dw-dx, h+dh)
 		cropped := img[ii].Region(centralRegion)
 		showImage(cropped)
 		hsv := gocv.NewMat()
-		gocv.CvtColor(cropped, hsv, gocv.ColorBGRToHSV)
+		gocv.CvtColor(cropped, &hsv, gocv.ColorBGRToHSV)
 		mean := hsv.Mean()
 		averageHue[ii] = byte(math.Round(mean.Val1))
 		fmt.Printf("averageHue[%d] = %d\n", ii, int(averageHue[ii]))
 	}
+
+	var targets []*rainbow.HSVRange
+	for _, colour := range []string{"red", "blue", "yellow", "green"} {
+		targets = append(targets, rainbow.Balls[colour])
+	}
+	hueUsed := make([]bool, len(averageHue))
+	minCost, minOrder := nebula.FindBestMatch(targets, averageHue, hueUsed)
+
+	fmt.Printf("\nmin cost %v for order %v\n", minCost, minOrder)
 }
