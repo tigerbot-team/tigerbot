@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"math"
 	"os"
 	"time"
 
@@ -15,6 +16,9 @@ func main() {
 	filename := os.Args[1]
 	if filename == "camera" {
 		loopReadingCamera()
+	} else if filename == "-d" {
+		dir := os.Args[2]
+		analyzeNebula(dir)
 	} else {
 		analyzeFile(filename)
 	}
@@ -118,14 +122,46 @@ func analyzeFile(filename string) {
 		}
 	}
 
+	showImage(img)
+}
+
+func showImage(img gocv.Mat) {
 	window := gocv.NewWindow("Hello")
 	window.ResizeWindow(img.Cols(), img.Rows())
 	for {
 		window.IMShow(img)
 		key := window.WaitKey(0)
 		fmt.Printf("Key = %v\n", key)
+		// 'n' breaks out of the loop.
 		if key == 110 {
 			break
 		}
+	}
+}
+
+const (
+	CentralRegionXPercent int = 20
+	CentralRegionYPercent int = 30
+)
+
+func analyzeNebula(dir string) {
+	var img [4]gocv.Mat
+	averageHue := make([]byte, len(img))
+
+	// Read in files (as BGR).
+	for ii := range img {
+		img[ii] = gocv.IMRead(fmt.Sprintf("%s/nebula-image-%d.jpg", dir, ii+1), gocv.IMReadColor)
+		w := img[ii].Cols() / 2
+		h := img[ii].Rows() / 2
+		dw := (w * CentralRegionXPercent) / 100
+		dh := (h * CentralRegionYPercent) / 100
+		centralRegion := image.Rect(w-dw, h-dh, w+dw, h+dh)
+		cropped := img[ii].Region(centralRegion)
+		showImage(cropped)
+		hsv := gocv.NewMat()
+		gocv.CvtColor(cropped, hsv, gocv.ColorBGRToHSV)
+		mean := hsv.Mean()
+		averageHue[ii] = byte(math.Round(mean.Val1))
+		fmt.Printf("averageHue[%d] = %d\n", ii, int(averageHue[ii]))
 	}
 }
