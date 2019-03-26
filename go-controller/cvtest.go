@@ -141,8 +141,10 @@ func showImage(img gocv.Mat) {
 }
 
 const (
-	CentralRegionXPercent int = 10
-	CentralRegionYPercent int = 10
+	CentralRegionXPercent     int     = 15
+	CentralRegionYPercent     int     = 15
+	LeftRightPositions        int     = 12
+	ValPenaltyPerHueDeviation float64 = 1
 )
 
 func analyzeNebula(dir string) {
@@ -156,15 +158,31 @@ func analyzeNebula(dir string) {
 		h := img[ii].Rows() / 2
 		dw := (w * CentralRegionXPercent) / 100
 		dh := (h * CentralRegionYPercent) / 100
-		dx := dw
-		centralRegion := image.Rect(w-dw-dx, h-dh, w+dw-dx, h+dh)
-		cropped := img[ii].Region(centralRegion)
-		showImage(cropped)
-		hsv := gocv.NewMat()
-		gocv.CvtColor(cropped, &hsv, gocv.ColorBGRToHSV)
-		mean := hsv.Mean()
-		averageHue[ii] = byte(math.Round(mean.Val1))
-		fmt.Printf("averageHue[%d] = %d\n", ii, int(averageHue[ii]))
+		var bestScore float64
+		for j := 0; j <= LeftRightPositions; j++ {
+			x := ((2*w - 2*dw) * j) / LeftRightPositions
+			centralRegion := image.Rect(x, h-dh, x+2*dw, h+dh)
+			cropped := img[ii].Region(centralRegion)
+			//showImage(cropped)
+			hsv := gocv.NewMat()
+			gocv.CvtColor(cropped, &hsv, gocv.ColorBGRToHSV)
+			mean := gocv.NewMat()
+			stdDev := gocv.NewMat()
+			gocv.MeanStdDev(hsv, &mean, &stdDev)
+			//fmt.Printf("mean = %v %v\n", mean.Size(), mean.Type())
+			//fmt.Printf("stdDev = %v %v\n", stdDev.Size(), stdDev.Type())
+			averageH := mean.GetDoubleAt(0, 0)
+			averageSat := mean.GetDoubleAt(1, 0)
+			averageVal := mean.GetDoubleAt(2, 0)
+			stdDevHue := stdDev.GetDoubleAt(0, 0)
+			score := averageVal - ValPenaltyPerHueDeviation*stdDevHue
+			fmt.Printf("%.3v %.3v %.3v %.3v %.3v\n", averageH, averageSat, averageVal, stdDevHue, score)
+			if (j == 0) || (score > bestScore) {
+				bestScore = score
+				averageHue[ii] = byte(math.Round(mean.GetDoubleAt(0, 0)))
+				fmt.Printf("averageHue[%d] = %d\n", ii, int(averageHue[ii]))
+			}
+		}
 	}
 
 	var targets []*rainbow.HSVRange
