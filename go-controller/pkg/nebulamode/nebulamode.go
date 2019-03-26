@@ -247,14 +247,14 @@ func (m *NebulaMode) calculateAverageHue(hsv gocv.Mat) byte {
 		cropped := hsv.Region(centralRegion)
 		mean := gocv.NewMat()
 		stdDev := gocv.NewMat()
-		gocv.MeanStdDev(hsv, &mean, &stdDev)
+		gocv.MeanStdDev(cropped, &mean, &stdDev)
 		//fmt.Printf("mean = %v %v\n", mean.Size(), mean.Type())
 		//fmt.Printf("stdDev = %v %v\n", stdDev.Size(), stdDev.Type())
 		averageHue := mean.GetDoubleAt(0, 0)
 		averageSat := mean.GetDoubleAt(1, 0)
 		averageVal := mean.GetDoubleAt(2, 0)
 		stdDevHue := stdDev.GetDoubleAt(0, 0)
-		score := averageVal - ValPenaltyPerHueDeviation*stdDevHue
+		score := averageVal - m.config.ValPenaltyPerHueDeviation*stdDevHue
 		fmt.Printf("%.3v %.3v %.3v %.3v %.3v\n", averageHue, averageSat, averageVal, stdDevHue, score)
 		if (j == 0) || (score > bestScore) {
 			bestScore = score

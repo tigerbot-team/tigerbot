@@ -193,6 +193,15 @@ func (m *Mat) Mean() Scalar {
 	return NewScalar(float64(s.val1), float64(s.val2), float64(s.val3), float64(s.val4))
 }
 
+// MeanStdDev calculates a mean and standard deviation of array elements.
+//
+// For further details, please see:
+// https://docs.opencv.org/master/d2/de8/group__core__array.html#ga846c858f4004d59493d7c6a4354b301d
+//
+func MeanStdDev(src Mat, dst *Mat, dstStdDev *Mat) {
+	C.Mat_MeanStdDev(src.p, dst.p, dstStdDev.p)
+}
+
 // LUT performs a look-up table transform of an array.
 //
 // The function LUT fills the output array with values from the look-up table.
