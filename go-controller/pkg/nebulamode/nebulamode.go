@@ -31,8 +31,10 @@ type NebulaConfig struct {
 
 	// The part of a still corner photo that we look at to
 	// determine the colour in that corner.
-	CentralRegionXPercent int
-	CentralRegionYPercent int
+	CentralRegionXPercent     int
+	CentralRegionYPercent     int
+	LeftRightPositions        int
+	ValPenaltyPerHueDeviation float64
 }
 
 type NebulaMode struct {
@@ -74,8 +76,10 @@ func New(hw hardware.Interface) *NebulaMode {
 			// corner photo that we use, centred around
 			// the centroid, to determine the colour in
 			// that corner.
-			CentralRegionXPercent: 20,
-			CentralRegionYPercent: 30,
+			CentralRegionXPercent:     15,
+			CentralRegionYPercent:     15,
+			LeftRightPositions:        12,
+			ValPenaltyPerHueDeviation: 1,
 		},
 	}
 	for _, colour := range m.config.Sequence {
@@ -234,10 +238,31 @@ func (m *NebulaMode) calculateAverageHue(hsv gocv.Mat) byte {
 	h := hsv.Rows() / 2
 	dw := (w * m.config.CentralRegionXPercent) / 100
 	dh := (h * m.config.CentralRegionYPercent) / 100
-	centralRegion := image.Rect(w-dw, h-dh, w+dw, h+dh)
-	cropped := hsv.Region(centralRegion)
-	mean := cropped.Mean()
-	return byte(math.Round(mean.Val1))
+
+	var bestScore float64
+	var bestAverageHue byte
+	for j := 0; j <= m.config.LeftRightPositions; j++ {
+		x := ((2*w - 2*dw) * j) / m.config.LeftRightPositions
+		centralRegion := image.Rect(x, h-dh, x+2*dw, h+dh)
+		cropped := hsv.Region(centralRegion)
+		mean := gocv.NewMat()
+		stdDev := gocv.NewMat()
+		gocv.MeanStdDev(hsv, &mean, &stdDev)
+		//fmt.Printf("mean = %v %v\n", mean.Size(), mean.Type())
+		//fmt.Printf("stdDev = %v %v\n", stdDev.Size(), stdDev.Type())
+		averageHue := mean.GetDoubleAt(0, 0)
+		averageSat := mean.GetDoubleAt(1, 0)
+		averageVal := mean.GetDoubleAt(2, 0)
+		stdDevHue := stdDev.GetDoubleAt(0, 0)
+		score := averageVal - ValPenaltyPerHueDeviation*stdDevHue
+		fmt.Printf("%.3v %.3v %.3v %.3v %.3v\n", averageHue, averageSat, averageVal, stdDevHue, score)
+		if (j == 0) || (score > bestScore) {
+			bestScore = score
+			bestAverageHue = byte(math.Round(averageHue))
+		}
+	}
+
+	return bestAverageHue
 }
 
 func (m *NebulaMode) findBestMatch(targets []*rainbow.HSVRange, averageHue []byte, hueUsed []bool) (int, []int) {
