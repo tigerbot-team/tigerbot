@@ -214,6 +214,10 @@ void Mat_DFT(Mat m, Mat dst) {
     cv::dft(*m, *dst);
 }
 
+void Mat_MeanStdDev(Mat src, Mat dstMean, Mat dstStdDev) {
+    cv::meanStdDev(*src, *dstMean, *dstStdDev);
+}
+
 void Mat_Merge(struct Mats mats, Mat dst) {
     std::vector<cv::Mat> images;
     for (int i = 0; i < mats.length; ++i) {

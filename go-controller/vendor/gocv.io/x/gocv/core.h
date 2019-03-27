@@ -194,6 +194,7 @@ void Mat_BitwiseXor(Mat src1, Mat src2, Mat dst);
 void Mat_InRange(Mat src, Mat lowerb, Mat upperb, Mat dst);
 int Mat_GetOptimalDFTSize(int vecsize);
 void Mat_DFT(Mat m, Mat dst);
+void Mat_MeanStdDev(Mat src, Mat dstMean, Mat dstStdDev);
 void Mat_Merge(struct Mats mats, Mat dst);
 void Mat_MinMaxLoc(Mat m, double* minVal, double* maxVal, Point* minLoc, Point* maxLoc);
 void Mat_Normalize(Mat src, Mat dst, double alpha, double beta, int typ);
