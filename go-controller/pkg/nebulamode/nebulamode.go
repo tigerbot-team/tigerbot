@@ -21,13 +21,12 @@ import (
 )
 
 type NebulaConfig struct {
-	ForwardSpeed     float64
-	ForwardSlowSpeed float64
-	Sequence         []string
-	Balls            map[string]rainbow.HSVRange
+	MaxSpeed float64
+	MinSpeed float64
+	Sequence []string
+	Balls    map[string]rainbow.HSVRange
 
 	ForwardCornerDetectionThreshold int
-	CornerSlowDownThresh            int
 
 	// The part of a still corner photo that we look at to
 	// determine the colour in that corner.
@@ -64,13 +63,12 @@ func New(hw hardware.Interface) *NebulaMode {
 		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
 		config: NebulaConfig{
-			ForwardSpeed:     0.2,
-			ForwardSlowSpeed: 0.1,
-			Sequence:         []string{"red", "blue", "yellow", "green"},
-			Balls:            map[string]rainbow.HSVRange{},
+			MaxSpeed: 0.4,
+			MinSpeed: 0.15,
+			Sequence: []string{"red", "blue", "yellow", "green"},
+			Balls:    map[string]rainbow.HSVRange{},
 
 			ForwardCornerDetectionThreshold: 150,
-			CornerSlowDownThresh:            100,
 
 			// Percentages of the width and height of a
 			// corner photo that we use, centred around
@@ -333,7 +331,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 	readSensors := func() {
 		// Read the sensors
-		msg := ""
+		msg := "NEBULA: readings "
 		readings = m.hw.CurrentDistanceReadings(readings.Revision)
 		for j, r := range readings.Readings {
 			prettyPrinted := "-"
@@ -346,7 +344,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			} else {
 				prettyPrinted = fmt.Sprintf("%dmm", readingInMM)
 			}
-			msg += fmt.Sprintf("%s=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
+			msg += fmt.Sprintf("%s=%5s/%.1fmm ", filters[j].Name, prettyPrinted, filters[j].Predict())
 		}
 		fmt.Println(msg)
 	}
@@ -412,7 +410,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 	for ii, index := range m.visitOrder {
 
-		fmt.Println("NEBULA: Next target ball: ", m.config.Sequence[ii])
+		fmt.Println("NEBULA: Next target colour: ", m.config.Sequence[ii])
 		m.announceTargetBall(ii)
 
 		// Rotating phase.
@@ -432,41 +430,44 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			return (l - advanceStartL + r - advanceStartR) / 2
 		}
 
-		hh.SetThrottle(m.config.ForwardSpeed)
+		hh.SetThrottle(m.config.MinSpeed)
 
-		movingFast := true
 		for ctx.Err() == nil {
 			readSensors()
 			traveledMM := distanceTraveledMM()
 			fmt.Println("NEBULA: Target colour:", m.config.Sequence[ii], "Advancing", traveledMM, "mm")
-			closeEnoughToSlowDown := traveledMM > 300
 
-			closeEnough := closeEnoughToSlowDown &&
-				(frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) &&
-				(frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold)
+			const slowdownPoint = 200
+			if traveledMM < slowdownPoint {
+				hh.SetThrottle(m.config.MaxSpeed) // Speed up as fast as the HH will let us.
+			} else {
+				distanceFromMidpoint := math.Abs(traveledMM - slowdownPoint)
+				targetSpeed := m.config.MaxSpeed - distanceFromMidpoint*(m.config.MaxSpeed-m.config.MinSpeed)/slowdownPoint
+				if targetSpeed < m.config.MinSpeed {
+					targetSpeed = m.config.MinSpeed
+				}
+				hh.SetThrottle(targetSpeed)
+			}
+
+			closeEnoughToArmToFs := traveledMM > 350
+			closeEnough := closeEnoughToArmToFs &&
+				(frontLeft.Predict()+frontRight.Predict() <= 2*float64(m.config.ForwardCornerDetectionThreshold))
 
 			if closeEnough {
 				fmt.Println("NEBULA: Reached target colour:", m.config.Sequence[ii], "in", time.Since(startTime))
 				break
 			}
-
-			// We're approaching the ball but not yet close enough.
-			if movingFast && closeEnoughToSlowDown {
-				fmt.Println("NEBULA: Slowing...")
-				hh.SetThrottle(m.config.ForwardSlowSpeed)
-				movingFast = false
-			}
 		}
 
 		if ii == 3 {
 			// We've finished.
-			time.Sleep(50 * time.Millisecond) // Hack: we seem to stop a little early on the last target.
 			hh.SetThrottle(0)
+			fmt.Println("NEBULA: Run completed in ", time.Since(startTime))
 			break
 		}
 
 		// Reversing phase.
-		hh.SetThrottle(-m.config.ForwardSpeed)
+		hh.SetThrottle(-m.config.MinSpeed)
 		reverseStart := time.Now()
 		for ctx.Err() == nil {
 			readSensors()
@@ -474,8 +475,18 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			distanceFromMiddle := distanceTraveledMM()
 			fmt.Printf("NEBULA: Reversing for %.2fs, distance from middle: %.0fmm\n",
 				time.Since(reverseStart).Seconds(), distanceFromMiddle)
-			if distanceFromMiddle < 100 {
-				hh.SetThrottle(-m.config.ForwardSlowSpeed)
+
+			const slowdownPoint = 300
+			traveledMM := distanceTraveledMM()
+			if traveledMM > slowdownPoint {
+				hh.SetThrottle(-m.config.MaxSpeed)
+			} else {
+				distanceFromMidpoint := math.Abs(traveledMM - slowdownPoint)
+				targetSpeed := m.config.MaxSpeed - distanceFromMidpoint*(m.config.MaxSpeed-m.config.MinSpeed)/slowdownPoint
+				if targetSpeed < m.config.MinSpeed {
+					targetSpeed = m.config.MinSpeed
+				}
+				hh.SetThrottle(-targetSpeed)
 			}
 			if distanceFromMiddle < 10 {
 				break

@@ -495,6 +495,36 @@ func (f *Filter) BestGuess() int {
 	return goodSamples[len(goodSamples)/2]
 }
 
+func (f *Filter) Predict() float64 {
+	var goodSamples []filterSample
+	for _, s := range f.recentSamples() {
+		if s.mm != 0 && s.mm < tofsensor.RangeTooFar {
+			goodSamples = append(goodSamples, s)
+		}
+	}
+	if len(goodSamples) == 0 {
+		return 0
+	}
+	if len(goodSamples) == 1 {
+		return float64(goodSamples[0].mm)
+	}
+	mostRecent := goodSamples[len(goodSamples)-1]
+	previous := goodSamples[len(goodSamples)-2]
+	seconds := mostRecent.time.Sub(previous.time).Seconds()
+	if seconds == 0 {
+		seconds = 1
+	}
+	speedMMPerSec := float64(mostRecent.mm-previous.mm) / seconds
+	if speedMMPerSec > 1000 {
+		speedMMPerSec = 1000
+	}
+	if speedMMPerSec < -1000 {
+		speedMMPerSec = -1000
+	}
+	prediction := float64(mostRecent.mm) + speedMMPerSec*time.Since(mostRecent.time).Seconds()
+	return prediction
+}
+
 func (f *Filter) MMPerSecond() float64 {
 	var goodSamples2 []filterSample
 	{

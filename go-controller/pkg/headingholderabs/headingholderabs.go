@@ -163,8 +163,8 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		kd                     = 0.0001
 		maxIntegral            = 0.3
 		maxD                   = 100
-		maxRotationThrottle    = 0.1
-		maxThrottleDeltaPerSec = 0.2
+		maxRotationThrottle    = 0.3
+		maxThrottleDeltaPerSec = 1
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()
@@ -224,12 +224,12 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			loopTime, len(yawReadings), headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
 		targetThrottle := controls.throttle
-		if math.Abs(targetThrottle) < maxThrottleDelta {
-			filteredThrottle = targetThrottle
-		} else if targetThrottle > filteredThrottle+maxThrottleDelta {
+		if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
+			fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
 		} else if targetThrottle < filteredThrottle-maxThrottleDelta {
 			filteredThrottle -= maxThrottleDelta
+			fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
 		} else {
 			filteredThrottle = targetThrottle
 		}
