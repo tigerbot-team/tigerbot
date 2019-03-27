@@ -401,7 +401,9 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			if err != nil {
 				m.fatal(err)
 			}
-			defer hsv[ii].Close()
+			defer func(ii int) {
+				_ = hsv[ii].Close()
+			}(ii)
 		}
 		// Calculate the order we need to visit the corners, by
 		// matching photos to colours.
