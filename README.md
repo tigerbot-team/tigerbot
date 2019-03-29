@@ -20,3 +20,7 @@
        --privileged \
        tigerbot/go-controller | tee controller.log
     ```
+
+### Notes
+- `toftests` binary needs to run inside container, so mount it in.
+
