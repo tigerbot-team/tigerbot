@@ -58,7 +58,7 @@ func New(hw hardware.Interface) *SLSTMode {
 	}
 
 	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 280)
-	mm.turnEntryFrontDeltaMinMM = mm.tunables.Create("Turn entry front delta min MM", 50)
+	mm.turnEntryFrontDeltaMinMM = mm.tunables.Create("Turn entry front delta min MM", 40)
 	mm.turnEntryFrontDeltaMaxMM = mm.tunables.Create("Turn entry front delta max MM", 180)
 	mm.turnEntrySideDeltaMinMM = mm.tunables.Create("Turn entry side delta min MM", 30)
 	mm.turnThrottlePct = mm.tunables.Create("Turn throttle %", 2)
