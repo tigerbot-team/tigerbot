@@ -419,6 +419,7 @@ retry:
 		if ii < len(m.confirmedOrder) {
 			continue
 		}
+		colourAlreadyConfirmed := false
 
 		fmt.Println("NEBULA: Next target ball: ", m.config.Sequence[ii])
 		m.announceTargetBall(ii)
@@ -467,7 +468,10 @@ retry:
 		}
 
 		if atomic.LoadInt32(&m.confirmColour) == 1 {
-			m.confirmedOrder = append(m.confirmedOrder, index)
+			if !colourAlreadyConfirmed {
+				m.confirmedOrder = append(m.confirmedOrder, index)
+				colourAlreadyConfirmed = true
+			}
 			atomic.StoreInt32(&m.confirmColour, 0)
 		}
 
