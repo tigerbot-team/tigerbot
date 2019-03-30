@@ -42,8 +42,7 @@ type MazeMode struct {
 	frontDistanceSpeedUpThreshMM *Tunable
 	baseSpeedPct                 *Tunable
 	topSpeedPct                  *Tunable
-	speedRampUp                  *Tunable
-	speedRampDown                *Tunable
+	speedUpDist                  *Tunable
 }
 
 func New(hw hardware.Interface) *MazeMode {
@@ -55,11 +54,10 @@ func New(hw hardware.Interface) *MazeMode {
 	mm.turnEntryThreshMM = mm.tunables.Create("Turn entry threshold", 280)
 	mm.turnThrottlePct = mm.tunables.Create("Turn throttle %", 0)
 
-	mm.frontDistanceSpeedUpThreshMM = mm.tunables.Create("Front distance speed up thresh", 350)
-	mm.baseSpeedPct = mm.tunables.Create("Base speed %", 10)
-	mm.topSpeedPct = mm.tunables.Create("Top speed %", 15)
-	mm.speedRampUp = mm.tunables.Create("Speed ramp up %/loop", 1)
-	mm.speedRampDown = mm.tunables.Create("Speed ramp down %/loop", 1)
+	mm.frontDistanceSpeedUpThreshMM = mm.tunables.Create("Front distance speed up thresh", 290)
+	mm.baseSpeedPct = mm.tunables.Create("Base speed %", 20)
+	mm.topSpeedPct = mm.tunables.Create("Top speed %", 50)
+	mm.speedUpDist = mm.tunables.Create("Speed up dist (mm)", 150)
 
 	return mm
 }
@@ -237,7 +235,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		// Main loop, alternates between following the walls until we detect a wall in front, and then
 		// making turns.
 
-		var speed float64 = float64(m.baseSpeedPct.Get())
+		var speedPct = float64(m.baseSpeedPct.Get())
 
 		fmt.Println("MAZE: Following the walls...")
 		lastCorrectionTime := time.Now()
@@ -307,7 +305,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				fmt.Printf("MAZE: MM/s estimates L: %.1f %.1f R: %.1f %.1f\n", lfMMPerS, lrMMPerS, rfMMPerS, rrMMPerS)
 				if num > 0 {
 					avg := sum / float64(num)
-					correction := 0.005 * -avg * speed
+					correction := 0.005 * -avg * speedPct
 					if correction > 2 {
 						correction = 2
 					} else if correction < -2 {
@@ -319,20 +317,23 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				}
 			}
 
-			// Ramp up the speed on the straights...
-			if forwardGuess > float64(m.frontDistanceSpeedUpThreshMM.Get()) {
-				speed += float64(m.speedRampUp.Get())
-			} else {
-				speed -= float64(m.speedRampDown.Get())
+			// Ramp up the speedPct on the straights...
+			forwardPrediction := math.Min(frontLeft.Predict(), frontRight.Predict())
+			fwdThresh := float64(m.frontDistanceSpeedUpThreshMM.Get())
+			topSpeed := float64(m.topSpeedPct.Get())
+			speedUpDistance := float64(m.speedUpDist.Get())
+			if forwardPrediction > fwdThresh {
+				distanceToThresh := forwardPrediction - fwdThresh
+				speedPct = baseSpeed + (distanceToThresh * (topSpeed - baseSpeed) / speedUpDistance)
 			}
-			if speed < baseSpeed {
-				speed = baseSpeed
+			if speedPct < baseSpeed {
+				speedPct = baseSpeed
 			}
-			if speed > float64(m.topSpeedPct.Get()) {
-				speed = float64(m.topSpeedPct.Get())
+			if speedPct > topSpeed {
+				speedPct = topSpeed
 			}
 
-			hh.SetThrottle(speed / 100)
+			hh.SetThrottle(speedPct / 100)
 		}
 
 		hh.SetThrottle(0)
