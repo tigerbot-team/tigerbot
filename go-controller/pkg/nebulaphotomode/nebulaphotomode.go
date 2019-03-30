@@ -6,13 +6,11 @@ import (
 	"sync"
 
 	"fmt"
-	"sync/atomic"
-	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"gocv.io/x/gocv"
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 type NebulaConfig struct {
@@ -44,9 +42,6 @@ func New(hw hardware.Interface) *NebulaPhotoMode {
 	m := &NebulaPhotoMode{
 		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
-		config: NebulaConfig{
-			Sequence: []string{"red", "blue", "yellow", "green"},
-		},
 	}
 	cfg, err := ioutil.ReadFile("/cfg/nebulaphoto.yaml")
 	if err != nil {
@@ -94,7 +89,6 @@ func (m *NebulaPhotoMode) Stop() {
 
 func (m *NebulaPhotoMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
-	defer m.stopSequence()
 
 	for {
 		select {
@@ -105,43 +99,16 @@ func (m *NebulaPhotoMode) loop(ctx context.Context) {
 			case joystick.EventTypeButton:
 				if event.Value == 1 {
 					switch event.Number {
-					case joystick.ButtonR1:
-						fmt.Println("NEBULAPHOTO: Getting ready!")
-						m.startWG.Add(1)
-						m.startSequence()
-					case joystick.ButtonSquare:
-						m.stopSequence()
-					case joystick.ButtonTriangle:
-						m.pauseOrResumeSequence()
 					case joystick.ButtonCircle:
-						atomic.StoreInt32(&m.savePicture, 1)
-					}
-				} else {
-					switch event.Number {
-					case joystick.ButtonR1:
-						fmt.Println("NEBULAPHOTO: GO!")
-						m.startWG.Done()
+						err := m.takePicture()
+						if err != nil {
+							m.fatal(err)
+						}
 					}
 				}
 			}
 		}
 	}
-}
-
-func (m *NebulaPhotoMode) startSequence() {
-	if m.running {
-		fmt.Println("NEBULAPHOTO: Already running")
-		return
-	}
-
-	fmt.Println("NEBULAPHOTO: Starting sequence...")
-	m.running = true
-	atomic.StoreInt32(&m.paused, 0)
-
-	seqCtx, cancel := context.WithCancel(context.Background())
-	m.cancelSequence = cancel
-	m.sequenceWG.Add(1)
-	go m.runSequence(seqCtx)
 }
 
 func (m *NebulaPhotoMode) takePicture() (err error) {
@@ -174,70 +141,6 @@ func (m *NebulaPhotoMode) fatal(err error) {
 	// Placeholder for what to do if we hit a fatal error.
 	// Callers assume that this does not return normally.
 	panic(err)
-}
-
-// runSequence is a goroutine that reads from the camera and controls the motors.
-func (m *NebulaPhotoMode) runSequence(ctx context.Context) {
-	defer m.sequenceWG.Done()
-	defer fmt.Println("NEBULAPHOTO: Exiting sequence loop")
-	defer m.hw.StopMotorControl()
-
-	// Let the user know that we're ready, then wait for the "GO" signal.
-	m.hw.PlaySound("/sounds/ready.wav")
-	m.startWG.Wait()
-
-	for ii := range m.config.Sequence {
-
-		fmt.Println("NEBULAPHOTO: Next target ball: ", m.config.Sequence[ii])
-		m.announceTargetBall(ii)
-
-		for {
-			time.Sleep(1 * time.Second)
-
-			if atomic.LoadInt32(&m.savePicture) == 1 {
-				err := m.takePicture()
-				if err != nil {
-					m.fatal(err)
-				}
-				atomic.StoreInt32(&m.savePicture, 0)
-				break
-			}
-		}
-	}
-}
-
-func (m *NebulaPhotoMode) announceTargetBall(ii int) {
-	m.hw.PlaySound(
-		fmt.Sprintf("/sounds/%vball.wav", m.config.Sequence[ii]),
-	)
-}
-
-func (m *NebulaPhotoMode) stopSequence() {
-	if !m.running {
-		fmt.Println("NEBULAPHOTO: Not running")
-		return
-	}
-	fmt.Println("NEBULAPHOTO: Stopping sequence...")
-
-	m.cancelSequence()
-	m.cancelSequence = nil
-	m.sequenceWG.Wait()
-	m.running = false
-	atomic.StoreInt32(&m.paused, 0)
-
-	m.hw.StopMotorControl()
-
-	fmt.Println("NEBULAPHOTO: Stopped sequence...")
-}
-
-func (m *NebulaPhotoMode) pauseOrResumeSequence() {
-	if atomic.LoadInt32(&m.paused) == 1 {
-		fmt.Println("NEBULAPHOTO: Resuming sequence...")
-		atomic.StoreInt32(&m.paused, 0)
-	} else {
-		fmt.Println("NEBULAPHOTO: Pausing sequence...")
-		atomic.StoreInt32(&m.paused, 1)
-	}
 }
 
 func (m *NebulaPhotoMode) OnJoystickEvent(event *joystick.Event) {
