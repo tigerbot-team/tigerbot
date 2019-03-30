@@ -120,6 +120,10 @@ func (p *PCA9685) SetPWM(port int, value float64) error {
 }
 
 func (p *PCA9685) Close() error {
+	for i := 0; i < 16; i++ {
+		_ = p.SetPWM(i, 0)
+	}
+
 	// Trigger a reset
 	err := p.dev.WriteReg(RegMode1, []byte{0x01})
 	if err != nil {

@@ -106,6 +106,12 @@ func (h *Hardware) CurrentMotorDistances() (l, r float64) {
 	return h.i2c.CurrentMotorDistances()
 }
 
+func (h *Hardware) DisableServos() {
+	for i := 0; i < 16; i++ {
+		h.i2c.SetPWM(i, 0)
+	}
+}
+
 func (h *Hardware) SetServo(n int, value float64) {
 	h.i2c.SetServo(n, value)
 }
@@ -127,6 +133,7 @@ func (h *Hardware) PlaySound(path string) {
 }
 
 func (h *Hardware) Shutdown() {
+	h.DisableServos()
 	h.StopMotorControl()
 	close(h.soundsToPlay)
 }
