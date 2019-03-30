@@ -317,7 +317,7 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				}
 			}
 
-			// Ramp up the speedPct on the straights...
+			// Ramp up the speed on the straights...
 			forwardPrediction := math.Min(frontLeft.Predict(), frontRight.Predict())
 			fwdThresh := float64(m.frontDistanceSpeedUpThreshMM.Get())
 			topSpeed := float64(m.topSpeedPct.Get())
@@ -420,22 +420,6 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 			hh.AddHeadingDelta(-rotEst)
 		}
 	}
-}
-
-func clamp(v float64, limit float64) int8 {
-	if v < -limit {
-		v = -limit
-	}
-	if v > limit {
-		v = limit
-	}
-	if v <= math.MinInt8 {
-		return math.MinInt8
-	}
-	if v >= math.MaxInt8 {
-		return math.MaxInt8
-	}
-	return int8(v)
 }
 
 type filterSample struct {

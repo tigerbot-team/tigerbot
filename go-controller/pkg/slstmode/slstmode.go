@@ -40,13 +40,15 @@ type SLSTMode struct {
 	turnThrottlePct *Tunable
 
 	frontDistanceSpeedUpThreshMM *Tunable
-	baseSpeedPct                 *Tunable
-	topSpeedPct                  *Tunable
-	speedRampUp                  *Tunable
-	speedRampDown                *Tunable
-	turnEntryFrontDeltaMaxMM     *Tunable
-	turnEntryFrontDeltaMinMM     *Tunable
-	turnEntrySideDeltaMinMM      *Tunable
+
+	baseSpeedPct *Tunable
+	topSpeedPct  *Tunable
+
+	speedUpDist *Tunable
+
+	turnEntryFrontDeltaMaxMM *Tunable
+	turnEntryFrontDeltaMinMM *Tunable
+	turnEntrySideDeltaMinMM  *Tunable
 }
 
 func New(hw hardware.Interface) *SLSTMode {
@@ -63,9 +65,8 @@ func New(hw hardware.Interface) *SLSTMode {
 
 	mm.frontDistanceSpeedUpThreshMM = mm.tunables.Create("Front distance speed up thresh", 350)
 	mm.baseSpeedPct = mm.tunables.Create("Base speed %", 20)
-	mm.topSpeedPct = mm.tunables.Create("Top speed %", 20)
-	mm.speedRampUp = mm.tunables.Create("Speed ramp up %/loop", 1)
-	mm.speedRampDown = mm.tunables.Create("Speed ramp down %/loop", 1)
+	mm.topSpeedPct = mm.tunables.Create("Top speed %", 50)
+	mm.speedUpDist = mm.tunables.Create("Speed up dist (mm)", 150)
 
 	return mm
 }
@@ -232,7 +233,6 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 	const (
 		wallSeparationMMs = 550
 		botWidthMMs       = 200
-		clearanceMMs      = (wallSeparationMMs - botWidthMMs) / 2
 	)
 
 	//var targetSideClearance float64 = clearanceMMs
@@ -243,7 +243,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 		// Main loop, alternates between following the walls until we detect a wall in front, and then
 		// making turns.
 
-		var speed float64 = float64(s.baseSpeedPct.Get())
+		var speedPct = float64(s.baseSpeedPct.Get())
 
 		fmt.Println("SLST: Following the walls...")
 		lastCorrectionTime := time.Now()
@@ -327,7 +327,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 				fmt.Printf("SLST: MM/s estimates L: %.1f %.1f R: %.1f %.1f\n", lfMMPerS, lrMMPerS, rfMMPerS, rrMMPerS)
 				if num > 0 {
 					avg := sum / float64(num)
-					correction := 0.01 * -avg * speed
+					correction := 0.01 * -avg * speedPct
 					if correction > 2 {
 						correction = 2
 					} else if correction < -2 {
@@ -340,20 +340,26 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 			}
 
 			// Ramp up the speed on the straights...
-			fwdGuess := float64(frontLeft.BestGuess()+frontRight.BestGuess()) / 2
-			if fwdGuess > float64(s.frontDistanceSpeedUpThreshMM.Get()) {
-				speed += float64(s.speedRampUp.Get())
-			} else {
-				speed -= float64(s.speedRampDown.Get())
+			forwardPrediction := math.Min(frontLeft.Predict(), frontRight.Predict())
+			fwdThresh := float64(s.frontDistanceSpeedUpThreshMM.Get())
+			topSpeed := float64(s.topSpeedPct.Get())
+			speedUpDistance := float64(s.speedUpDist.Get())
+			if forwardPrediction > fwdThresh {
+				distanceToThresh := forwardPrediction - fwdThresh
+				speedPct = baseSpeed + (distanceToThresh * (topSpeed - baseSpeed) / speedUpDistance)
 			}
-			if speed < baseSpeed {
-				speed = baseSpeed
+			if speedPct < baseSpeed {
+				speedPct = baseSpeed
 			}
-			if speed > float64(s.topSpeedPct.Get()) {
-				speed = float64(s.topSpeedPct.Get())
+			if speedPct > topSpeed {
+				speedPct = topSpeed
 			}
 
-			hh.SetThrottle(speed / 100)
+			s.hw.SetServo(8, clampF(0.2+speedPct/200, 0.2, 1))  // 0 is arm down, 1 is arm up
+			s.hw.SetServo(10, clampF(0.8-speedPct/200, 0, 0.8)) // 0 is arm up, 1 is arm down
+			s.hw.SetServo(9, 0.5)
+
+			hh.SetThrottle(speedPct / 100)
 		}
 
 		hh.SetThrottle(s.turnThrottlePct.GetFloat() / 100)
@@ -369,9 +375,17 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 		if leftTurnConfidence > rightTurnConfidence {
 			fmt.Println("SLST: Turning left...")
 			sign = -1
+
+			s.hw.SetServo(8, 0.65)
+			s.hw.SetServo(10, 0.65)
+			s.hw.SetServo(9, 0.8)
 		} else {
 			fmt.Println("SLST: Turning right...")
 			sign = 1
+
+			s.hw.SetServo(8, 0.35)
+			s.hw.SetServo(10, 0.35)
+			s.hw.SetServo(9, 0.2)
 		}
 
 		startHeading := s.hw.CurrentHeading()
@@ -422,22 +436,6 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 			hh.AddHeadingDelta(-rotEst)
 		}
 	}
-}
-
-func clamp(v float64, limit float64) int8 {
-	if v < -limit {
-		v = -limit
-	}
-	if v > limit {
-		v = limit
-	}
-	if v <= math.MinInt8 {
-		return math.MinInt8
-	}
-	if v >= math.MaxInt8 {
-		return math.MaxInt8
-	}
-	return int8(v)
 }
 
 type filterSample struct {
@@ -510,6 +508,36 @@ func (f *Filter) BestGuess() int {
 	return goodSamples[len(goodSamples)/2]
 }
 
+func (f *Filter) Predict() float64 {
+	var goodSamples []filterSample
+	for _, s := range f.recentSamples() {
+		if s.mm != 0 && s.mm < tofsensor.RangeTooFar {
+			goodSamples = append(goodSamples, s)
+		}
+	}
+	if len(goodSamples) == 0 {
+		return 0
+	}
+	if len(goodSamples) == 1 {
+		return float64(goodSamples[0].mm)
+	}
+	mostRecent := goodSamples[len(goodSamples)-1]
+	previous := goodSamples[len(goodSamples)-2]
+	seconds := mostRecent.time.Sub(previous.time).Seconds()
+	if seconds == 0 {
+		seconds = 1
+	}
+	speedMMPerSec := float64(mostRecent.mm-previous.mm) / seconds
+	if speedMMPerSec > 1000 {
+		speedMMPerSec = 1000
+	}
+	if speedMMPerSec < -1000 {
+		speedMMPerSec = -1000
+	}
+	prediction := float64(mostRecent.mm) + speedMMPerSec*time.Since(mostRecent.time).Seconds()
+	return prediction
+}
+
 func (f *Filter) MMPerSecond() float64 {
 	var goodSamples2 []filterSample
 	{
@@ -572,4 +600,14 @@ func (s *SLSTMode) pauseOrResumeSequence() {
 
 func (s *SLSTMode) OnJoystickEvent(event *joystick.Event) {
 	s.joystickEvents <- event
+}
+
+func clampF(f, min, max float64) float64 {
+	if f < min {
+		return min
+	}
+	if f > max {
+		return max
+	}
+	return f
 }
