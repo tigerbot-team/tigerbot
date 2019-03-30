@@ -2,9 +2,7 @@ package nebulaphotomode
 
 import (
 	"context"
-	"image"
 	"io/ioutil"
-	"math"
 	"sync"
 
 	"fmt"
@@ -13,28 +11,12 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbow"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	"gocv.io/x/gocv"
 	yaml "gopkg.in/yaml.v2"
 )
 
 type NebulaConfig struct {
-	ForwardSpeed     float64
-	ForwardSlowSpeed float64
-	Sequence         []string
-	Balls            map[string]rainbow.HSVRange
-
-	ForwardCornerDetectionThreshold int
-	CornerSlowDownThresh            int
-
-	// The part of a still corner photo that we look at to
-	// determine the colour in that corner.
-	CentralRegionXPercent     int
-	CentralRegionYPercent     int
-	LeftRightPositions        int
-	ValPenaltyPerHueDeviation float64
+	Sequence []string
 }
 
 type NebulaPhotoMode struct {
@@ -52,8 +34,7 @@ type NebulaPhotoMode struct {
 	paused int32
 
 	pictureIndex int
-
-	visitOrder []int
+	savePicture  int32
 
 	// Config
 	config NebulaConfig
@@ -64,28 +45,10 @@ func New(hw hardware.Interface) *NebulaPhotoMode {
 		hw:             hw,
 		joystickEvents: make(chan *joystick.Event),
 		config: NebulaConfig{
-			ForwardSpeed:     0.2,
-			ForwardSlowSpeed: 0.1,
-			Sequence:         []string{"red", "blue", "yellow", "green"},
-			Balls:            map[string]rainbow.HSVRange{},
-
-			ForwardCornerDetectionThreshold: 150,
-			CornerSlowDownThresh:            100,
-
-			// Percentages of the width and height of a
-			// corner photo that we use, centred around
-			// the centroid, to determine the colour in
-			// that corner.
-			CentralRegionXPercent:     15,
-			CentralRegionYPercent:     15,
-			LeftRightPositions:        12,
-			ValPenaltyPerHueDeviation: 1,
+			Sequence: []string{"red", "blue", "yellow", "green"},
 		},
 	}
-	for _, colour := range m.config.Sequence {
-		m.config.Balls[colour] = *rainbow.Balls[colour]
-	}
-	cfg, err := ioutil.ReadFile("/cfg/nebula.yaml")
+	cfg, err := ioutil.ReadFile("/cfg/nebulaphoto.yaml")
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -95,13 +58,13 @@ func New(hw hardware.Interface) *NebulaPhotoMode {
 		}
 	}
 	// Write out the config that we are using.
-	fmt.Printf("NEBULA: Using config: %#v\n", m.config)
+	fmt.Printf("NEBULAPHOTO: Using config: %#v\n", m.config)
 	cfgBytes, err := yaml.Marshal(&m.config)
-	//fmt.Printf("NEBULA: Marshalled: %#v\n", cfgBytes)
+	//fmt.Printf("NEBULAPHOTO: Marshalled: %#v\n", cfgBytes)
 	if err != nil {
 		fmt.Println(err)
 	} else {
-		err = ioutil.WriteFile("/cfg/nebula-in-use.yaml", cfgBytes, 0666)
+		err = ioutil.WriteFile("/cfg/nebulaphoto-in-use.yaml", cfgBytes, 0666)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -110,7 +73,7 @@ func New(hw hardware.Interface) *NebulaPhotoMode {
 }
 
 func (m *NebulaPhotoMode) Name() string {
-	return "NEBULA MODE"
+	return "NEBULAPHOTO MODE"
 }
 
 func (m *NebulaPhotoMode) StartupSound() string {
@@ -143,18 +106,20 @@ func (m *NebulaPhotoMode) loop(ctx context.Context) {
 				if event.Value == 1 {
 					switch event.Number {
 					case joystick.ButtonR1:
-						fmt.Println("NEBULA: Getting ready!")
+						fmt.Println("NEBULAPHOTO: Getting ready!")
 						m.startWG.Add(1)
 						m.startSequence()
 					case joystick.ButtonSquare:
 						m.stopSequence()
 					case joystick.ButtonTriangle:
 						m.pauseOrResumeSequence()
+					case joystick.ButtonCircle:
+						atomic.StoreInt32(&m.savePicture, 1)
 					}
 				} else {
 					switch event.Number {
 					case joystick.ButtonR1:
-						fmt.Println("NEBULA: GO!")
+						fmt.Println("NEBULAPHOTO: GO!")
 						m.startWG.Done()
 					}
 				}
@@ -165,11 +130,11 @@ func (m *NebulaPhotoMode) loop(ctx context.Context) {
 
 func (m *NebulaPhotoMode) startSequence() {
 	if m.running {
-		fmt.Println("NEBULA: Already running")
+		fmt.Println("NEBULAPHOTO: Already running")
 		return
 	}
 
-	fmt.Println("NEBULA: Starting sequence...")
+	fmt.Println("NEBULAPHOTO: Starting sequence...")
 	m.running = true
 	atomic.StoreInt32(&m.paused, 0)
 
@@ -179,7 +144,7 @@ func (m *NebulaPhotoMode) startSequence() {
 	go m.runSequence(seqCtx)
 }
 
-func (m *NebulaPhotoMode) takePicture() (hsv gocv.Mat, err error) {
+func (m *NebulaPhotoMode) takePicture() (err error) {
 	webcam, werr := gocv.VideoCaptureDevice(0)
 	if werr != nil {
 		err = fmt.Errorf("error opening video capture device: %v", werr)
@@ -197,18 +162,11 @@ func (m *NebulaPhotoMode) takePicture() (hsv gocv.Mat, err error) {
 		err = fmt.Errorf("no image on device")
 		return
 	}
-	fmt.Printf("NEBULA: Read image %v x %v\n", img.Cols(), img.Rows())
-	m.savePicture(img)
-	hsv = gocv.NewMat()
-	gocv.CvtColor(img, hsv, gocv.ColorBGRToHSV)
-	return
-}
-
-func (m *NebulaPhotoMode) savePicture(img gocv.Mat) {
+	fmt.Printf("NEBULAPHOTO: Read image %v x %v\n", img.Cols(), img.Rows())
 	m.pictureIndex++
 	saveFile := fmt.Sprintf("/tmp/nebula-image-%v.jpg", m.pictureIndex)
 	success := gocv.IMWrite(saveFile, img)
-	fmt.Printf("NEBULA: wrote %v? %v\n", saveFile, success)
+	fmt.Printf("NEBULAPHOTO: wrote %v? %v\n", saveFile, success)
 	return
 }
 
@@ -218,266 +176,30 @@ func (m *NebulaPhotoMode) fatal(err error) {
 	panic(err)
 }
 
-func (m *NebulaPhotoMode) calculateVisitOrder(hsv [4]gocv.Mat) []int {
-	averageHue := make([]byte, len(hsv))
-	hueUsed := make([]bool, len(hsv))
-	for ii := range hsv {
-		averageHue[ii] = m.calculateAverageHue(hsv[ii])
-		hueUsed[ii] = false
-	}
-	var targets []*rainbow.HSVRange
-	for _, colour := range m.config.Sequence {
-		targets = append(targets, rainbow.Balls[colour])
-	}
-	_, bestMatchOrder := m.findBestMatch(targets, averageHue, hueUsed)
-	return bestMatchOrder
-}
-
-func (m *NebulaPhotoMode) calculateAverageHue(hsv gocv.Mat) byte {
-	w := hsv.Cols() / 2
-	h := hsv.Rows() / 2
-	dw := (w * m.config.CentralRegionXPercent) / 100
-	dh := (h * m.config.CentralRegionYPercent) / 100
-
-	var bestScore float64
-	var bestAverageHue byte
-	for j := 0; j <= m.config.LeftRightPositions; j++ {
-		x := ((2*w - 2*dw) * j) / m.config.LeftRightPositions
-		centralRegion := image.Rect(x, h-dh, x+2*dw, h+dh)
-		cropped := hsv.Region(centralRegion)
-		mean := gocv.NewMat()
-		stdDev := gocv.NewMat()
-		gocv.MeanStdDev(cropped, &mean, &stdDev)
-		//fmt.Printf("mean = %v %v\n", mean.Size(), mean.Type())
-		//fmt.Printf("stdDev = %v %v\n", stdDev.Size(), stdDev.Type())
-		averageHue := mean.GetDoubleAt(0, 0)
-		averageSat := mean.GetDoubleAt(1, 0)
-		averageVal := mean.GetDoubleAt(2, 0)
-		stdDevHue := stdDev.GetDoubleAt(0, 0)
-		score := averageVal - m.config.ValPenaltyPerHueDeviation*stdDevHue
-		fmt.Printf("%.3v %.3v %.3v %.3v %.3v\n", averageHue, averageSat, averageVal, stdDevHue, score)
-		if (j == 0) || (score > bestScore) {
-			bestScore = score
-			bestAverageHue = byte(math.Round(averageHue))
-		}
-	}
-
-	return bestAverageHue
-}
-
-func (m *NebulaPhotoMode) findBestMatch(targets []*rainbow.HSVRange, averageHue []byte, hueUsed []bool) (int, []int) {
-	var (
-		minCost  int
-		minOrder []int
-	)
-	for ic, choiceHue := range averageHue {
-		if hueUsed[ic] {
-			continue
-		}
-		choiceCost := m.calculateCost(targets[0], choiceHue)
-		choiceOrder := []int{ic}
-		if len(targets) > 1 {
-			// This is not the last target.
-			hueUsedCopy := make([]bool, len(hueUsed))
-			copy(hueUsedCopy, hueUsed)
-			hueUsedCopy[ic] = true
-			nextCost, nextOrder := m.findBestMatch(targets[1:], averageHue, hueUsedCopy)
-			choiceCost = choiceCost + nextCost
-			choiceOrder = append(choiceOrder, nextOrder...)
-		}
-		if (minOrder == nil) || (choiceCost < minCost) {
-			minCost = choiceCost
-			minOrder = choiceOrder
-		}
-	}
-	return minCost, minOrder
-}
-
-func (m *NebulaPhotoMode) calculateCost(targetHSVRange *rainbow.HSVRange, choiceHue byte) int {
-	var hueDelta byte = 0
-	if targetHSVRange.HueMin <= targetHSVRange.HueMax {
-		// Non-wrapped hue range.
-		if choiceHue < targetHSVRange.HueMin {
-			hueDelta = targetHSVRange.HueMin - choiceHue
-		} else if choiceHue > targetHSVRange.HueMax {
-			hueDelta = choiceHue - targetHSVRange.HueMax
-		}
-	} else {
-		// Wrapped hue range.
-		if (choiceHue < targetHSVRange.HueMin) && (choiceHue > targetHSVRange.HueMax) {
-			delta1 := targetHSVRange.HueMin - choiceHue
-			delta2 := choiceHue - targetHSVRange.HueMax
-			if delta1 < delta2 {
-				hueDelta = delta1
-			} else {
-				hueDelta = delta2
-			}
-		}
-	}
-	return int(hueDelta) * int(hueDelta)
-}
-
 // runSequence is a goroutine that reads from the camera and controls the motors.
 func (m *NebulaPhotoMode) runSequence(ctx context.Context) {
 	defer m.sequenceWG.Done()
-	defer fmt.Println("NEBULA: Exiting sequence loop")
+	defer fmt.Println("NEBULAPHOTO: Exiting sequence loop")
 	defer m.hw.StopMotorControl()
-
-	// Create time-of-flight reading filters; should filter out any stray readings.
-	var filters []*mazemode.Filter
-	for i := 0; i < 6; i++ {
-		filters = append(filters, &mazemode.Filter{})
-	}
-
-	var readings hardware.DistanceReadings
-
-	readSensors := func() {
-		// Read the sensors
-		msg := ""
-		readings = m.hw.CurrentDistanceReadings(readings.Revision)
-		for j, r := range readings.Readings {
-			prettyPrinted := "-"
-			readingInMM, err := r.DistanceMM, r.Error
-			filters[j].Accumulate(readingInMM, readings.CaptureTime)
-			if readingInMM == tofsensor.RangeTooFar {
-				prettyPrinted = ">2000mm"
-			} else if err != nil {
-				prettyPrinted = "<failed>"
-			} else {
-				prettyPrinted = fmt.Sprintf("%dmm", readingInMM)
-			}
-			msg += fmt.Sprintf("%s=%5s/%5dmm ", filters[j].Name, prettyPrinted, filters[j].BestGuess())
-		}
-		fmt.Println(msg)
-	}
-
-	leftRear := filters[0]
-	leftRear.Name = "LR"
-	leftFore := filters[1]
-	leftFore.Name = "LF"
-	frontLeft := filters[2]
-	frontLeft.Name = "FL"
-	frontRight := filters[3]
-	frontRight.Name = "FR"
-	rightFore := filters[4]
-	rightFore.Name = "RF"
-	rightRear := filters[5]
-	rightRear.Name = "RR"
-
-	// We use the absolute heading hold mode so we can do things like "turn right 90 degrees".
-	hh := m.hw.StartHeadingHoldMode()
 
 	// Let the user know that we're ready, then wait for the "GO" signal.
 	m.hw.PlaySound("/sounds/ready.wav")
 	m.startWG.Wait()
 
-	startTime := time.Now()
+	for ii := range m.config.Sequence {
 
-	// Store initial heading.  Images 0, 1, 2, 3 will be at +45,
-	// +135, +225 and +315 w.r.t. this initial heading.
-	initialHeading := m.hw.CurrentHeading()
-	cornerHeadings := [4]float64{
-		initialHeading + 45,
-		initialHeading + 45 + 90,
-		initialHeading + 45 + 90 + 90,
-		initialHeading + 45 + 90 + 90 + 90,
-	}
-
-	// If we don't already know the visit order, i.e. this is our
-	// first run.
-	if m.visitOrder == nil {
-
-		var (
-			hsv [4]gocv.Mat
-			err error
-		)
-
-		// Turn to take photos of the four corners.
-		for ii, cornerHeading := range cornerHeadings {
-			hh.SetHeading(cornerHeading)
-			residualError, _ := hh.Wait(ctx)
-			fmt.Println("NEBULA: Completed turn, residual error: ", residualError)
-			hsv[ii], err = m.takePicture()
-			if err != nil {
-				m.fatal(err)
-			}
-			defer func(ii int) {
-				_ = hsv[ii].Close()
-			}(ii)
-		}
-		// Calculate the order we need to visit the corners, by
-		// matching photos to colours.
-		m.visitOrder = m.calculateVisitOrder(hsv)
-	}
-
-	for ii, index := range m.visitOrder {
-
-		fmt.Println("NEBULA: Next target ball: ", m.config.Sequence[ii])
+		fmt.Println("NEBULAPHOTO: Next target ball: ", m.config.Sequence[ii])
 		m.announceTargetBall(ii)
 
-		// Rotating phase.
-		hh.SetThrottle(0)
-		hh.SetHeading(cornerHeadings[index])
-		residualError, _ := hh.Wait(ctx)
+		for {
+			time.Sleep(1 * time.Second)
 
-		fmt.Println("NEBULA: Completed turn, residual error: ", residualError)
-
-		time.Sleep(100 * time.Millisecond)
-
-		// Advancing phase.
-		advanceStartL, advanceStartR := m.hw.CurrentMotorDistances()
-
-		distanceTraveledMM := func() float64 {
-			l, r := m.hw.CurrentMotorDistances()
-			return (l - advanceStartL + r - advanceStartR) / 2
-		}
-
-		hh.SetThrottle(m.config.ForwardSpeed)
-
-		movingFast := true
-		for ctx.Err() == nil {
-			readSensors()
-			traveledMM := distanceTraveledMM()
-			fmt.Println("NEBULA: Target colour:", m.config.Sequence[ii], "Advancing", traveledMM, "mm")
-			closeEnoughToSlowDown := traveledMM > 300
-
-			closeEnough := closeEnoughToSlowDown &&
-				(frontLeft.BestGuess() <= m.config.ForwardCornerDetectionThreshold) &&
-				(frontRight.BestGuess() <= m.config.ForwardCornerDetectionThreshold)
-
-			if closeEnough {
-				fmt.Println("NEBULA: Reached target colour:", m.config.Sequence[ii], "in", time.Since(startTime))
-				break
-			}
-
-			// We're approaching the ball but not yet close enough.
-			if movingFast && closeEnoughToSlowDown {
-				fmt.Println("NEBULA: Slowing...")
-				hh.SetThrottle(m.config.ForwardSlowSpeed)
-				movingFast = false
-			}
-		}
-
-		if ii == 3 {
-			// We've finished.
-			time.Sleep(50 * time.Millisecond) // Hack: we seem to stop a little early on the last target.
-			hh.SetThrottle(0)
-			break
-		}
-
-		// Reversing phase.
-		hh.SetThrottle(-m.config.ForwardSpeed)
-		reverseStart := time.Now()
-		for ctx.Err() == nil {
-			readSensors()
-
-			distanceFromMiddle := distanceTraveledMM()
-			fmt.Printf("NEBULA: Reversing for %.2fs, distance from middle: %.0fmm\n",
-				time.Since(reverseStart).Seconds(), distanceFromMiddle)
-			if distanceFromMiddle < 100 {
-				hh.SetThrottle(-m.config.ForwardSlowSpeed)
-			}
-			if distanceFromMiddle < 10 {
+			if atomic.LoadInt32(&m.savePicture) == 1 {
+				err := m.takePicture()
+				if err != nil {
+					m.fatal(err)
+				}
+				atomic.StoreInt32(&m.savePicture, 0)
 				break
 			}
 		}
@@ -492,10 +214,10 @@ func (m *NebulaPhotoMode) announceTargetBall(ii int) {
 
 func (m *NebulaPhotoMode) stopSequence() {
 	if !m.running {
-		fmt.Println("NEBULA: Not running")
+		fmt.Println("NEBULAPHOTO: Not running")
 		return
 	}
-	fmt.Println("NEBULA: Stopping sequence...")
+	fmt.Println("NEBULAPHOTO: Stopping sequence...")
 
 	m.cancelSequence()
 	m.cancelSequence = nil
@@ -505,15 +227,15 @@ func (m *NebulaPhotoMode) stopSequence() {
 
 	m.hw.StopMotorControl()
 
-	fmt.Println("NEBULA: Stopped sequence...")
+	fmt.Println("NEBULAPHOTO: Stopped sequence...")
 }
 
 func (m *NebulaPhotoMode) pauseOrResumeSequence() {
 	if atomic.LoadInt32(&m.paused) == 1 {
-		fmt.Println("NEBULA: Resuming sequence...")
+		fmt.Println("NEBULAPHOTO: Resuming sequence...")
 		atomic.StoreInt32(&m.paused, 0)
 	} else {
-		fmt.Println("NEBULA: Pausing sequence...")
+		fmt.Println("NEBULAPHOTO: Pausing sequence...")
 		atomic.StoreInt32(&m.paused, 1)
 	}
 }
