@@ -451,7 +451,8 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 
 			closeEnoughToArmToFs := traveledMM > 350
 			closeEnough := closeEnoughToArmToFs &&
-				(frontLeft.Predict()+frontRight.Predict() <= 2*float64(m.config.ForwardCornerDetectionThreshold))
+				(frontLeft.Predict() <= float64(m.config.ForwardCornerDetectionThreshold) ||
+					frontRight.Predict() <= float64(m.config.ForwardCornerDetectionThreshold))
 
 			if closeEnough {
 				fmt.Println("NEBULA: Reached target colour:", m.config.Sequence[ii], "in", time.Since(startTime))
