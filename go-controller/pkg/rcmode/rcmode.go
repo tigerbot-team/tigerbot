@@ -117,7 +117,7 @@ func (m *RCMode) loop(ctx context.Context) {
 
 			m.hardware.SetServo(8, clamp(0.3+throttle/2-yaw/3, 0.2, 1))  // 0 is arm down, 1 is arm up
 			m.hardware.SetServo(10, clamp(0.7-throttle/2-yaw/3, 0, 0.8)) // 0 is arm up, 1 is arm down
-			m.hardware.SetServo(9, clamp(-yaw/2+0.5, 0.25, 0.75))
+			m.hardware.SetServo(9, clamp(-yaw/2+0.5, 0.25, 0.75))        // 0.25 is right, 0.75 is left
 		}
 
 	}

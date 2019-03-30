@@ -333,6 +333,10 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 				speedPct = topSpeed
 			}
 
+			m.hw.SetServo(8, clampF(0.2+speedPct/200, 0.2, 1))  // 0 is arm down, 1 is arm up
+			m.hw.SetServo(10, clampF(0.8-speedPct/200, 0, 0.8)) // 0 is arm up, 1 is arm down
+			m.hw.SetServo(9, 0.5)
+
 			hh.SetThrottle(speedPct / 100)
 		}
 
@@ -356,9 +360,17 @@ func (m *MazeMode) runSequence(ctx context.Context) {
 		if leftTurnConfidence > rightTurnConfidence {
 			fmt.Println("MAZE: Turning left...")
 			sign = -1
+
+			m.hw.SetServo(8, 0.65)
+			m.hw.SetServo(10, 0.65)
+			m.hw.SetServo(9, 0.8)
 		} else {
 			fmt.Println("MAZE: Turning right...")
 			sign = 1
+
+			m.hw.SetServo(8, 0.35)
+			m.hw.SetServo(10, 0.35)
+			m.hw.SetServo(9, 0.2)
 		}
 
 		startHeading := m.hw.CurrentHeading()
@@ -588,4 +600,14 @@ func (m *MazeMode) pauseOrResumeSequence() {
 
 func (m *MazeMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
+}
+
+func clampF(f, min, max float64) float64 {
+	if f < min {
+		return min
+	}
+	if f > max {
+		return max
+	}
+	return f
 }
