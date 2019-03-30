@@ -433,6 +433,8 @@ retry:
 
 		time.Sleep(100 * time.Millisecond)
 
+		atomic.StoreInt32(&m.confirmColour, 0)
+
 		// Advancing phase.
 		advanceStartL, advanceStartR := m.hw.CurrentMotorDistances()
 
