@@ -53,7 +53,9 @@ type NebulaMode struct {
 
 	pictureIndex int
 
-	visitOrder []int
+	visitOrder     []int
+	confirmedOrder []int
+	confirmColour  int32
 
 	// Config
 	config NebulaConfig
@@ -150,6 +152,8 @@ func (m *NebulaMode) loop(ctx context.Context) {
 						m.stopSequence()
 					case joystick.ButtonTriangle:
 						m.pauseOrResumeSequence()
+					case joystick.ButtonCircle:
+						atomic.StoreInt32(&m.confirmColour, 1)
 					}
 				} else {
 					switch event.Number {
@@ -410,7 +414,12 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		m.visitOrder = m.calculateVisitOrder(hsv)
 	}
 
+retry:
 	for ii, index := range m.visitOrder {
+		if ii < len(m.confirmedOrder) {
+			continue
+		}
+		colourAlreadyConfirmed := false
 
 		fmt.Println("NEBULA: Next target ball: ", m.config.Sequence[ii])
 		m.announceTargetBall(ii)
@@ -423,6 +432,8 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 		fmt.Println("NEBULA: Completed turn, residual error: ", residualError)
 
 		time.Sleep(100 * time.Millisecond)
+
+		atomic.StoreInt32(&m.confirmColour, 0)
 
 		// Advancing phase.
 		advanceStartL, advanceStartR := m.hw.CurrentMotorDistances()
@@ -458,11 +469,45 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			}
 		}
 
+		if atomic.LoadInt32(&m.confirmColour) == 1 {
+			if !colourAlreadyConfirmed {
+				m.confirmedOrder = append(m.confirmedOrder, index)
+				colourAlreadyConfirmed = true
+			}
+			atomic.StoreInt32(&m.confirmColour, 0)
+		}
+
 		if ii == 3 {
-			// We've finished.
-			time.Sleep(50 * time.Millisecond) // Hack: we seem to stop a little early on the last target.
-			hh.SetThrottle(0)
-			break
+			// We may have finished.
+			if (len(m.confirmedOrder) == 0) || (len(m.confirmedOrder) == 4) {
+				// Either we're not using confirmation, or we've confirmed all the colours.
+				time.Sleep(50 * time.Millisecond) // Hack: we seem to stop a little early on the last target.
+				hh.SetThrottle(0)
+				if len(m.confirmedOrder) == 4 {
+					// Ensure that the visit order is correct for the next run.
+					m.visitOrder[0] = m.confirmedOrder[0]
+					m.visitOrder[1] = m.confirmedOrder[1]
+					m.visitOrder[2] = m.confirmedOrder[2]
+					m.visitOrder[3] = m.confirmedOrder[3]
+				}
+				goto finished
+			}
+			// We got some of the colours right, but not all.  Recalculate visit order for the next loop.
+			indicesRemaining := map[int]bool{0: true, 1: true, 2: true, 3: true}
+			m.visitOrder = []int{}
+			for _, indexDone := range m.confirmedOrder {
+				indicesRemaining[indexDone] = false
+				m.visitOrder = append(m.visitOrder, indexDone)
+			}
+			for indexRemaining, stillToVisit := range indicesRemaining {
+				// If we were clever here, we'd re-match the remaining corners against the remaining
+				// colours still to visit.  But that's too big a change at this stage, so instead just
+				// keep going round.
+				if stillToVisit {
+					m.visitOrder = append(m.visitOrder, indexRemaining)
+				}
+			}
+			goto retry
 		}
 
 		// Reversing phase.
@@ -482,6 +527,8 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			}
 		}
 	}
+finished:
+	return
 }
 
 func (m *NebulaMode) announceTargetBall(ii int) {
