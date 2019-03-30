@@ -12,15 +12,15 @@ import (
 )
 
 const (
-	ServoMotor1  = 1
-	ServoMotor2  = 2
-	ServoPlunger = 3
-	ServoPitch   = 4
+	ServoMotor1  = 15
+	ServoMotor2  = 14
+	ServoPitch   = 13
+	ServoPlunger = 12
 
 	ServoValueMotorOff = 0.0
-	ServoValueMotorOn  = 1.0
+	ServoValueMotorOn  = 0.8
 
-	ServoValuePlungerDefault = 0.0
+	ServoValuePlungerDefault = 0.13
 	ServoValuePlungerActive  = 1.0
 
 	ServoValuePitchDefault  = 127 / 255.0
@@ -28,7 +28,7 @@ const (
 	ServoMinPitch           = 124 / 255.0
 	PitchAutoRepeatInterval = 40 * time.Millisecond
 
-	MotorStopTime = time.Second
+	MotorStopTime = 500 * time.Millisecond
 )
 
 type ServoController struct {
@@ -213,22 +213,22 @@ func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGrou
 		select {
 		case triggerDown := <-triggerDownC:
 			if triggerDown {
-				// Trigger down, start motors; retract plunger to allow ball into channel.
-				fmt.Println("Trigger down, activating plunger and motors")
-				plunger = ServoValuePlungerActive
+				// Trigger down, start motors.
+				fmt.Println("Trigger down, activating motors")
 				motorTop = ServoValueMotorOn
 				motorBottom = ServoValueMotorOn
 				stopTimer()
 			} else {
 				// Trigger up, push plunger forward to push ball into motors.  Start the motor shutoff timer.
-				fmt.Println("Trigger up, returning plunger to default position")
-				plunger = ServoValuePlungerDefault
+				fmt.Println("Trigger up, activating plunger to push dart forward")
+				plunger = ServoValuePlungerActive
 				startTimer()
 			}
 		case <-motorStopC:
-			fmt.Println("Motor shutdown timer popped")
+			fmt.Println("Motor shutdown timer popped, reset plunger")
 			motorTop = ServoValueMotorOff
 			motorBottom = ServoValueMotorOff
+			plunger = ServoValuePlungerDefault
 			stopTimer()
 		case <-ctx.Done():
 			fmt.Println("Fire control loop stopping")
