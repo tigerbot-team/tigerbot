@@ -24,8 +24,8 @@ const (
 	ServoValuePlungerActive  = 1.0
 
 	ServoValuePitchDefault  = 127 / 255.0
-	ServoMaxPitch           = 178 / 255.0
-	ServoMinPitch           = 124 / 255.0
+	ServoMaxPitch           = 191 / 255.0
+	ServoMinPitch           = 64 / 255.0
 	PitchAutoRepeatInterval = 40 * time.Millisecond
 
 	MotorStopTime = 500 * time.Millisecond
