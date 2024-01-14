@@ -1,6 +1,7 @@
 package propeller
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -33,15 +34,19 @@ const (
 	RegServo3 = 29
 	RegServo4 = 30
 
-	RegMotor1 = 22
-	RegMotor2 = 23
-	RegMotor3 = 24
-	RegMotor4 = 25
+	RegMotor0 = 22
+	RegMotor1 = 23
+	RegMotor2 = 24
+	RegMotor3 = 25
+
+	RegReadLock = 31
 )
 
 type Interface interface {
-	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error
-	SetServo(n int, value uint8) error
+	SetMotorSpeeds(left, right int8) error
+	Close() error
+	StartEncoderRead() error
+	GetEncoderPositions() (m1, m2 int32, err error)
 }
 
 type Propeller struct {
@@ -116,7 +121,7 @@ func (p *Propeller) enableResetPin() error {
 	defer dirn.Close()
 	_, err = dirn.WriteString("high")
 	if err != nil {
-		fmt.Println("Failed to drive propeller reset pin")
+		fmt.Println("Failed to drive propeller reset pin", err)
 		return err
 	}
 	return nil
@@ -127,59 +132,91 @@ func (p *Propeller) Reset() error {
 	fmt.Println("Resetting the propeller")
 	value, err := os.OpenFile("/sys/class/gpio/gpio17/value", os.O_WRONLY, 0666)
 	defer value.Close()
-	_, err = value.WriteString("low")
+	_, err = value.WriteString("0")
 	if err != nil {
-		fmt.Println("Failed to drive propeller reset pin")
+		fmt.Println("Failed to drive propeller reset pin: ", err)
 		return err
 	}
 	return nil
 }
 
-func (p *Propeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error {
+func (p *Propeller) StartEncoderRead() error {
+	data := []byte{RegReadLock, 1}
+	return p.writeWithRetries(data)
+}
+
+var ErrNotReady = errors.New("encoders not ready")
+
+func (p *Propeller) GetEncoderPositions() (m1, m2 int32, err error) {
+	buf := []byte{0}
+	err = p.dev.ReadReg(RegReadLock, buf)
+	if err != nil {
+		return
+	}
+	if buf[0] != 0 {
+		// Not ready to read
+		err = ErrNotReady
+		return
+	}
+	buf = make([]byte, 8)
+	err = p.dev.ReadReg(4, buf)
+	if err != nil {
+		return
+	}
+	m1 = int32(buf[3])<<24 | int32(buf[2])<<16 | int32(buf[1])<<8 | int32(buf[0])
+	m2 = -int32(int32(buf[7])<<24 | int32(buf[6])<<16 | int32(buf[5])<<8 | int32(buf[4]))
+	return
+}
+
+func (p *Propeller) SetMotorSpeeds(left, right int8) error {
 	// Clamp all the values for symmetry/to avoid overflow when we negate.
-	if backLeft == -128 {
-		backLeft = -127
+	if left == -128 {
+		left = -127
 	}
-	if backRight == -128 {
-		backRight = -127
+	if right == -128 {
+		right = -127
 	}
-	if frontLeft == -128 {
-		frontLeft = -127
-	}
-	if frontRight == -128 {
-		frontRight = -127
-	}
-	data := []byte{RegMotor1, byte(-frontLeft), byte(-backLeft), byte(backRight), byte(frontRight)}
+	data := []byte{RegMotor1, byte(-left), byte(right)}
 	return p.writeWithRetries(data)
 }
 
-func (p *Propeller) SetServo(n int, value uint8) error {
-	var reg byte
-
-	switch n {
-	case 1:
-		reg = RegServo1
-	case 2:
-		reg = RegServo2
-	case 3:
-		reg = RegServo3
-	case 4:
-		reg = RegServo4
-	default:
-		panic(fmt.Errorf("Unknown servo %d", n))
-	}
-
-	fmt.Println("Setting servo", n, "to", value)
-
-	data := []byte{reg, byte(value)}
-	return p.writeWithRetries(data)
+func (p *Propeller) Close() error {
+	_ = p.Reset()
+	return p.dev.Close()
 }
+
+//
+//func (p *Propeller) SetServo(n int, value uint8) error {
+//	var reg byte
+//
+//	switch n {
+//	case 1:
+//		reg = RegServo1
+//	case 2:
+//		reg = RegServo2
+//	case 3:
+//		reg = RegServo3
+//	case 4:
+//		reg = RegServo4
+//	default:
+//		panic(fmt.Errorf("Unknown servo %d", n))
+//	}
+//
+//	fmt.Println("Setting servo", n, "to", value)
+//
+//	data := []byte{reg, byte(value)}
+//	return p.writeWithRetries(data)
+//}
 
 func (p *Propeller) writeWithRetries(data []byte) error {
 	var err error
 	for flashTries := 0; flashTries < 3; flashTries++ {
 		for tries := 0; tries < 20; tries++ {
-			err = p.dev.Write(data)
+			if err == nil {
+				err = p.dev.Write(data)
+			} else {
+				fmt.Println("Failed to program mux:", err)
+			}
 			if err == nil {
 				if tries > 0 || flashTries > 0 {
 					fmt.Println("Successfully programmed propeller after retries")
@@ -188,7 +225,7 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 			}
 			fmt.Println("Failed to program propeller:", err)
 			time.Sleep(1 * time.Millisecond)
-			p.dev.Close()
+			_ = p.dev.Close()
 			dev, err := i2c.Open(&i2c.Devfs{"/dev/i2c-1"}, PropAddr)
 			if err != nil {
 				continue
@@ -196,11 +233,11 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 			p.dev = dev
 		}
 		// Kill the propeller, in case it's going crazy...
-		p.Reset()
+		_ = p.Reset()
 
 		// Then reflash it...
 		fmt.Println("Failed to program propeller after retries!!!  Rebooting it!!!", err)
-		p.Flash()
+		_ = p.Flash()
 	}
 	panic("Failed to program or reflash the propeller")
 }
@@ -208,12 +245,25 @@ func (p *Propeller) writeWithRetries(data []byte) error {
 type dummyPropeller struct {
 }
 
-func (p *dummyPropeller) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int8) error {
-	fmt.Printf("Dummy propeller setting motors: fl=%v fr=%v bl=%v br=%v\n", frontLeft, frontRight, backLeft, backRight)
+func (p *dummyPropeller) StartEncoderRead() error {
 	return nil
 }
 
-func (p *dummyPropeller) SetServo(n int, value uint8) error {
-	fmt.Printf("Dummy propeller setting servo %d to %d\n", n, value)
+func (p *dummyPropeller) GetEncoderPositions() (m1, m2 int32, err error) {
+	return
+}
+
+func (p *dummyPropeller) SetMotorSpeeds(left, right int8) error {
+	fmt.Printf("Dummy propeller setting motors: l=%v r=%v\n", left, right)
+	return nil
+}
+
+//
+//func (p *dummyPropeller) SetServo(n int, value uint8) error {
+//	fmt.Printf("Dummy propeller setting servo %d to %d\n", n, value)
+//	return nil
+//}
+
+func (p *dummyPropeller) Close() error {
 	return nil
 }

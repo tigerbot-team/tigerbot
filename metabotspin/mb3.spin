@@ -38,7 +38,8 @@ CON
   servo2 = 30
   readready = 31
   motorshutdowntime = 100
-  maxpwmramp = 100
+  maxpwmramp = 50
+  maxspeed = 500
 
 OBJ
   quad :  "encoder"
@@ -56,7 +57,7 @@ DAT
 ' Motor driver connector: DIR, PWM, GND
 ' Motor connector: encA, encB, +ve, gnd, M+, M-
 
-  encoderPins byte 0, 1, 11, 10, 14, 15, 28, 29
+  encoderPins byte 0, 1, 10, 11, 15, 14, 28, 29
   motorPWM    byte 2, 13, 17, 27
   motorD1     byte 3, 12, 18, 26
 
@@ -85,7 +86,6 @@ VAR
   long  Ki
   long  Kd
   byte  b
-  long  timeout
   long  lastping
   long  pingcog
   
@@ -101,10 +101,9 @@ PUB main
   servofactor := millidiv * 140 / 25600 ' Scale factor from servo units to pulse time.
   motorfactor := millidiv / 256         ' Scale factor from servo units to motor pulse time.
 
-  Kp := 20
-  Ki := 4
-  Kd := 10
-  timeout := 100
+  Kp := 60
+  Ki := 10
+  Kd := 15
   lastping := cnt
 
   ' Since we pre-calculate the servo delays in this thread we need to set them before we start the servo control cog.
@@ -138,12 +137,8 @@ PUB main
 
 PRI update | i
   ' If host is ready to read then write ping and position values
-  timeout := timeout + 1
-  if timeout > 100 or i2c.get(readready) > 0
-    timeout := 0
-    repeat i from 0 to 2
-      i2c.putw(pingbase+i*2, pingval[i])
-    repeat i from 0 to 3  
+  if i2c.get(readready) > 0
+    repeat i from 1 to 2
       i2c.putl(posbase+i*4, lastpos[i])
     i2c.put(readready, 0)                   ' reset ready for the next read
 
@@ -209,7 +204,7 @@ PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desir
       if time_at_zero[i] < motorshutdowntime
         error := desired_speed - actual_speed[i]
         error_derivative[i] := error - last_error
-        error_integral[i] := (error_integral[i] * 100 / 99) + error
+        error_integral[i] := error_integral[i] + error
         error_integral[i] := -maxintegral #> error_integral[i] <# maxintegral
         newspeed := Kp * error + Ki * error_integral[i] + Kd * error_derivative[i]
       else
@@ -218,6 +213,7 @@ PRI pid | i, nextpos, error, last_error, nexttime, lastspeed[4], newspeed, desir
         newspeed := 0
 
       newspeed := (lastspeed[i] - maxpwmramp) #> newspeed <# (lastspeed[i] + maxpwmramp)  ' set a maximum PWM ramp
+      newspeed := newspeed <# maxspeed  ' set a maximum PWM value
       setMotorSpeed(i, newspeed)
       lastspeed[i] := newspeed
       

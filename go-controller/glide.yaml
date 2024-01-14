@@ -5,11 +5,15 @@ import:
   subpackages:
   - io/i2c
 - package: gocv.io/x/gocv
-  repo: https://github.com/fasaxc/gocv.git
   version: master
+  repo: https://github.com/fasaxc/gocv.git
 - package: github.com/kr/pty
   version: ~1.1.1
 - package: gopkg.in/yaml.v2
   version: ^2.2.1
 - package: github.com/faiface/beep
 - package: github.com/hajimehoshi/oto
+- package: periph.io/x/periph
+  version: 3.4.0
+- package: github.com/fogleman/gg
+  version: ~1.2.0

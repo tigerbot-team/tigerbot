@@ -8,32 +8,32 @@ import (
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/imu"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 )
 
-func New(i2cLock *sync.Mutex, prop propeller.Interface) *HeadingHolder {
+func New(prop RawControl) *HeadingHolder {
 	return &HeadingHolder{
-		i2cLock:   i2cLock,
-		Propeller: prop,
+		Motors: prop,
 	}
 }
 
-type HeadingHolder struct {
-	i2cLock   *sync.Mutex // Guards access to the propeller
-	Propeller propeller.Interface
-
-	controlLock                sync.Mutex
-	yaw, throttle, translation float64
-	currentHeading             float64
+type RawControl interface {
+	SetMotorSpeeds(left, right int8)
 }
 
-func (y *HeadingHolder) SetControlInputs(yaw, throttle, translation float64) {
+type HeadingHolder struct {
+	Motors RawControl
+
+	controlLock    sync.Mutex
+	yaw, throttle  float64
+	currentHeading float64
+}
+
+func (y *HeadingHolder) SetYawAndThrottle(yaw, throttle float64) {
 	y.controlLock.Lock()
 	defer y.controlLock.Unlock()
 
 	y.yaw = yaw
 	y.throttle = throttle
-	y.translation = translation
 }
 
 func (y *HeadingHolder) CurrentHeading() float64 {
@@ -47,20 +47,26 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer fmt.Println("Heading holder loop exited")
 
-	y.i2cLock.Lock()
-	m, err := imu.New("/dev/i2c-1")
+	m, err := imu.NewSPI("/dev/spidev0.1")
 	if err != nil {
 		fmt.Println("Failed to open IMU", err)
-		y.i2cLock.Unlock()
 		panic("Failed to open IMU")
 	}
 
-	m.Configure()
-	m.Calibrate()
-	m.ResetFIFO()
-	y.i2cLock.Unlock()
+	err = m.Configure()
+	if err != nil {
+		fmt.Println("Failed to open IMU", err)
+		panic("Failed to open IMU")
+	}
+	err = m.Calibrate()
 
-	const imuDT = 10 * time.Millisecond
+	if err != nil {
+		fmt.Println("Failed to open IMU", err)
+		panic("Failed to open IMU")
+	}
+	m.ResetFIFO()
+
+	const imuDT = 1 * time.Millisecond
 	const targetLoopDT = 20 * time.Millisecond
 
 	ticker := time.NewTicker(targetLoopDT)
@@ -74,15 +80,13 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var iHeadingError float64
 
 	const (
-		kp                        = 0.023
-		ki                        = 0.0
-		kd                        = -0.00007
-		maxIntegral               = 1
-		maxMotorSpeed             = 2.0
-		maxTranslationDeltaPerSec = 1
-		maxThrottleDeltaPerSec    = 2
+		kp                     = 0.02
+		ki                     = 0.03
+		kd                     = -0.00007
+		maxIntegral            = .1
+		maxMotorSpeed          = 2.0
+		maxThrottleDeltaPerSec = 2
 	)
-	maxTranslationDelta := maxTranslationDeltaPerSec * targetLoopDT.Seconds()
 	maxThrottleDelta := maxThrottleDeltaPerSec * targetLoopDT.Seconds()
 	var lastLoopStart = time.Now()
 
@@ -93,9 +97,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		lastLoopStart = now
 
 		// Integrate the output from the IMU to get our heading estimate.
-		y.i2cLock.Lock()
 		yawReadings := m.ReadFIFO()
-		y.i2cLock.Unlock()
 
 		for _, yaw := range yawReadings {
 			yawDegreesPerSec := float64(yaw) * m.DegreesPerLSB()
@@ -106,7 +108,6 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		y.controlLock.Lock()
 		targetYaw := y.yaw
 		targetThrottle := y.throttle
-		targetTranslation := y.translation
 		y.currentHeading = headingEstimate
 		y.controlLock.Unlock()
 
@@ -127,6 +128,9 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		headingError := targetHeading - headingEstimate
 		dHeadingError := (headingError - lastHeadingError) / loopTimeSecs
 		iHeadingError += headingError * loopTimeSecs
+		if targetYaw != 0 {
+			iHeadingError = 0
+		}
 		if iHeadingError > maxIntegral {
 			iHeadingError = maxIntegral
 		} else if iHeadingError < -maxIntegral {
@@ -147,19 +151,7 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
 			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
-		if math.Abs(targetTranslation) < 0.2 {
-			filteredTranslation = targetTranslation
-		} else if targetTranslation > filteredTranslation+maxTranslationDelta {
-			filteredTranslation += maxTranslationDelta
-		} else if targetTranslation < filteredTranslation-maxTranslationDelta {
-			filteredTranslation -= maxTranslationDelta
-		} else {
-			filteredTranslation = targetTranslation
-		}
-
-		if math.Abs(targetThrottle) < 0.4 {
-			filteredThrottle = targetThrottle
-		} else if targetThrottle > filteredThrottle+maxThrottleDelta {
+		if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
 		} else if targetThrottle < filteredThrottle-maxThrottleDelta {
 			filteredThrottle -= maxThrottleDelta
@@ -183,18 +175,14 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		fl := scaleAndClamp(frontLeft*scale, 127)
 		fr := scaleAndClamp(frontRight*scale, 127)
-		bl := scaleAndClamp(backLeft*scale, 127)
-		br := scaleAndClamp(backRight*scale, 127)
+		//bl := scaleAndClamp(backLeft*scale, 127)
+		//br := scaleAndClamp(backRight*scale, 127)
 
-		y.i2cLock.Lock()
-		y.Propeller.SetMotorSpeeds(fl, fr, bl, br)
-		y.i2cLock.Unlock()
+		y.Motors.SetMotorSpeeds(fl, fr)
 
 		lastHeadingError = headingError
 	}
-	y.i2cLock.Lock()
-	y.Propeller.SetMotorSpeeds(0, 0, 0, 0)
-	y.i2cLock.Unlock()
+	y.Motors.SetMotorSpeeds(0, 0)
 }
 
 func scaleAndClamp(value, multiplier float64) int8 {

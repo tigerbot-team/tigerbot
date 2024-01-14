@@ -5,45 +5,42 @@ import (
 	"math"
 	"sync"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/servo"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
+
 	"fmt"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcheadingholder"
 )
-
-type ServoController interface {
-	Start(propLock *sync.Mutex, propeller propeller.Interface)
-	Stop()
-
-	OnJoystickEvent(event *joystick.Event)
-}
 
 type RCMode struct {
 	name         string
 	startupSound string
 
-	propLock  sync.Mutex // Guards access to the propeller
-	Propeller propeller.Interface
+	propLock sync.Mutex // Guards access to the propeller
+	hardware hardware.Interface
 
-	servoController ServoController
+	servoController servo.ServoController
 
 	cancel         context.CancelFunc
 	stopWG         sync.WaitGroup
 	joystickEvents chan *joystick.Event
-
-	headingHolder *headingholder.RCHeadingHolder
 }
 
-func New(name, startupSound string, propeller propeller.Interface, servoController ServoController) *RCMode {
+func New(
+	name,
+	startupSound string,
+	hw hardware.Interface,
+	servoController servo.ServoController,
+) *RCMode {
 	r := &RCMode{
-		Propeller:       propeller,
+		hardware:        hw,
 		joystickEvents:  make(chan *joystick.Event),
 		servoController: servoController,
 		name:            name,
 		startupSound:    startupSound,
 	}
-	r.headingHolder = headingholder.New(&r.propLock, propeller)
 	return r
 }
 
@@ -56,11 +53,10 @@ func (m *RCMode) StartupSound() string {
 }
 
 func (m *RCMode) Start(ctx context.Context) {
-	m.stopWG.Add(2)
+	m.stopWG.Add(1)
 	var loopCtx context.Context
 	loopCtx, m.cancel = context.WithCancel(ctx)
 	go m.loop(loopCtx)
-	go m.headingHolder.Loop(loopCtx, &m.stopWG)
 }
 
 func (m *RCMode) Stop() {
@@ -70,16 +66,24 @@ func (m *RCMode) Stop() {
 
 func (m *RCMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
+	fmt.Println("RCMode main loop started")
 
-	m.servoController.Start(&m.propLock, m.Propeller)
+	fmt.Println("RCMode Starting servo controller")
+	m.servoController.Start(m.hardware)
 	defer m.servoController.Stop()
+	fmt.Println("RCMode Started servo controller")
 
 	var leftStickX, leftStickY, rightStickX, rightStickY int16
 	var mix = MixAggressive
 
+	fmt.Println("RCMode taking control of motors")
+	motorController := m.hardware.StartYawAndThrottleMode()
+	defer m.hardware.StopMotorControl()
+
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Println("RCMode context done")
 			return
 		case event := <-m.joystickEvents:
 			switch event.Type {
@@ -108,8 +112,12 @@ func (m *RCMode) loop(ctx context.Context) {
 			}
 
 			m.servoController.OnJoystickEvent(event)
-			yaw, throttle, translate := mix(leftStickX, leftStickY, rightStickX, rightStickY)
-			m.headingHolder.SetControlInputs(yaw, throttle, translate)
+			yaw, throttle := mix(leftStickX, leftStickY, rightStickX, rightStickY)
+			motorController.SetYawAndThrottle(yaw, throttle)
+
+			m.hardware.SetServo(8, clamp(0.3+throttle/2-yaw/3, 0.2, 1))  // 0 is arm down, 1 is arm up
+			m.hardware.SetServo(10, clamp(0.7-throttle/2-yaw/3, 0, 0.8)) // 0 is arm up, 1 is arm down
+			m.hardware.SetServo(9, clamp(-yaw/2+0.5, 0.25, 0.75))        // 0.25 is right, 0.75 is left
 		}
 
 	}
@@ -119,25 +127,25 @@ func (m *RCMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
-func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translate float64) {
+func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle float64) {
 	const expo = 1.6
 	_ = lStickY
+	_ = rStickX
 
 	// Put all the values into the range (-1, 1) and apply expo.
 	yaw = applyExpo(float64(lStickX)/32767.0, 2.5) / 4
 	throttle = applyExpo(float64(rStickY)/-32767.0, expo) / 4
-	translate = applyExpo(float64(rStickX)/32767.0, expo) / 4
 	return
 }
 
-func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translate float64) {
+func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle float64) {
 	const expo = 1.6
 	_ = lStickY
+	_ = rStickX
 
 	// Put all the values into the range (-1, 1) and apply expo.
 	yaw = applyExpo(float64(lStickX)/32767.0, expo)
 	throttle = applyExpo(float64(rStickY)/-32767.0, expo)
-	translate = applyExpo(float64(rStickX)/32767.0, expo)
 
 	return
 }
@@ -147,4 +155,14 @@ func applyExpo(value float64, expo float64) float64 {
 	absExpo := math.Pow(absVal, expo)
 	signedExpo := math.Copysign(absExpo, value)
 	return signedExpo
+}
+
+func clamp(f, min, max float64) float64 {
+	if f < min {
+		return min
+	}
+	if f > max {
+		return max
+	}
+	return f
 }

@@ -6,33 +6,33 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/servo"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 )
 
 const (
-	ServoMotor1  = 1
-	ServoMotor2  = 2
-	ServoPlunger = 3
-	ServoPitch   = 4
+	ServoMotor1  = 15
+	ServoMotor2  = 14
+	ServoPitch   = 13
+	ServoPlunger = 12
 
-	ServoValueMotorOff = 0
-	ServoValueMotorOn  = 255
+	ServoValueMotorOff = 0.0
+	ServoValueMotorOn  = 0.8
 
-	ServoValuePlungerDefault = 0
-	ServoValuePlungerActive  = 255
+	ServoValuePlungerDefault = 0.13
+	ServoValuePlungerActive  = 1.0
 
-	ServoValuePitchDefault  = 127
-	ServoMaxPitch           = 178
-	ServoMinPitch           = 124
+	ServoValuePitchDefault  = 127 / 255.0
+	ServoMaxPitch           = 191 / 255.0
+	ServoMinPitch           = 64 / 255.0
 	PitchAutoRepeatInterval = 40 * time.Millisecond
 
-	MotorStopTime = time.Second
+	MotorStopTime = 500 * time.Millisecond
 )
 
 type ServoController struct {
-	propLock  *sync.Mutex // Guards access to the propeller
-	propeller propeller.Interface
+	servoSetter servo.ServoSetter
 
 	stopC  chan struct{}
 	doneWg sync.WaitGroup
@@ -46,9 +46,8 @@ func NewServoController() *ServoController {
 	}
 }
 
-func (d *ServoController) Start(propLock *sync.Mutex, propeller propeller.Interface) {
-	d.propLock = propLock
-	d.propeller = propeller
+func (d *ServoController) Start(servoSetter servo.ServoSetter) {
+	d.servoSetter = servoSetter
 	d.stopC = make(chan struct{})
 	d.doneWg.Add(1)
 
@@ -66,7 +65,7 @@ func (d *ServoController) loop() {
 	fmt.Println("ServoController loop started")
 
 	var dPadY int16
-	var ballThrowerPitch uint8 = ServoValuePitchDefault
+	var ballThrowerPitch float64 = ServoValuePitchDefault
 
 	// Start a goroutine to do fire-control sequencing for the ball flinger.
 	fireControlCtx, cancelFireControl := context.WithCancel(context.Background())
@@ -95,19 +94,17 @@ func (d *ServoController) loop() {
 		for i := 0; i < autoRepeatFactor; i++ {
 			if dPadY < 0 {
 				if ballThrowerPitch < ServoMaxPitch {
-					ballThrowerPitch++ // If changing to bigger increment, be careful of wrap-around
+					ballThrowerPitch += 0.01
 				}
 			} else if dPadY > 0 {
 				if ballThrowerPitch > ServoMinPitch {
-					ballThrowerPitch--
+					ballThrowerPitch -= 0.01
 				}
 			}
 		}
 
 		fmt.Println("Setting pitch:", ballThrowerPitch)
-		d.propLock.Lock()
-		d.propeller.SetServo(ServoPitch, ballThrowerPitch)
-		d.propLock.Unlock()
+		d.servoSetter.SetServo(ServoPitch, ballThrowerPitch)
 
 		if time.Since(autoRepeatStart) > 250*time.Millisecond {
 			autoRepeatFactor += 1
@@ -170,20 +167,18 @@ func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGrou
 	}()
 
 	var (
-		motorTop    uint8 = ServoValueMotorOff
-		motorBottom uint8 = ServoValueMotorOff
-		plunger     uint8 = ServoValuePlungerDefault
+		motorTop    = ServoValueMotorOff
+		motorBottom = ServoValueMotorOff
+		plunger     = ServoValuePlungerDefault
 	)
 
 	var motorStopTimer *time.Timer
 	var motorStopC <-chan time.Time
 
 	updateServos := func() {
-		d.propLock.Lock()
-		d.propeller.SetServo(ServoMotor1, motorTop)
-		d.propeller.SetServo(ServoMotor2, motorBottom)
-		d.propeller.SetServo(ServoPlunger, plunger)
-		d.propLock.Unlock()
+		d.servoSetter.SetServo(ServoMotor1, motorTop)
+		d.servoSetter.SetServo(ServoMotor2, motorBottom)
+		d.servoSetter.SetServo(ServoPlunger, plunger)
 	}
 
 	stopTimer := func() {
@@ -218,22 +213,22 @@ func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGrou
 		select {
 		case triggerDown := <-triggerDownC:
 			if triggerDown {
-				// Trigger down, start motors; retract plunger to allow ball into channel.
-				fmt.Println("Trigger down, activating plunger and motors")
-				plunger = ServoValuePlungerActive
+				// Trigger down, start motors.
+				fmt.Println("Trigger down, activating motors")
 				motorTop = ServoValueMotorOn
 				motorBottom = ServoValueMotorOn
 				stopTimer()
 			} else {
 				// Trigger up, push plunger forward to push ball into motors.  Start the motor shutoff timer.
-				fmt.Println("Trigger up, returning plunger to default position")
-				plunger = ServoValuePlungerDefault
+				fmt.Println("Trigger up, activating plunger to push dart forward")
+				plunger = ServoValuePlungerActive
 				startTimer()
 			}
 		case <-motorStopC:
-			fmt.Println("Motor shutdown timer popped")
+			fmt.Println("Motor shutdown timer popped, reset plunger")
 			motorTop = ServoValueMotorOff
 			motorBottom = ServoValueMotorOff
+			plunger = ServoValuePlungerDefault
 			stopTimer()
 		case <-ctx.Done():
 			fmt.Println("Fire control loop stopping")

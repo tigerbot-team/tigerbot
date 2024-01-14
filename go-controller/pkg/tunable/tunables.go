@@ -19,6 +19,10 @@ func (t *Tunable) Get() int {
 	return int(atomic.LoadInt64(&t.Value))
 }
 
+func (t *Tunable) GetFloat() float64 {
+	return float64(t.Get())
+}
+
 type Tunables struct {
 	All      []*Tunable
 	selected int

@@ -1,11 +1,18 @@
-hash: c9be57cdd46c594382f9d8decec2e6ebc99a3da095f5473639b4c974714798b9
-updated: 2018-04-21T09:49:05.913198189+01:00
+hash: 77dd053da5e2d957c9b9c9b5b4bc2bf10fbceca1a405343615bc4591f4d6058d
+updated: 2019-02-09T19:54:49.718129283Z
 imports:
 - name: github.com/faiface/beep
   version: 4ec0906f41871d561558e3e0643f71fb8bf08885
   subpackages:
   - speaker
   - wav
+- name: github.com/fogleman/gg
+  version: 9db508d34a2da0d0a3244cf73bb605e2c00c6229
+- name: github.com/golang/freetype
+  version: e2365dfdc4a05e4b8299a783240d4a7d5a65d4e4
+  subpackages:
+  - raster
+  - truetype
 - name: github.com/gopherjs/gopherjs
   version: fcfa75a46cca3b1ed8b2c75c4f6f0a88df581baa
   subpackages:
@@ -15,7 +22,7 @@ imports:
   subpackages:
   - internal/jni
 - name: github.com/kr/pty
-  version: 282ce0e5322c82529687d609ee670fac7c7d917c
+  version: db8e3cd836b82e82e0a9c8edc6896967dd31374f
 - name: github.com/pkg/errors
   version: 816c9085562cd7ee03e7f8188a1cfd942858cded
 - name: gocv.io/x/gocv
@@ -26,6 +33,45 @@ imports:
   subpackages:
   - io/i2c
   - io/i2c/driver
+- name: golang.org/x/image
+  version: ef4a1470e0dc5915f2f5fa04a28eeab72c6936a4
+  subpackages:
+  - draw
+  - font
+  - font/basicfont
+  - math/f64
+  - math/fixed
 - name: gopkg.in/yaml.v2
-  version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
+  version: 51d6538a90f86fe93ac480b35f37b2be17fef232
+- name: periph.io/x/periph
+  version: 5bdec8dc7f7a7c7adec37c6821d8728ee92cf2e7
+  subpackages:
+  - conn
+  - conn/gpio
+  - conn/gpio/gpioreg
+  - conn/gpio/gpiostream
+  - conn/i2c
+  - conn/i2c/i2creg
+  - conn/physic
+  - conn/pin
+  - conn/pin/pinreg
+  - conn/spi
+  - conn/spi/spireg
+  - host
+  - host/allwinner
+  - host/am335x
+  - host/bcm283x
+  - host/beagle/black
+  - host/beagle/bone
+  - host/beagle/green
+  - host/chip
+  - host/cpu
+  - host/distro
+  - host/fs
+  - host/odroidc1
+  - host/pine64
+  - host/pmem
+  - host/rpi
+  - host/sysfs
+  - host/videocore
 testImports: []

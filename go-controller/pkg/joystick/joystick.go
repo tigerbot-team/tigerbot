@@ -32,10 +32,10 @@ import (
 //            l/r = 6 (left = -32767; right = +32767)
 //    L stick u/d = 1 (up = -32767; down = +32767)
 //            l/r = 0 (left = -32767; right = +32767)
-//    R stick u/d = 5 (up = -32767; down = +32767)
-//            l/r = 2 (left = -32767; right = +32767)
-//    L2          = 3 (unpressed = -32767; fully-pressed = 32767)
-//    R2          = 4 (unpressed = -32767; fully-pressed = 32767)
+//    R stick u/d = 4 (up = -32767; down = +32767)
+//            l/r = 3 (left = -32767; right = +32767)
+//    L2          = 2 (unpressed = -32767; fully-pressed = 32767)
+//    R2          = 5 (unpressed = -32767; fully-pressed = 32767)
 
 type EventType uint8
 
@@ -45,27 +45,27 @@ const (
 )
 
 const (
-	ButtonSquare   = 0
-	ButtonCross    = 1
-	ButtonCircle   = 2
-	ButtonTriangle = 3
+	ButtonSquare   = 3
+	ButtonCross    = 0
+	ButtonCircle   = 1
+	ButtonTriangle = 2
 	ButtonL1       = 4
 	ButtonR1       = 5
 	ButtonL2       = 6
 	ButtonR2       = 7
 	ButtonShare    = 8
 	ButtonOptions  = 9
-	ButtonLStick   = 10
-	ButtonRStick   = 11
-	ButtonPS       = 12
-	ButtonPadClick = 13
+	ButtonLStick   = 11
+	ButtonRStick   = 12
+	ButtonPS       = 10
+	//ButtonPadClick =
 
 	AxisLStickX = 0
 	AxisLStickY = 1
-	AxisRStickX = 2
-	AxisRStickY = 5
-	AxisDPadX = 6
-	AxisDPadY = 7
+	AxisRStickX = 3
+	AxisRStickY = 4
+	AxisDPadX   = 6
+	AxisDPadY   = 7
 )
 
 func (e EventType) String() string {

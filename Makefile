@@ -10,27 +10,31 @@ endif
 build-image: $(ARCH_DEPS)
 	docker build ./build -f build/Dockerfile -t tigerbot/build:latest
 
-controller-image: $(ARCH_DEPS) metabotspin/mb3.binary
+python-controller-image: $(ARCH_DEPS) metabotspin/mb3.binary
 	docker build . -f python-controller/Dockerfile -t tigerbot/controller:latest
 
-controller-image.tar: metabotspin/mb3.binary python-controller/*
+python-controller-image.tar: metabotspin/mb3.binary python-controller/*
 	$(MAKE) controller-image
 	docker save tigerbot/controller:latest > controller-image.tar
 
 PHONY: go-phase-1-image
-go-phase-1-image go-controller/controller: $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
+go-phase-1-image: $(ARCH_DEPS) go-controller/phase-1.Dockerfile
 	docker build -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest .
+
+go-controller/bin/%: go-controller/cmd/%/*.go $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
+	$(MAKE) go-phase-1-image
 	-mkdir .go-cache
+	-mkdir go-controller/bin
 	docker run --rm -v `pwd`/go-controller:/go/src/github.com/tigerbot-team/tigerbot/go-controller \
 	                -v `pwd`/.go-cache:/go-cache \
 	                -e GOCACHE=/go-cache \
 	                -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
 	                tigerbot/go-controller-phase-1:latest \
 	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
-	                         GOMAXPROCS=1 go build -p 1 -v controller.go"
+	                         GOMAXPROCS=1 go build -p 1 -v -o ../$@ ../$(<D)"
 
 PHONY: go-controller-image
-go-controller-image go-controller-image.tar: go-controller/controller metabotspin/mb3.binary go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
+go-controller-image go-controller-image.tar: go-controller/bin/controller metabotspin/mb3.binary go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
 	docker save tigerbot/go-controller:latest > go-controller-image.tar
 
@@ -38,12 +42,12 @@ go-install-to-pi: go-controller-image.tar
 	rsync -zv --progress go-controller-image.tar pi@$(BOT_HOST):go-controller-image.tar
 	ssh pi@$(BOT_HOST) docker load -i go-controller-image.tar
 
-go-patch: go-controller/controller metabotspin/mb3.binary
-	rsync -zv --progress go-controller/controller pi@$(BOT_HOST):controller
+go-patch: go-controller/bin/controller metabotspin/mb3.binary
+	rsync -zv --progress go-controller/bin/controller pi@$(BOT_HOST):controller
 	rsync -zv --progress metabotspin/mb3.binary pi@$(BOT_HOST):mb3.binary
 	@echo 'Now run the image with -v `pwd`/controller:/controller -v `pwd`/mb3.binary:/mb3.binary'
 
-install-to-pi: controller-image.tar
+python-install-to-pi: controller-image.tar
 	rsync -zv --progress controller-image.tar pi@$(BOT_HOST):controller-image.tar
 	ssh pi@$(BOT_HOST) docker load -i controller-image.tar
 
