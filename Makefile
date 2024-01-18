@@ -13,10 +13,6 @@ build-image: $(ARCH_DEPS)
 python-controller-image: $(ARCH_DEPS) metabotspin/mb3.binary
 	docker build . -f python-controller/Dockerfile -t tigerbot/controller:latest
 
-python-controller-image.tar: metabotspin/mb3.binary python-controller/*
-	$(MAKE) controller-image
-	docker save tigerbot/controller:latest > controller-image.tar
-
 PHONY: go-phase-1-image
 go-phase-1-image: $(ARCH_DEPS) go-controller/phase-1.Dockerfile
 	docker build -f go-controller/phase-1.Dockerfile -t tigerbot/go-controller-phase-1:latest .
@@ -44,21 +40,11 @@ go-install-to-pi: go-controller-image.tar
 
 go-patch: go-controller/bin/controller metabotspin/mb3.binary
 	rsync -zv --progress go-controller/bin/controller pi@$(BOT_HOST):controller
-	rsync -zv --progress metabotspin/mb3.binary pi@$(BOT_HOST):mb3.binary
-	@echo 'Now run the image with -v `pwd`/controller:/controller -v `pwd`/mb3.binary:/mb3.binary'
+	@echo 'Now run the image with -v `pwd`/controller:/controller'
 
-python-install-to-pi: controller-image.tar
-	rsync -zv --progress controller-image.tar pi@$(BOT_HOST):controller-image.tar
-	ssh pi@$(BOT_HOST) docker load -i controller-image.tar
-
-metabotspin/mb3.binary: metabotspin/*.spin
-	$(MAKE) build-image
-	rm -f metabotspin/mb3.binary
-	docker run --rm \
-	           -v "$(shell pwd):/tigerbot" \
-	           -w /tigerbot/metabotspin \
-	           tigerbot/build:latest \
-	           openspin mb3.spin
+build-on-pi:
+	rsync -zv --progress -r ./ pi@$(BOT_HOST):tigerbot-build
+	ssh pi@$(BOT_HOST) make --directory tigerbot-build go-controller-image
 
 # Building and using a container image with Go, OpenCV and GOCV.
 

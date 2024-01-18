@@ -7,7 +7,7 @@ require (
 	github.com/fogleman/gg v1.2.0
 	github.com/kr/pty v1.1.3
 	gocv.io/x/gocv v0.35.0
-	golang.org/x/exp v0.0.0-20171209012058-072991165226
+	golang.org/x/exp v0.0.0-20240112132812-db7319d0e0e3
 	gopkg.in/yaml.v2 v2.2.2
 	periph.io/x/periph v3.4.0+incompatible
 )

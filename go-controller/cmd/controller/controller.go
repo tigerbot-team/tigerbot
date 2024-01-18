@@ -34,7 +34,7 @@ type JoystickUser interface {
 }
 
 func main() {
-	fmt.Println("---- Wall-E ----")
+	fmt.Println("---- Firebot ----")
 	fmt.Println("GOMAXPROCS", runtime.GOMAXPROCS(0))
 
 	// Our global context, we cancel it to trigger shutdown.
