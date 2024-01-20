@@ -19,18 +19,17 @@ go-phase-1-image: $(ARCH_DEPS) go-controller/phase-1.Dockerfile
 
 go-controller/bin/%: go-controller/cmd/%/*.go $(ARCH_DEPS) $(shell find go-controller -name '*.go') go-controller/phase-1.Dockerfile
 	$(MAKE) go-phase-1-image
-	-mkdir .go-cache
-	-mkdir go-controller/bin
+	-mkdir -p .go-cache
+	-mkdir -p go-controller/bin
 	docker run --rm -v `pwd`/go-controller:/go/src/github.com/tigerbot-team/tigerbot/go-controller \
 	                -v `pwd`/.go-cache:/go-cache \
 	                -e GOCACHE=/go-cache \
 	                -w /go/src/github.com/tigerbot-team/tigerbot/go-controller \
 	                tigerbot/go-controller-phase-1:latest \
-	                bash -c "source /go/src/gocv.io/x/gocv/env.sh && \
-	                         GOMAXPROCS=1 go build -p 1 -v -o ../$@ ../$(<D)"
+	                bash -c "GOMAXPROCS=1 go build -p 1 -v -o ../$@ ../$(<D)"
 
 PHONY: go-controller-image
-go-controller-image go-controller-image.tar: go-controller/bin/controller metabotspin/mb3.binary go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
+go-controller-image go-controller-image.tar: go-controller/bin/controller go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
 	docker save tigerbot/go-controller:latest > go-controller-image.tar
 

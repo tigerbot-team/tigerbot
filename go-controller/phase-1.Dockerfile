@@ -14,7 +14,7 @@ RUN mkdir $GOPATH/src/hybridgroup/ && \
 RUN cd $GOPATH/src/hybridgroup/gocv && \
     make install_raspi
 
-RUN apt-get install libasound2-dev libasound2 libasound2-plugins
+RUN apt-get install  -y libasound2-dev libasound2 libasound2-plugins
 
 
 ## Pre-build the ToF libraries
@@ -24,5 +24,5 @@ RUN apt-get install libasound2-dev libasound2 libasound2-plugins
 #WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp
 #RUN API_DIR=../VL53L0X_1.0.2 make all examples
 #
-#RUN mkdir -p $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
-#WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
+RUN mkdir -p $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
+WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller

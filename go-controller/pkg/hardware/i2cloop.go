@@ -13,7 +13,6 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/ina219"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
 )
@@ -159,73 +158,73 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	}
 	defer prop.Close()
 
-	var tofs []tofsensor.Interface
-	defer func() {
-		for _, tof := range tofs {
-			_ = tof.Close()
-		}
-	}()
-	for _, port := range []int{
-		mux.BusTOFLeftRear, mux.BusTOFLeftFront,
-		mux.BusTOFForwardLeft, mux.BusTOFForwardRight,
-		mux.BusTOFRightFront, mux.BusTOFRightRear,
-	} {
-		fmt.Println("Initialising ToF ", port)
+	//var tofs []tofsensor.Interface
+	//defer func() {
+	//	for _, tof := range tofs {
+	//		_ = tof.Close()
+	//	}
+	//}()
+	//for _, port := range []int{
+	//	mux.BusTOFLeftRear, mux.BusTOFLeftFront,
+	//	mux.BusTOFForwardLeft, mux.BusTOFForwardRight,
+	//	mux.BusTOFRightFront, mux.BusTOFRightRear,
+	//} {
+	//	fmt.Println("Initialising ToF ", port)
+	//
+	//	err := mx.SelectSinglePort(port)
+	//	if err != nil {
+	//		fmt.Println("Failed to select mux port", err)
+	//		return
+	//	}
+	//
+	//	tof, err := tofsensor.New("/dev/i2c-1", 0x29, byte(0x30+port))
+	//	if err != nil {
+	//		tof, err = tofsensor.New("/dev/i2c-1", byte(0x30+port))
+	//		if err != nil {
+	//			fmt.Println("Failed to open sensor", err)
+	//			return
+	//		}
+	//	}
+	//
+	//	err = tof.StartContinuousMeasurements()
+	//	if err != nil {
+	//		fmt.Println("Failed to start continuous measurements", err)
+	//		return
+	//	}
+	//	tofs = append(tofs, tof)
+	//}
 
-		err := mx.SelectSinglePort(port)
-		if err != nil {
-			fmt.Println("Failed to select mux port", err)
-			return
-		}
-
-		tof, err := tofsensor.New("/dev/i2c-1", 0x29, byte(0x30+port))
-		if err != nil {
-			tof, err = tofsensor.New("/dev/i2c-1", byte(0x30+port))
-			if err != nil {
-				fmt.Println("Failed to open sensor", err)
-				return
-			}
-		}
-
-		err = tof.StartContinuousMeasurements()
-		if err != nil {
-			fmt.Println("Failed to start continuous measurements", err)
-			return
-		}
-		tofs = append(tofs, tof)
-	}
-
-	readTofs := func() (DistanceReadings, error) {
-		err := mx.SelectMultiplePorts(0x3f)
-		readings := DistanceReadings{
-			CaptureTime: time.Now(),
-			Readings:    make([]Reading, len(tofs)),
-			Revision:    c.nextRevision,
-		}
-		c.nextRevision++
-		if err != nil {
-			screen.SetNotice(NoteMux, screen.LevelErr)
-			fmt.Println("Failed to select mux port", err)
-			return readings, err
-		}
-		someErrors := false
-		for j, tof := range tofs {
-			readingInMM, err := tof.GetNextContinuousMeasurement()
-			readings.Readings[j] = Reading{
-				DistanceMM: readingInMM,
-				Error:      err,
-			}
-			if err != nil {
-				someErrors = true
-			}
-			if someErrors {
-				screen.SetNotice(NoteTOFs, screen.LevelErr)
-			} else {
-				screen.ClearNotice(NoteTOFs)
-			}
-		}
-		return readings, nil
-	}
+	//readTofs := func() (DistanceReadings, error) {
+	//	err := mx.SelectMultiplePorts(0x3f)
+	//	readings := DistanceReadings{
+	//		CaptureTime: time.Now(),
+	//		Readings:    make([]Reading, len(tofs)),
+	//		Revision:    c.nextRevision,
+	//	}
+	//	c.nextRevision++
+	//	if err != nil {
+	//		screen.SetNotice(NoteMux, screen.LevelErr)
+	//		fmt.Println("Failed to select mux port", err)
+	//		return readings, err
+	//	}
+	//	someErrors := false
+	//	for j, tof := range tofs {
+	//		readingInMM, err := tof.GetNextContinuousMeasurement()
+	//		readings.Readings[j] = Reading{
+	//			DistanceMM: readingInMM,
+	//			Error:      err,
+	//		}
+	//		if err != nil {
+	//			someErrors = true
+	//		}
+	//		if someErrors {
+	//			screen.SetNotice(NoteTOFs, screen.LevelErr)
+	//		} else {
+	//			screen.ClearNotice(NoteTOFs)
+	//		}
+	//	}
+	//	return readings, nil
+	//}
 
 	err = mx.SelectSinglePort(mux.BusOthers)
 	if err != nil {
@@ -328,22 +327,22 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	for ctx.Err() == nil {
 		<-ticker.C
 
-		c.lock.Lock()
-		tofsEnabled := c.tofsEnabled
-		c.lock.Unlock()
+		//c.lock.Lock()
+		//tofsEnabled := c.tofsEnabled
+		//c.lock.Unlock()
 
-		if tofsEnabled {
-			readings, err := readTofs()
-			if err != nil {
-				fmt.Println("Failed to read tofs", err)
-				return
-			}
-			fmt.Println("ToF readings:", readings)
-			c.lock.Lock()
-			c.distanceReadings = readings
-			c.revisionUpdated.Broadcast()
-			c.lock.Unlock()
-		}
+		//if tofsEnabled {
+		//	readings, err := readTofs()
+		//	if err != nil {
+		//		fmt.Println("Failed to read tofs", err)
+		//		return
+		//	}
+		//	fmt.Println("ToF readings:", readings)
+		//	c.lock.Lock()
+		//	c.distanceReadings = readings
+		//	c.revisionUpdated.Broadcast()
+		//	c.lock.Unlock()
+		//}
 
 		c.lock.Lock()
 		l, r := c.motorL, c.motorR

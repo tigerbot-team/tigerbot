@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 )
 
 type Interface interface {
@@ -70,12 +68,12 @@ type Reading struct {
 }
 
 func (r Reading) String() string {
-	if r.Error != nil {
-		return "<failed>"
-	}
-	if r.DistanceMM == tofsensor.RangeTooFar {
-		return ">2000mm"
-	}
+	//if r.Error != nil {
+	//	return "<failed>"
+	//}
+	//if r.DistanceMM == tofsensor.RangeTooFar {
+	//	return ">2000mm"
+	//}
 	return fmt.Sprintf("%dmm", r.DistanceMM)
 }
 
