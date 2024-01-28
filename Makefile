@@ -31,7 +31,7 @@ go-controller/bin/%: go-controller/cmd/%/*.go $(ARCH_DEPS) $(shell find go-contr
 PHONY: go-controller-image
 go-controller-image go-controller-image.tar: go-controller/bin/controller go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
-	docker save tigerbot/go-controller:latest > go-controller-image.tar
+	#docker save tigerbot/go-controller:latest > go-controller-image.tar
 
 go-install-to-pi: go-controller-image.tar
 	rsync -zv --progress go-controller-image.tar pi@$(BOT_HOST):go-controller-image.tar
