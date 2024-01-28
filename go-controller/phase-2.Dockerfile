@@ -8,4 +8,4 @@ COPY go-controller/copy-libs /go/src/github.com/tigerbot-team/tigerbot/go-contro
 
 WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 
-CMD bin/controller
+ENTRYPOINT ["bin/controller"]
