@@ -1,0 +1,67 @@
+
+* General gleanings from Discord
+- ToF trouble with black walls is because black reflects less light -
+  but apparently they start working at <= 250mm
+
+* Challenges
+
+** Lava Palava
+- Straightish line speed test, autonomous
+- Straight line with a kink, 7m long in total
+- White line down middle
+- Speed hump somewhere 53x570mm
+- Q. Do we already know where the speed hump will be?
+- Q. Are we allowed to observe this and build in knowledge on the day?
+- Dead reckoning
+- White line following by camera
+- ToF if we can rely on reflections from walls
+- Camera observing walls
+- Q. Do we need to allow for speed hump at all?  Can we go fast enough
+  for this to matter?
+- Q. If so, how do we spot it approaching?
+
+** Eco Disaster
+- Barrels, autonomous
+- Barrel positions and colours will be marked on the floor and will be
+  the same for all teams.
+- Gleanings from Discord
+  - No guaranteed minimum distance between barrels
+  - Still deciding whether we can use prior knowledge of barrel
+    positions
+
+** Escape Route
+- Maze, autonomous
+- Maze in one of 6 arrangements, which we won't know in advance, or be
+  able to see when starting the challenge.
+- Blue block has biggest Y measurement
+- Green block has medium Y measurement
+- Red block has smallest Y measurement
+- Always same Y offset from the Ymax of one block to the Ymin of the
+  next
+- Same X measurements for all blocks
+- Gleanings from Discord
+  - Will be blind even for autonomous bots, so maybe need a video feed?
+
+** Minesweeper
+- Light squares
+- Identify which square lit, move to it (any part of robot on the
+  square), be motionless for 1s
+- Repeat up to 20 times
+- Clearly can only be done by camera, and I think we need to know what
+  field of view we can get with the camera mounted at a certain
+  height, and angled horizontal or slightly down.  If there is a
+  height and angling with which we can see the whole area at once,
+  then question is whether cable will reach from the Pi to that
+  height, or if we can get an extension cable.
+
+
+** Zombie Apocalypse
+- Shooting targets, including elevated ones
+- Need shooting mechanism and target identification
+
+** Pi Noon
+- Mostly RC, but believe some autonomy is allowed
+- Maybe to take over targeting when we get close
+
+** Temple of Doom
+- RC, no autonomy possible
