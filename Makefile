@@ -41,8 +41,11 @@ go-patch: go-controller/bin/controller metabotspin/mb3.binary
 	rsync -zv --progress go-controller/bin/controller pi@$(BOT_HOST):controller
 	@echo 'Now run the image with -v `pwd`/controller:/controller'
 
-build-on-pi:
+copy-to-pi:
 	rsync -zv --progress -r ./ pi@$(BOT_HOST):tigerbot-build
+
+build-on-pi:
+	$(MAKE) copy-to-pi
 	ssh pi@$(BOT_HOST) make --directory tigerbot-build go-controller-image
 
 # Building and using a container image with Go, OpenCV and GOCV.

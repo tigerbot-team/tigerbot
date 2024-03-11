@@ -14,7 +14,7 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 )
 
 const (
@@ -37,7 +37,7 @@ type I2CController struct {
 	pwmPorts            map[int]pwmTypes // Either servoPosition or pwmValue
 	pwmPortsWithUpdates map[int]bool
 
-	prop        propeller.Interface
+	prop        picobldc.Interface
 	tofsEnabled bool
 
 	revisionUpdated               *sync.Cond
@@ -150,7 +150,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	}
 	screen.ClearNotice(NoteMux)
 
-	prop, err := propeller.New()
+	prop, err := picobldc.New()
 	if err != nil {
 		fmt.Println("Failed to open prop", err)
 		screen.SetNotice(NoteProp, screen.LevelErr)
@@ -345,7 +345,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		//}
 
 		c.lock.Lock()
-		l, r := c.motorL, c.motorR
+		fl, fr, bl, br := c.motorFL, c.motorFR, c.motorBL, c.motorBR
 		c.lock.Unlock()
 		// Speeds have changed
 		err = mx.SelectSinglePort(mux.BusPropeller)
@@ -355,7 +355,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			return
 		}
 		if lastL != l || lastR != r {
-			err = prop.SetMotorSpeeds(l, r)
+			err = prop.SetMotorSpeeds(l, r, 0, 0)
 			if err != nil {
 				fmt.Println("Failed to update motor speeds", err)
 				screen.SetNotice(NoteProp, screen.LevelErr)
@@ -365,25 +365,25 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			screen.ClearNotice(NoteProp)
 		}
 
-		m1, m2, err := prop.GetEncoderPositions()
-		if err == nil {
-			rightMM := float64(-m2) / motorToMMScaleFactor
-			leftMM := float64(-m1) / motorToMMScaleFactor
-			fmt.Println("Motor positions: ", m1, "=", leftMM, "mm ", m2, "=", rightMM, "mm")
-			c.lock.Lock()
-			c.leftMotorDist = leftMM
-			c.rightMotorDist = rightMM
-			c.lock.Unlock()
-			screen.ClearNotice(NoteProp)
-			err = prop.StartEncoderRead()
-			if err != nil {
-				fmt.Println("Failed to start encoder read", err)
-				screen.SetNotice(NoteProp, screen.LevelErr)
-				return
-			}
-		} else if err != propeller.ErrNotReady {
-			fmt.Println("Failed to read encoders", err)
-		}
+		//m1, m2, err := prop.GetEncoderPositions()
+		//if err == nil {
+		//	rightMM := float64(-m2) / motorToMMScaleFactor
+		//	leftMM := float64(-m1) / motorToMMScaleFactor
+		//	fmt.Println("Motor positions: ", m1, "=", leftMM, "mm ", m2, "=", rightMM, "mm")
+		//	c.lock.Lock()
+		//	c.leftMotorDist = leftMM
+		//	c.rightMotorDist = rightMM
+		//	c.lock.Unlock()
+		//	screen.ClearNotice(NoteProp)
+		//	err = prop.StartEncoderRead()
+		//	if err != nil {
+		//		fmt.Println("Failed to start encoder read", err)
+		//		screen.SetNotice(NoteProp, screen.LevelErr)
+		//		return
+		//	}
+		//} else if err != picobldc.ErrNotReady {
+		//	fmt.Println("Failed to read encoders", err)
+		//}
 
 		if servos == dummyServos && time.Since(lastServoInitTime) > 1*time.Second {
 			err = resetOrDummyOutServos()

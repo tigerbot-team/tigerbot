@@ -18,7 +18,7 @@ type RCMode struct {
 	name         string
 	startupSound string
 
-	propLock sync.Mutex // Guards access to the propeller
+	propLock sync.Mutex // Guards access to the picobldc
 	hardware hardware.Interface
 
 	servoController servo.ServoController

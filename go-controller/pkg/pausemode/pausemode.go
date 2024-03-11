@@ -5,7 +5,7 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/propeller"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 )
 
 func New(hw hardware.Interface) *PauseMode {
@@ -15,7 +15,7 @@ func New(hw hardware.Interface) *PauseMode {
 }
 
 type PauseMode struct {
-	Propeller propeller.Interface
+	Propeller picobldc.Interface
 	hw        hardware.Interface
 }
 
