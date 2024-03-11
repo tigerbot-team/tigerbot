@@ -236,6 +236,10 @@ func (p *PicoBLDC) maybeConfigure(resetMotorSpeeds bool, enableMotors bool) erro
 			}
 			if time.Since(lastPrint) > time.Second {
 				fmt.Printf("Waiting for calibration to finish... Status=%x\n", status)
+				if status&uint16(RegStatusFault) != 0 {
+					fmt.Println("Motor fault detected, are motors powered?")
+				}
+				lastPrint = time.Now()
 			}
 		}
 
