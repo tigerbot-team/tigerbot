@@ -20,6 +20,12 @@ type IMUReport struct {
 	ZAccel int16
 }
 
+func (i *IMUReport) String() string {
+	return fmt.Sprintf("%02x Y:%7.2f P:%7.2f R:%7.2f X:%7.2f Y:%7.2f Z:%7.2f",
+		i.Index, float64(i.Yaw)/100.0, float64(i.Pitch)/100.0, float64(i.Roll)/100.0,
+		float64(i.XAccel)/100.0, float64(i.YAccel)/100.0, float64(i.ZAccel)/100.0)
+}
+
 func main() {
 	mode := &serial.Mode{
 		BaudRate: 115200,
@@ -47,6 +53,7 @@ resync:
 
 	const packetLen = 19
 	buf := make([]byte, packetLen)
+	var i int
 	for {
 		_, err := io.ReadAtLeast(br, buf, packetLen)
 		if err != nil {
@@ -56,7 +63,7 @@ resync:
 			fmt.Println("Lost sync.")
 			goto resync
 		}
-		fmt.Printf("Packet: %x\n", buf)
+		//fmt.Printf("Packet: %x\n", buf)
 		var checksum uint8
 		for _, b := range buf[2 : packetLen-1] {
 			checksum += b
@@ -72,6 +79,9 @@ resync:
 		report.XAccel = int16(binary.LittleEndian.Uint16(buf[9:11]))
 		report.YAccel = int16(binary.LittleEndian.Uint16(buf[11:13]))
 		report.ZAccel = int16(binary.LittleEndian.Uint16(buf[13:15]))
-		fmt.Printf("Report: %+v\n", report)
+		if i%10 == 0 {
+			fmt.Printf("Report: %s\n", report.String())
+		}
+		i++
 	}
 }
