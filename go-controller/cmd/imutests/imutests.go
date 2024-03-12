@@ -66,9 +66,9 @@ resync:
 		}
 		var report IMUReport
 		report.Index = buf[2]
-		report.Roll = int16(binary.LittleEndian.Uint16(buf[3:5]))
+		report.Yaw = int16(binary.LittleEndian.Uint16(buf[3:5]))
 		report.Pitch = int16(binary.LittleEndian.Uint16(buf[5:7]))
-		report.Yaw = int16(binary.LittleEndian.Uint16(buf[7:9]))
+		report.Roll = int16(binary.LittleEndian.Uint16(buf[7:9]))
 		report.XAccel = int16(binary.LittleEndian.Uint16(buf[9:11]))
 		report.YAccel = int16(binary.LittleEndian.Uint16(buf[11:13]))
 		report.ZAccel = int16(binary.LittleEndian.Uint16(buf[13:15]))
