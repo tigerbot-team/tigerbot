@@ -10,7 +10,7 @@ import (
 
 	"github.com/fogleman/gg"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/imu"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/oldimu"
 
 	"periph.io/x/periph/conn/physic"
 	"periph.io/x/periph/conn/spi"
@@ -60,7 +60,7 @@ func main() {
 	// Use read.
 	log.Printf("Read back: %x\n", read[1:])
 
-	m, err := imu.NewSPI("/dev/spidev0.1")
+	m, err := oldimu.NewSPI("/dev/spidev0.1")
 	if err != nil {
 		fmt.Println("Failed to open IMU", err)
 		panic("Failed to open IMU")
@@ -94,7 +94,7 @@ var headingEstimate float64
 var offset = 0.0
 var numR int
 
-func readFIFO(m imu.Interface) {
+func readFIFO(m oldimu.Interface) {
 	const imuDT = 1 * time.Millisecond
 
 	for range time.NewTicker(time.Millisecond * 20).C {

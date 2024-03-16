@@ -15,6 +15,9 @@ import (
 
 const serialDevice = "/dev/ttyAMA0"
 
+const ReportFrequency = 100
+const ReportInterval = time.Second / ReportFrequency
+
 type IMUReport struct {
 	Time   time.Time
 	Index  uint8
@@ -34,8 +37,13 @@ func (i IMUReport) String() string {
 		float64(i.XAccel)/100.0, float64(i.YAccel)/100.0, float64(i.ZAccel)/100.0)
 }
 
+func (i IMUReport) YawDegrees() float64 {
+	return (float64(i.Yaw)) / 100.0
+}
+
 type Interface interface {
 	CurrentReport() IMUReport
+	WaitForReportAfter(t time.Time) IMUReport
 }
 
 type BNO08X struct {
@@ -58,7 +66,21 @@ func (b *BNO08X) CurrentReport() IMUReport {
 	return b.lastReport
 }
 
+func (b *BNO08X) WaitForReportAfter(t time.Time) IMUReport {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	startTime := time.Now()
+	for b.lastReport.Time.Before(t) {
+		b.cond.Wait()
+		if time.Since(startTime) > time.Second {
+			panic("IMU hasn't responded for >1s")
+		}
+	}
+	return b.lastReport
+}
+
 func (b *BNO08X) LoopReadingReports(ctx context.Context) {
+	defer b.cond.Broadcast()
 	for ctx.Err() == nil {
 		err := b.openAndLoop(ctx)
 		if ctx.Err() != nil {
@@ -66,6 +88,7 @@ func (b *BNO08X) LoopReadingReports(ctx context.Context) {
 		}
 		fmt.Println("BNO08X loop stopped; will retry", err)
 		time.Sleep(100 * time.Millisecond)
+		b.cond.Broadcast()
 	}
 }
 

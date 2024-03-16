@@ -42,7 +42,7 @@ go-patch: go-controller/bin/controller metabotspin/mb3.binary
 	@echo 'Now run the image with -v `pwd`/controller:/controller'
 
 copy-to-pi:
-	rsync -zv --progress -r ./ pi@$(BOT_HOST):tigerbot-build
+	rsync -z -r ./ pi@$(BOT_HOST):tigerbot-build
 
 build-on-pi:
 	$(MAKE) copy-to-pi

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/imu"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/oldimu"
 )
 
 type RawControl interface {
@@ -126,7 +126,7 @@ func (h *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		h.controlLock.Unlock()
 	}()
 
-	m, err := imu.NewSPI("/dev/spidev0.1")
+	m, err := oldimu.NewSPI("/dev/spidev0.1")
 	if err != nil {
 		fmt.Println("Failed to open IMU", err)
 		panic("Failed to open IMU")

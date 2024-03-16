@@ -25,7 +25,10 @@ func main() {
 	fmt.Println("Watchdog enabled.")
 
 	for {
+		loopStart := time.Now()
 		_ = pico.SetMotorSpeeds(1000, 2000, 3000, 4000)
+		setTime := time.Since(loopStart)
+		fmt.Printf("Motor update time: %s\n", setTime.Round(100*time.Microsecond))
 		battV, _ := pico.BattVolts()
 		current, _ := pico.CurrentAmps()
 		power, _ := pico.PowerWatts()
