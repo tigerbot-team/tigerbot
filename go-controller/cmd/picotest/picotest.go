@@ -15,6 +15,10 @@ func main() {
 	}
 	fmt.Println("Created PicoBLDC object. Enabling watchdog...")
 
+	if err := pico.Calibrate(); err != nil {
+		panic(err)
+	}
+
 	if err := pico.SetWatchdog(time.Second); err != nil {
 		panic(err)
 	}

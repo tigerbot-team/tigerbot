@@ -111,7 +111,7 @@ func New() (*PicoBLDC, error) {
 var _ Interface = (*PicoBLDC)(nil)
 
 func (p *PicoBLDC) Reset() error {
-	return p.maybeConfigure(true, false)
+	return p.maybeConfigure(true, false, true)
 }
 
 var ErrNotReady = errors.New("Pico-BLDC not ready")
@@ -125,7 +125,7 @@ func (p *PicoBLDC) SetWatchdog(timeout time.Duration) error {
 	if timeout == 0 {
 		// Disable.
 		p.watchdogEnabled = false
-		return p.maybeConfigure(false, false)
+		return p.maybeConfigure(false, false, false)
 	}
 
 	ms := timeout.Milliseconds()
@@ -138,11 +138,15 @@ func (p *PicoBLDC) SetWatchdog(timeout time.Duration) error {
 	}
 
 	p.watchdogEnabled = true
-	return p.maybeConfigure(false, false)
+	return p.maybeConfigure(false, false, false)
+}
+
+func (p *PicoBLDC) Calibrate() error {
+	return p.maybeConfigure(true, false, false)
 }
 
 func (p *PicoBLDC) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int16) error {
-	if err := p.maybeConfigure(false, true); err != nil {
+	if err := p.maybeConfigure(false, true, false); err != nil {
 		return err
 	}
 	if err := p.writeReg(RegMot0V, uint16(backRight)); err != nil {
@@ -187,7 +191,7 @@ func (p *PicoBLDC) writeWithRetries(data []byte) error {
 	panic("Failed to write to Pico-BLDC")
 }
 
-func (p *PicoBLDC) maybeConfigure(resetMotorSpeeds bool, enableMotors bool) error {
+func (p *PicoBLDC) maybeConfigure(resetMotorSpeeds bool, enableMotors bool, forceCalibration bool) error {
 	// Figure out if the config word has changed.
 	var configWord uint16 = RegCtrlEnableI2CControl
 	if resetMotorSpeeds {
@@ -198,6 +202,10 @@ func (p *PicoBLDC) maybeConfigure(resetMotorSpeeds bool, enableMotors bool) erro
 	}
 	if p.watchdogEnabled {
 		configWord |= RegCtrlWatchdogEnable
+	}
+	if forceCalibration {
+		configWord |= RegCtrlDoCalib
+		forceCalibration = false
 	}
 
 	if configWord == p.lastConfigWord && time.Since(p.lastConfigTime) < 100*time.Millisecond {
@@ -259,7 +267,7 @@ func (p *PicoBLDC) maybeConfigure(resetMotorSpeeds bool, enableMotors bool) erro
 	}
 
 	p.lastConfigTime = time.Now()
-	p.lastConfigWord = configWord & (^RegCtrlReset) /* Reset flag is not persistent */
+	p.lastConfigWord = configWord & (^RegCtrlReset) & (^RegCtrlDoCalib) /* Reset flag is not persistent */
 	return nil
 }
 
