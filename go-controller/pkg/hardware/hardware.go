@@ -10,8 +10,6 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/sound"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholderabs"
-
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder"
 )
 
@@ -57,7 +55,7 @@ func (h *Hardware) StartHeadingHoldMode() HeadingAbsolute {
 	var ctx context.Context
 	ctx, h.cancelCurrentControlMode = context.WithCancel(context.Background())
 
-	hh := headingholderabs.New(h.i2c)
+	hh := headingholder.NewAbsolute(h.i2c)
 	h.currentControlModeDone.Add(1)
 	go hh.Loop(ctx, &h.currentControlModeDone)
 	h.imu = hh
@@ -70,7 +68,7 @@ func (h *Hardware) StartYawAndThrottleMode() HeadingRelative {
 	var ctx context.Context
 	ctx, h.cancelCurrentControlMode = context.WithCancel(context.Background())
 
-	hh := headingholder.New(h.i2c)
+	hh := headingholder.NewYawRateAndThrottle(h.i2c)
 	h.currentControlModeDone.Add(1)
 	go hh.Loop(ctx, &h.currentControlModeDone)
 	h.imu = hh

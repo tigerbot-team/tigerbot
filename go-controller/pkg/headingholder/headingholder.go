@@ -7,11 +7,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
+
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/bno08x"
 )
 
-func New(motors RawControl) *HeadingHolder {
-	return &HeadingHolder{
+const motorFullRange = 0x5fff
+
+func NewYawRateAndThrottle(motors RawControl) *YawRateAndThrottle {
+	return &YawRateAndThrottle{
 		Motors: motors,
 	}
 }
@@ -20,55 +24,40 @@ type RawControl interface {
 	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int16) error
 }
 
-type HeadingHolder struct {
+type YawRateAndThrottle struct {
 	Motors RawControl
 
 	controlLock       sync.Mutex
 	yawRate, throttle float64
-	currentHeading    float64
+	currentHeading    angle.PlusMinus180
 }
 
-func (y *HeadingHolder) SetYawAndThrottle(yaw, throttle float64) {
-	y.controlLock.Lock()
-	defer y.controlLock.Unlock()
+func (h *YawRateAndThrottle) SetYawAndThrottle(yawRate, throttle float64) {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
 
-	y.yawRate = yaw
-	y.throttle = throttle
+	h.yawRate = yawRate
+	h.throttle = throttle
 }
 
-func (y *HeadingHolder) CurrentHeading() float64 {
-	y.controlLock.Lock()
-	defer y.controlLock.Unlock()
+func (h *YawRateAndThrottle) CurrentHeading() angle.PlusMinus180 {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
 
-	return y.currentHeading
+	return h.currentHeading
 }
 
-func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
+func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer fmt.Println("Heading holder loop exited")
 
-	m := bno08x.New()
-	go m.LoopReadingReports(cxt)
-
-	lastPrint := time.Now()
-	var lastIMUReport bno08x.IMUReport
-	for {
-		if cxt.Err() != nil {
-			fmt.Println("Context finished.")
-			return
-		}
-		if lastIMUReport = m.CurrentReport(); !lastIMUReport.Time.IsZero() {
-			break
-		}
-		if time.Since(lastPrint) > time.Second {
-			fmt.Println("Waiting for first reading from IMU...")
-			lastPrint = time.Now()
-		}
-		time.Sleep(100 * time.Millisecond)
+	m, lastIMUReport, err := openIMU(cxt)
+	if err != nil {
+		return
 	}
 
-	var headingEstimate float64
-	var targetHeading float64 = lastIMUReport.YawDegrees()
+	var headingEstimate angle.PlusMinus180
+	var targetHeading = angle.FromFloat(lastIMUReport.YawDegrees())
 	var filteredTranslation, filteredThrottle float64
 	var motorRotationSpeed float64
 	var lastHeadingError float64
@@ -84,6 +73,12 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * bno08x.ReportInterval.Seconds()
 	var lastLoopStart = time.Now()
+
+	defer func() {
+		if err := h.Motors.SetMotorSpeeds(0, 0, 0, 0); err != nil {
+			fmt.Println("Failed to set motor speeds:", err)
+		}
+	}()
 	for cxt.Err() == nil {
 		// This should pop every 10ms
 		imuReport := m.WaitForReportAfter(lastIMUReport.Time)
@@ -92,34 +87,34 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		loopTime := now.Sub(lastLoopStart)
 		lastLoopStart = now
 
-		// The IMU gives us absolute heading in range -180 to +180.  Shift that
-		// to 0-360
-		headingEstimate = imuReport.YawDegrees()
+		// We use an angle.PlusMinus180 to make sure we do our modulo arithmetic
+		// correctly...
+		headingEstimate = angle.FromFloat(imuReport.YawDegrees())
 
 		// Grab the current control values.
-		y.controlLock.Lock()
-		targetYawRate := y.yawRate
-		targetThrottle := y.throttle
-		y.currentHeading = headingEstimate
-		y.controlLock.Unlock()
+		h.controlLock.Lock()
+		targetYawRate := h.yawRate
+		targetThrottle := h.throttle
+		h.currentHeading = headingEstimate
+		h.controlLock.Unlock()
 
 		// Update our target heading accordingly.
 		loopTimeSecs := loopTime.Seconds()
 
 		// Avoid letting the yaw lead the heading too much.
 		const yawRateFactor = 300
-		targetHeading = clampDegrees(targetHeading + loopTimeSecs*targetYawRate*yawRateFactor)
-		leadDegrees := clampDegrees(targetHeading - headingEstimate)
+		targetHeading = targetHeading.AddFloat(loopTimeSecs * targetYawRate * yawRateFactor)
+		leadDegrees := targetHeading.Sub(headingEstimate)
 
-		const maxLeadDegrees = 20
-		if leadDegrees > maxLeadDegrees {
-			targetHeading = clampDegrees(headingEstimate + maxLeadDegrees)
-		} else if leadDegrees < -maxLeadDegrees {
-			targetHeading = clampDegrees(headingEstimate - maxLeadDegrees)
+		const maxLeadDegrees = 20.0
+		if leadDegrees.Float() > maxLeadDegrees {
+			targetHeading = headingEstimate.AddFloat(maxLeadDegrees)
+		} else if leadDegrees.Float() < -maxLeadDegrees {
+			targetHeading = headingEstimate.SubFloat(maxLeadDegrees)
 		}
 
 		// Calculate the error/derivative/integral.
-		headingError := clampDegrees(targetHeading - headingEstimate)
+		headingError := targetHeading.Sub(headingEstimate).Float()
 		dHeadingError := (headingError - lastHeadingError) / loopTimeSecs
 		iHeadingError += headingError * loopTimeSecs
 		if targetYawRate != 0 {
@@ -166,36 +161,47 @@ func (y *HeadingHolder) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			scale = 1.0 / m
 		}
 
-		const multiplier = 0xffff
-		fl := scaleAndClamp(frontLeft*scale, multiplier)
-		fr := scaleAndClamp(frontRight*scale, multiplier)
-		bl := scaleAndClamp(backLeft*scale, multiplier)
-		br := scaleAndClamp(backRight*scale, multiplier)
+		fl := scaleMotorOutput(frontLeft*scale, motorFullRange)
+		fr := scaleMotorOutput(frontRight*scale, motorFullRange)
+		bl := scaleMotorOutput(backLeft*scale, motorFullRange)
+		br := scaleMotorOutput(backRight*scale, motorFullRange)
 
-		if err := y.Motors.SetMotorSpeeds(fl, fr, bl, br); err != nil {
+		if err := h.Motors.SetMotorSpeeds(fl, fr, bl, br); err != nil {
 			fmt.Println("Failed to set motor speeds:", err)
 		}
 
 		lastHeadingError = headingError
 		lastIMUReport = imuReport
 	}
-	if err := y.Motors.SetMotorSpeeds(0, 0, 0, 0); err != nil {
+	if err := h.Motors.SetMotorSpeeds(0, 0, 0, 0); err != nil {
 		fmt.Println("Failed to set motor speeds:", err)
 	}
 }
 
-// clampDegrees shifts d into the range (-180, 180]
-func clampDegrees(d float64) float64 {
-	d = math.Mod(d, 360)
-	if d <= -180 {
-		d += 360
-	} else if d > 180 {
-		d -= 360
+func openIMU(cxt context.Context) (*bno08x.BNO08X, bno08x.IMUReport, error) {
+	m := bno08x.New()
+	go m.LoopReadingReports(cxt)
+
+	lastPrint := time.Now()
+	var lastIMUReport bno08x.IMUReport
+	for {
+		if cxt.Err() != nil {
+			fmt.Println("Context finished.")
+			return nil, bno08x.IMUReport{}, cxt.Err()
+		}
+		if lastIMUReport = m.CurrentReport(); !lastIMUReport.Time.IsZero() {
+			break
+		}
+		if time.Since(lastPrint) > time.Second {
+			fmt.Println("Waiting for first reading from IMU...")
+			lastPrint = time.Now()
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return d
+	return m, lastIMUReport, nil
 }
 
-func scaleAndClamp(value, multiplier float64) int16 {
+func scaleMotorOutput(value, multiplier float64) int16 {
 	multiplied := value * multiplier
 	if multiplied <= math.MinInt16 {
 		return math.MinInt16
