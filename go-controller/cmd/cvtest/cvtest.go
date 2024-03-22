@@ -11,6 +11,7 @@ import (
 )
 
 func main() {
+	fmt.Println("Hello cvtest here")
 	// Get name of file to analyze.
 	filename := os.Args[1]
 	if filename == "camera" {
@@ -66,7 +67,7 @@ func loopReadingCamera() {
 
 	for {
 		// This blocks until the next frame is ready.
-		if ok := webcam.Read(img); !ok {
+		if ok := webcam.Read(&img); !ok {
 			fmt.Printf("cannot read device\n")
 			return
 			time.Sleep(1 * time.Millisecond)
@@ -104,7 +105,7 @@ func analyzeFile(filename string) {
 	width := img.Cols()
 	scaleFactor := float64(600) / float64(width)
 	fmt.Printf("Scaling by %v\n", scaleFactor)
-	gocv.Resize(img, img, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
+	gocv.Resize(img, &img, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
 	fmt.Printf("Scaled size = %v x %v\n", img.Cols(), img.Rows())
 
 	// Try to find balls.

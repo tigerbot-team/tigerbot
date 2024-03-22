@@ -32,31 +32,31 @@ func ScaleAndConvertToHSV(img gocv.Mat, desiredWidth int) (hsv gocv.Mat) {
 	width := img.Cols()
 	scaleFactor := float64(desiredWidth) / float64(width)
 	scaled := gocv.NewMat()
-	gocv.Resize(img, scaled, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
+	gocv.Resize(img, &scaled, image.Point{}, scaleFactor, scaleFactor, gocv.InterpolationLinear)
 	defer scaled.Close()
 
 	// Convert to HSV.
 	hsv = gocv.NewMat()
-	gocv.CvtColor(scaled, hsv, gocv.ColorBGRToHSV)
+	gocv.CvtColor(scaled, &hsv, gocv.ColorBGRToHSV)
 
 	return
 }
 
 func HSVMaskNoWrapAround(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
-	lb := gocv.NewMatFromBytes(1, 3, gocv.MatTypeCV8U, []byte{
+	lb, _ := gocv.NewMatFromBytes(1, 3, gocv.MatTypeCV8U, []byte{
 		hsvRange.HueMin,
 		hsvRange.SatMin,
 		hsvRange.ValMin,
 	})
 	defer lb.Close()
-	ub := gocv.NewMatFromBytes(1, 3, gocv.MatTypeCV8U, []byte{
+	ub, _ := gocv.NewMatFromBytes(1, 3, gocv.MatTypeCV8U, []byte{
 		hsvRange.HueMax,
 		hsvRange.SatMax,
 		hsvRange.ValMax,
 	})
 	defer ub.Close()
 	mask := gocv.NewMatWithSize(hsv.Rows(), hsv.Cols(), gocv.MatTypeCV8U)
-	gocv.InRange(hsv, lb, ub, mask)
+	gocv.InRange(hsv, lb, ub, &mask)
 	return mask
 }
 
@@ -73,7 +73,7 @@ func HSVMask(hsv gocv.Mat, hsvRange *HSVRange) gocv.Mat {
 		mask2 := HSVMaskNoWrapAround(hsv, &range2)
 		defer mask2.Close()
 		mask := gocv.NewMatWithSize(hsv.Rows(), hsv.Cols(), gocv.MatTypeCV8U)
-		gocv.BitwiseOr(mask1, mask2, mask)
+		gocv.BitwiseOr(mask1, mask2, &mask)
 		return mask
 	}
 }
@@ -85,13 +85,13 @@ func FindBallPosition(hsv gocv.Mat, hsvRange *HSVRange) (pos BallPosition, err e
 	// Apply two iterations each of erosion and dilation, to remove noise.
 	nullMat := gocv.NewMat()
 	defer nullMat.Close()
-	gocv.Erode(mask, mask, nullMat)
-	gocv.Erode(mask, mask, nullMat)
-	gocv.Dilate(mask, mask, nullMat)
-	gocv.Dilate(mask, mask, nullMat)
+	gocv.Erode(mask, &mask, nullMat)
+	gocv.Erode(mask, &mask, nullMat)
+	gocv.Dilate(mask, &mask, nullMat)
+	gocv.Dilate(mask, &mask, nullMat)
 
 	// Find contours.
-	contours := gocv.FindContours(mask, gocv.RetrievalExternal, gocv.ChainApproxSimple)
+	contours := gocv.FindContours(mask, gocv.RetrievalExternal, gocv.ChainApproxSimple).ToPoints()
 	if len(contours) > 0 {
 		var (
 			maxArea        float64
@@ -99,13 +99,13 @@ func FindBallPosition(hsv gocv.Mat, hsvRange *HSVRange) (pos BallPosition, err e
 		)
 		maxArea = 0
 		for _, c := range contours {
-			area := gocv.ContourArea(c)
+			area := gocv.ContourArea(gocv.NewPointVectorFromPoints(c))
 			if area > maxArea {
 				maxArea = area
 				largestContour = c
 			}
 		}
-		boundingRect := gocv.BoundingRect(largestContour)
+		boundingRect := gocv.BoundingRect(gocv.NewPointVectorFromPoints(largestContour))
 		rWidth := boundingRect.Max.X - boundingRect.Min.X
 		rHeight := boundingRect.Max.Y - boundingRect.Min.Y
 		if rWidth > 18 {
@@ -127,5 +127,5 @@ func FindBallPosition(hsv gocv.Mat, hsvRange *HSVRange) (pos BallPosition, err e
 
 func MarkBallPosition(img gocv.Mat, pos BallPosition) {
 	// Draw the circle and centroid on the image.
-	gocv.Circle(img, image.Point{pos.X, pos.Y}, pos.Radius, color.RGBA{0, 255, 255, 0}, 2)
+	gocv.Circle(&img, image.Point{pos.X, pos.Y}, pos.Radius, color.RGBA{0, 255, 255, 0}, 2)
 }
