@@ -3,6 +3,14 @@
 - ToF trouble with black walls is because black reflects less light -
   but apparently they start working at <= 250mm
 
+* Subsystems
+- Joystick control
+- Movement
+- Heading hold
+- ToF
+- Camera
+- Gun targetting
+
 * Challenges
 
 ** Lava Palava
