@@ -115,6 +115,7 @@ func (p *VL53L5CX) GetNextContinuousMeasurement() ([]int, error) {
 		if time.Since(startTime) > time.Second {
 			return nil, ErrTimeout
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	var results C.VL53L5CX_ResultsData
