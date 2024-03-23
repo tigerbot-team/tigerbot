@@ -15,7 +15,7 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mazemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rainbow"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/vl53l5cx"
 	"gocv.io/x/gocv"
 	yaml "gopkg.in/yaml.v2"
 )
@@ -337,7 +337,7 @@ func (m *NebulaMode) runSequence(ctx context.Context) {
 			prettyPrinted := "-"
 			readingInMM, err := r.DistanceMM, r.Error
 			filters[j].Accumulate(readingInMM, readings.CaptureTime)
-			if readingInMM == tofsensor.RangeTooFar {
+			if readingInMM == vl53l5cx.RangeTooFar {
 				prettyPrinted = ">2000mm"
 			} else if err != nil {
 				prettyPrinted = "<failed>"

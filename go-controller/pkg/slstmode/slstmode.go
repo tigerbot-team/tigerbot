@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/tofsensor"
 	. "github.com/tigerbot-team/tigerbot/go-controller/pkg/tunable"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/vl53l5cx"
 )
 
 type SLSTMode struct {
@@ -188,7 +188,7 @@ func (s *SLSTMode) runSequence(ctx context.Context) {
 			prettyPrinted := "-"
 			readingInMM, err := r.DistanceMM, r.Error
 			filters[j].Accumulate(readingInMM, readings.CaptureTime)
-			if readingInMM == tofsensor.RangeTooFar {
+			if readingInMM == vl53l5cx.RangeTooFar {
 				prettyPrinted = ">2000mm"
 			} else if err != nil {
 				prettyPrinted = "<failed>"
@@ -497,7 +497,7 @@ func (f *Filter) IsGood() bool {
 func (f *Filter) BestGuess() int {
 	var goodSamples []int
 	for _, s := range f.recentSamples() {
-		if s.mm != 0 && s.mm < tofsensor.RangeTooFar {
+		if s.mm != 0 && s.mm < vl53l5cx.RangeTooFar {
 			goodSamples = append(goodSamples, s.mm)
 		}
 	}
@@ -511,7 +511,7 @@ func (f *Filter) BestGuess() int {
 func (f *Filter) Predict() float64 {
 	var goodSamples []filterSample
 	for _, s := range f.recentSamples() {
-		if s.mm != 0 && s.mm < tofsensor.RangeTooFar {
+		if s.mm != 0 && s.mm < vl53l5cx.RangeTooFar {
 			goodSamples = append(goodSamples, s)
 		}
 	}
@@ -542,7 +542,7 @@ func (f *Filter) MMPerSecond() float64 {
 	var goodSamples2 []filterSample
 	{
 		var goodSamples []filterSample
-		var min = tofsensor.RangeTooFar
+		var min = vl53l5cx.RangeTooFar
 		for _, s := range f.samples {
 			if s.mm != 0 && s.mm < 400 {
 				goodSamples = append(goodSamples, s)

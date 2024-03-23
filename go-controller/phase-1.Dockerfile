@@ -19,10 +19,9 @@ RUN apt-get install  -y libasound2-dev libasound2 libasound2-plugins
 
 ## Pre-build the ToF libraries
 #
-#COPY VL53L0X_1.0.2 $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_1.0.2
-#COPY VL53L0X_rasp $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp
-#WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L0X_rasp
-#RUN API_DIR=../VL53L0X_1.0.2 make all examples
-#
+COPY VL53L5CX_Linux_driver_1.3.11 $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L5CX_Linux_driver_1.3.11
+WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/VL53L5CX_Linux_driver_1.3.11
+RUN make -C user/test clean all
+
 RUN mkdir -p $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
 WORKDIR $GOPATH/src/github.com/tigerbot-team/tigerbot/go-controller
