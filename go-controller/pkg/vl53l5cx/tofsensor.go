@@ -73,6 +73,12 @@ func New(device string) (Interface, error) {
 			return nil, fmt.Errorf("VL53L5CX init failed rc=%d", int(rc))
 		}
 	}
+	{
+		rc := C.vl53l5cx_set_ranging_frequency_hz(tof.device, 10)
+		if rc != 0 {
+			return nil, fmt.Errorf("VL53L5CX set freq failed rc=%d", int(rc))
+		}
+	}
 	success = true
 	return tof, nil
 }
