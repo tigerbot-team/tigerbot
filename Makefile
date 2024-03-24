@@ -31,7 +31,7 @@ go-controller/bin/%: go-controller/cmd/%/*.go $(ARCH_DEPS) $(shell find go-contr
 PHONY: go-controller-image
 go-controller-image go-controller-image.tar: go-controller/bin/controller go-controller/sounds/* go-controller/*.Dockerfile go-controller/copy-libs
 	docker build . -f go-controller/phase-2.Dockerfile -t tigerbot/go-controller:latest
-	docker save tigerbot/go-controller:latest > go-controller-image.tar
+	#docker save tigerbot/go-controller:latest > go-controller-image.tar
 
 go-install-to-pi: go-controller-image.tar
 	rsync -zv --progress go-controller-image.tar pi@$(BOT_HOST):go-controller-image.tar
@@ -76,6 +76,43 @@ run-cvtest: go-controller/cvtest
 	    -w $(TIGERBOT)/go-controller \
 	    $(GOCV_DEV_IMAGE) \
 	    ./cvtest $(CVTEST_ARGS)
+
+run-cvtest2: go-controller/bin/cvtest
+	docker run --rm -it \
+	    --net=host \
+	    -v /dev:/dev --privileged \
+	    -v /home/pi/.Xauthority:/.Xauthority -e XAUTHORITY=/.Xauthority \
+	    -e DISPLAY=127.0.0.1:10.0 -v /tmp/.X11-unix:/tmp/.X11-unix \
+	    -v `pwd`:$(TIGERBOT) \
+	    -w $(TIGERBOT)/go-controller \
+	    -v /usr/bin/libcamerify:/libcamerify \
+	    -v /usr/lib/arm-linux-gnueabihf/libcamera:/usr/lib/arm-linux-gnueabihf/libcamera \
+	    -v /usr/lib/arm-linux-gnueabihf/libcamera.so.0.2:/usr/lib/arm-linux-gnueabihf/libcamera.so.0.2 \
+	    -v /usr/lib/arm-linux-gnueabihf/libcamera.so.0.2.0:/usr/lib/arm-linux-gnueabihf/libcamera.so.0.2.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/libcamera-base.so.0.2:/usr/lib/arm-linux-gnueabihf/libcamera-base.so.0.2 \
+	    -v /usr/lib/arm-linux-gnueabihf/libcamera-base.so.0.2.0:/usr/lib/arm-linux-gnueabihf/libcamera-base.so.0.2.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/libpisp.so.1:/usr/lib/arm-linux-gnueabihf/libpisp.so.1 \
+	    -v /usr/lib/arm-linux-gnueabihf/libpisp.so.1.0.4:/usr/lib/arm-linux-gnueabihf/libpisp.so.1.0.4 \
+	    -v /usr/lib/arm-linux-gnueabihf/liblttng-ust.so.1:/usr/lib/arm-linux-gnueabihf/liblttng-ust.so.1 \
+	    -v /usr/lib/arm-linux-gnueabihf/liblttng-ust.so.1.0.0:/usr/lib/arm-linux-gnueabihf/liblttng-ust.so.1.0.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/libyaml-0.so.2:/usr/lib/arm-linux-gnueabihf/libyaml-0.so.2 \
+	    -v /usr/lib/arm-linux-gnueabihf/libyaml-0.so.2.0.9:/usr/lib/arm-linux-gnueabihf/libyaml-0.so.2.0.9 \
+	    -v /usr/lib/arm-linux-gnueabihf/libdw.so.1:/usr/lib/arm-linux-gnueabihf/libdw.so.1 \
+	    -v /usr/lib/arm-linux-gnueabihf/libdw-0.188.so:/usr/lib/arm-linux-gnueabihf/libdw-0.188.so \
+	    -v /usr/lib/arm-linux-gnueabihf/libunwind.so.8:/usr/lib/arm-linux-gnueabihf/libunwind.so.8 \
+	    -v /usr/lib/arm-linux-gnueabihf/libunwind.so.8.0.1:/usr/lib/arm-linux-gnueabihf/libunwind.so.8.0.1 \
+	    -v /usr/lib/arm-linux-gnueabihf/libboost_log.so.1.74.0:/usr/lib/arm-linux-gnueabihf/libboost_log.so.1.74.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/libboost_thread.so.1.74.0:/usr/lib/arm-linux-gnueabihf/libboost_thread.so.1.74.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/liblttng-ust-common.so.1:/usr/lib/arm-linux-gnueabihf/liblttng-ust-common.so.1 \
+	    -v /usr/lib/arm-linux-gnueabihf/liblttng-ust-common.so.1.0.0:/usr/lib/arm-linux-gnueabihf/liblttng-ust-common.so.1.0.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/liblttng-ust-tracepoint.so.1:/usr/lib/arm-linux-gnueabihf/liblttng-ust-tracepoint.so.1 \
+	    -v /usr/lib/arm-linux-gnueabihf/liblttng-ust-tracepoint.so.1.0.0:/usr/lib/arm-linux-gnueabihf/liblttng-ust-tracepoint.so.1.0.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/libboost_filesystem.so.1.74.0:/usr/lib/arm-linux-gnueabihf/libboost_filesystem.so.1.74.0 \
+	    -v /usr/lib/arm-linux-gnueabihf/libffi.so.8:/usr/lib/arm-linux-gnueabihf/libffi.so.8 \
+	    -v /usr/lib/arm-linux-gnueabihf/libc.so.6:/lib/arm-linux-gnueabihf/libc.so.6 \
+	    tigerbot/go-controller-phase-1:latest \
+	    /libcamerify /bin/bash -c "echo $(CVTEST_ARGS)"
+	    #/libcamerify ./bin/cvtest $(CVTEST_ARGS) \
 
 enter-dev-image:
 	docker run --rm -it \

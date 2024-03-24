@@ -25,6 +25,8 @@ type Interface interface {
 	SetPWM(port int, value float64)
 
 	PlaySound(path string)
+
+	Shutdown()
 }
 
 type RawControl interface {

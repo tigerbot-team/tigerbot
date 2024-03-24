@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -31,6 +32,9 @@ type JoystickUser interface {
 }
 
 func main() {
+	dummyPtr := flag.Bool("dummy", false, "not running on real bot")
+	flag.Parse()
+
 	fmt.Println("---- Firebot ----")
 	fmt.Println("GOMAXPROCS", runtime.GOMAXPROCS(0))
 
@@ -41,7 +45,12 @@ func main() {
 	registerSignalHandlers(cancel)
 
 	// Initialise the hardware.
-	hw := hardware.New()
+	var hw hardware.Interface
+	if *dummyPtr {
+		hw = hardware.NewDummy()
+	} else {
+		hw = hardware.New()
+	}
 	defer func() {
 		fmt.Println("Zeroing motors for shut down")
 		hw.Shutdown()
