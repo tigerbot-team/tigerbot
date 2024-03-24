@@ -60,15 +60,15 @@ func New(device string) (Interface, error) {
 		rc := C.vl53l5cx_is_alive(tof.device, &alive)
 		fmt.Println("vl53l5cx_is_alive = ", rc)
 		if rc != 0 {
-			return nil, fmt.Errorf("VL53L5CX is alive failed rc=%d", int(rc))
+			return nil, fmt.Errorf("VL53L5CX liveness check failed rc=%d", int(rc))
 		}
-		if alive != 0 {
+		if alive == 0 {
 			return nil, fmt.Errorf("VL53L5CX not found on bus")
 		}
 	}
 	{
 		rc := C.vl53l5cx_init(tof.device)
-		fmt.Println("vl53l5cx_init = ", rc)
+		fmt.Println("vl53l5cx_init(...) = ", rc)
 		if rc != 0 {
 			return nil, fmt.Errorf("VL53L5CX init failed rc=%d", int(rc))
 		}
