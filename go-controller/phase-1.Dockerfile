@@ -1,7 +1,7 @@
 # Start with a container that's already set up with OpenCV
 # and do the builds in there.
 
-FROM golang:1.21-bullseye
+FROM golang:1.21-bookworm
 
 RUN apt-get update -y && \
     apt-get install -y make gcc wget git sudo
@@ -9,7 +9,7 @@ RUN apt-get update -y && \
 # Download and install the Golang open CV library
 RUN mkdir $GOPATH/src/hybridgroup/ && \
     cd $GOPATH/src/hybridgroup/ && \
-    git clone https://github.com/hybridgroup/gocv.git
+    git clone https://github.com/nelljerram/gocv.git -b bookworm
 
 RUN cd $GOPATH/src/hybridgroup/gocv && \
     make install_raspi
