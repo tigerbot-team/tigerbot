@@ -25,6 +25,7 @@ func main() {
 	// Wait for the joystick and kick off a background thread to read from it.
 	joystickEvents := initJoystick(cancel, ctx)
 	ticker := time.NewTicker(10 * time.Millisecond)
+	metricsTicker := time.NewTicker(time.Second)
 
 	pico, err := picobldc.New()
 	if err != nil {
@@ -79,6 +80,13 @@ func main() {
 			br := scaleMotorOutput(backRight*scale, motorFullRange)
 
 			pico.SetMotorSpeeds(fl, fr, bl, br)
+		case <-metricsTicker.C:
+			battV, _ := pico.BattVolts()
+			current, _ := pico.CurrentAmps()
+			power, _ := pico.PowerWatts()
+			tempC, _ := pico.TemperatureC()
+			status, _ := pico.Status()
+			fmt.Printf("%.1fC %.2fV %.3fA %.3fW Status=%x\n", tempC, battV, current, power, status)
 		}
 	}
 }
@@ -153,7 +161,6 @@ func loopReadingJoystickEvents(ctx context.Context, j *joystick.Joystick, events
 			fmt.Printf("Failed to read from joystick: %v.\n", err)
 			return err
 		}
-		fmt.Printf("Event from joystick: %s\n", event)
 		events <- event
 	}
 	return ctx.Err()
