@@ -40,8 +40,8 @@ import (
 type EventType uint8
 
 const (
-	EventTypeButton = 1
-	EventTypeAxis   = 2
+	EventTypeButton EventType = 1
+	EventTypeAxis   EventType = 2
 )
 
 const (

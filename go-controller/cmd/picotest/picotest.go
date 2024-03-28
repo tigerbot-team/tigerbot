@@ -26,7 +26,7 @@ func main() {
 
 	for {
 		loopStart := time.Now()
-		_ = pico.SetMotorSpeeds(1000, 2000, 3000, 4000)
+		_ = pico.SetMotorSpeeds(0, 100, 0, 0)
 		setTime := time.Since(loopStart)
 		fmt.Printf("Motor update time: %s\n", setTime.Round(100*time.Microsecond))
 		battV, _ := pico.BattVolts()

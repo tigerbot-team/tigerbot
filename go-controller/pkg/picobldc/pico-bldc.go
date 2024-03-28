@@ -149,16 +149,16 @@ func (p *PicoBLDC) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int
 	if err := p.maybeConfigure(false, true, false); err != nil {
 		return err
 	}
-	if err := p.writeReg(RegMot0V, uint16(backRight)); err != nil {
+	if err := p.writeReg(RegMot1V, uint16(backRight)); err != nil {
 		return err
 	}
-	if err := p.writeReg(RegMot1V, uint16(frontRight)); err != nil {
+	if err := p.writeReg(RegMot0V, uint16(frontRight)); err != nil {
 		return err
 	}
-	if err := p.writeReg(RegMot2V, uint16(frontLeft)); err != nil {
+	if err := p.writeReg(RegMot3V, uint16(frontLeft)); err != nil {
 		return err
 	}
-	if err := p.writeReg(RegMot3V, uint16(backLeft)); err != nil {
+	if err := p.writeReg(RegMot2V, uint16(backLeft)); err != nil {
 		return err
 	}
 	return nil
