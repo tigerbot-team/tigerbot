@@ -3,14 +3,13 @@ package hardware
 import (
 	"context"
 	"fmt"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
 	"sync"
 	"time"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
-
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/sound"
-
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/sound"
 )
 
 type Hardware struct {
@@ -21,7 +20,7 @@ type Hardware struct {
 	cancelCurrentControlMode context.CancelFunc
 	currentControlModeDone   sync.WaitGroup
 	imu                      interface {
-		CurrentHeading() float64
+		CurrentHeading() angle.PlusMinus180
 	}
 }
 
@@ -84,13 +83,13 @@ func (h *Hardware) StopMotorControl() {
 		fmt.Println("HW: Stopped motor control")
 	}
 	h.imu = nil
-	h.i2c.SetMotorSpeeds(0, 0)
+	h.i2c.SetMotorSpeeds(0, 0, 0, 0)
 	time.Sleep(30 * time.Millisecond)
 }
 
-func (h *Hardware) CurrentHeading() float64 {
+func (h *Hardware) CurrentHeading() angle.PlusMinus180 {
 	if h.imu == nil {
-		return 0
+		return angle.PlusMinus180{}
 	}
 	// FIXME Run IMU all the time, not just when heading holding.
 	return h.imu.CurrentHeading()

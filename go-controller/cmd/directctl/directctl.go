@@ -81,7 +81,7 @@ func main() {
 
 			pico.SetMotorSpeeds(fl, fr, bl, br)
 		case <-metricsTicker.C:
-			battV, _ := pico.BattVolts()
+			battV, _ := pico.BusVoltage()
 			current, _ := pico.CurrentAmps()
 			power, _ := pico.PowerWatts()
 			tempC, _ := pico.TemperatureC()

@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	Addr1 = 0x41
-	Addr2 = 0x44
+	Addr1 = 0x40
 
 	RegConfig      = 0
 	RegShuntV      = 1
@@ -22,9 +21,9 @@ const (
 
 type Interface interface {
 	Configure(shuntOhms float64, maxCurrent float64) error
-	ReadBusVoltage() (float64, error)
-	ReadCurrent() (float64, error)
-	ReadPower() (float64, error)
+	BusVoltage() (float64, error)
+	CurrentAmps() (float64, error)
+	PowerWatts() (float64, error)
 }
 
 type port interface {
@@ -57,18 +56,18 @@ func (m *INA219) Configure(shuntOhms float64, maxCurrent float64) error {
 	return err
 }
 
-func (m *INA219) ReadBusVoltage() (float64, error) {
+func (m *INA219) BusVoltage() (float64, error) {
 	raw, err := m.Read16(RegBusV)
 	shifted := raw >> 3
 	return float64(shifted) * BusVoltageLSB, err
 }
 
-func (m *INA219) ReadCurrent() (float64, error) {
+func (m *INA219) CurrentAmps() (float64, error) {
 	raw, err := m.Read16(RegCurrent)
 	return float64(raw) * m.currentLSB, err
 }
 
-func (m *INA219) ReadPower() (float64, error) {
+func (m *INA219) PowerWatts() (float64, error) {
 	raw, err := m.Read16(RegPower)
 	return float64(raw) * m.currentLSB * 20, err
 }
