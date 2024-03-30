@@ -208,8 +208,8 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		}
 
 		// Map the values to speeds for each motor.
-		left := filteredThrottle + motorRotationSpeed
-		right := -filteredThrottle + motorRotationSpeed
+		left := filteredThrottle - motorRotationSpeed
+		right := -filteredThrottle - motorRotationSpeed
 
 		m := math.Max(left, right)
 		scale := 1.0

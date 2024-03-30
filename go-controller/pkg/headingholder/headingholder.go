@@ -150,10 +150,11 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// Map the values to speeds for each motor.  Motor rotation direction:
 		// positive = anti-clockwise.
-		frontLeft := filteredThrottle + motorRotationSpeed + filteredTranslation
-		frontRight := -filteredThrottle + motorRotationSpeed - filteredTranslation
-		backLeft := filteredThrottle + motorRotationSpeed - filteredTranslation
-		backRight := -filteredThrottle + motorRotationSpeed + filteredTranslation
+		frontLeft := filteredThrottle - motorRotationSpeed - filteredTranslation
+		backLeft := filteredThrottle - motorRotationSpeed + filteredTranslation
+
+		frontRight := -filteredThrottle - motorRotationSpeed - filteredTranslation
+		backRight := -filteredThrottle - motorRotationSpeed + filteredTranslation
 
 		m := max(frontLeft, frontRight, backLeft, backRight)
 		scale := 1.0
