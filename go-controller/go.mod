@@ -18,6 +18,7 @@ require (
 	github.com/gopherjs/gopherjs v0.0.0-20180420180156-fcfa75a46cca // indirect
 	github.com/hajimehoshi/oto v0.0.0-20180404145402-7a1d13b19d82 // indirect
 	github.com/pkg/errors v0.8.1-0.20180311214515-816c9085562c // indirect
+	github.com/quartercastle/vector v0.2.0 // indirect
 	go.bug.st/serial v1.6.2 // indirect
 	golang.org/x/image v0.0.0-20190209060608-ef4a1470e0dc // indirect
 	golang.org/x/sys v0.0.0-20220829200755-d48e67d00261 // indirect

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"time"
 
@@ -39,6 +40,24 @@ func (i IMUReport) String() string {
 
 func (i IMUReport) YawDegrees() float64 {
 	return (float64(i.Yaw)) / 100.0
+}
+func (i IMUReport) PitchDegrees() float64 {
+	return (float64(i.Pitch)) / 100.0
+}
+func (i IMUReport) RollDegrees() float64 {
+	return (float64(i.Roll)) / 100.0
+}
+
+func (i IMUReport) YawRadians() float64 {
+	return i.YawDegrees() * 2 * math.Pi / 360.0
+}
+
+func (i IMUReport) PitchRadians() float64 {
+	return i.PitchDegrees() * 2 * math.Pi / 360.0
+}
+
+func (i IMUReport) RollRadians() float64 {
+	return i.RollDegrees() * 2 * math.Pi / 360.0
 }
 
 type Interface interface {
