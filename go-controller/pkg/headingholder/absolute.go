@@ -120,7 +120,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		return
 	}
 
-	initialHeading := angle.FromFloat(lastIMUReport.YawDegrees())
+	initialHeading := lastIMUReport.RobotYaw()
 	var headingEstimate angle.PlusMinus180
 	var filteredThrottle float64
 	var motorRotationSpeed float64
@@ -154,7 +154,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// We use an angle.PlusMinus180 to make sure we do our modulo arithmetic
 		// correctly...
-		headingEstimate = angle.FromFloat(imuReport.YawDegrees()).Sub(initialHeading)
+		headingEstimate = imuReport.RobotYaw().Sub(initialHeading)
 
 		// Grab the current control values.
 		h.controlLock.Lock()

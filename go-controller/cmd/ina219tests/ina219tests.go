@@ -21,7 +21,7 @@ func main() {
 
 	err = ina219A.Configure(0.1, 2.0)
 	if err != nil {
-		fmt.Println("Failed to configure ina219B", err)
+		fmt.Println("Failed to configure ina219A", err)
 		return
 	}
 

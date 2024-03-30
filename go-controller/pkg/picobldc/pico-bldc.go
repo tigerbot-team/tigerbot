@@ -165,7 +165,7 @@ func (p *PicoBLDC) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int
 }
 
 func (p *PicoBLDC) Close() error {
-	_ = p.Reset()
+	_ = p.maybeConfigure(true, false, false)
 	return p.dev.Close()
 }
 

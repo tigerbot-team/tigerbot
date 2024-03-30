@@ -112,8 +112,8 @@ func (m *RCMode) loop(ctx context.Context) {
 			}
 
 			m.servoController.OnJoystickEvent(event)
-			yaw, throttle := mix(leftStickX, leftStickY, rightStickX, rightStickY)
-			motorController.SetYawAndThrottle(yaw, throttle)
+			yaw, throttle, translation := mix(leftStickX, leftStickY, rightStickX, rightStickY)
+			motorController.SetYawAndThrottle(-yaw, throttle, translation)
 
 			m.hardware.SetServo(8, clamp(0.3+throttle/2-yaw/3, 0.2, 1))  // 0 is arm down, 1 is arm up
 			m.hardware.SetServo(10, clamp(0.7-throttle/2-yaw/3, 0, 0.8)) // 0 is arm up, 1 is arm down
@@ -127,19 +127,19 @@ func (m *RCMode) OnJoystickEvent(event *joystick.Event) {
 	m.joystickEvents <- event
 }
 
-func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle float64) {
+func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translation float64) {
 	const expo = 1.6
 	_ = lStickY
 	_ = rStickX
 
 	// Put all the values into the range (-1, 1) and apply expo.
-	yaw = applyExpo(float64(lStickX)/32767.0, 2.5) / 4
-
+	yaw = applyExpo(float64(lStickX)/32767.0, expo) / 4
 	throttle = applyExpo(float64(rStickY)/-32767.0, expo) / 4
+	translation = applyExpo(float64(rStickX)/-32767.0, expo) / 2
 	return
 }
 
-func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle float64) {
+func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, translation float64) {
 	const expo = 1.6
 	_ = lStickY
 	_ = rStickX
@@ -147,6 +147,7 @@ func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle floa
 	// Put all the values into the range (-1, 1) and apply expo.
 	yaw = applyExpo(float64(lStickX)/32767.0, expo)
 	throttle = applyExpo(float64(rStickY)/-32767.0, expo)
+	translation = applyExpo(float64(rStickX)/-32767.0, expo)
 
 	return
 }

@@ -40,7 +40,7 @@ type HeadingAbsolute interface {
 }
 
 type HeadingRelative interface {
-	SetYawAndThrottle(yaw, throttle float64)
+	SetYawAndThrottle(yawRate, throttle, translation float64)
 }
 
 type revision uint64
