@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
+	"gonum.org/v1/gonum/spatial/r3"
 	"io"
 	"math"
 	"sync"
@@ -58,6 +60,10 @@ func (i IMUReport) PitchRadians() float64 {
 
 func (i IMUReport) RollRadians() float64 {
 	return i.RollDegrees() * 2 * math.Pi / 360.0
+}
+
+func (i IMUReport) RobotYaw() angle.PlusMinus180 {
+	return CalculateRobotYaw(i.YawRadians(), i.PitchRadians(), i.RollRadians())
 }
 
 type Interface interface {
@@ -182,4 +188,33 @@ func (b *BNO08X) setReport(report IMUReport) {
 	defer b.lock.Unlock()
 	b.lastReport = report
 	b.cond.Broadcast()
+}
+
+// CalculateRobotYaw calculates the robot's rotation around an axis perpendicular to the floor.  I.e.
+// it does a coordinate transform from the IMU's yaw, pitch, roll according to how it is mounted on the robot.
+func CalculateRobotYaw(yaw float64, pitch float64, roll float64) angle.PlusMinus180 {
+	// Sensor gives us yaw, pitch, roll.  These need to be applied in that order.
+
+	// Rotate the axes yaw radians around Z.
+	x0 := r3.Vec{X: 1}
+	z0 := r3.Vec{Z: 1}
+	y0 := r3.Vec{Y: 1}
+
+	x1 := r3.Rotate(x0, yaw, z0)
+	y1 := r3.Rotate(y0, yaw, z0)
+	z1 := z0
+
+	// Rotate pitch radians around the *new* Y.
+	x2 := r3.Rotate(x1, pitch, y1)
+	//y2 := y1
+	z2 := r3.Rotate(z1, pitch, y1)
+
+	// Rotate roll radians around the *new* X.
+	//x3 := x2
+	//y3 := r3.Rotate(y2, roll,  x2)
+	z3 := r3.Rotate(z2, roll, x2)
+
+	// Take the x and y components of the final Z vector.  The Z vector points towards the
+	// front of the robot.
+	return angle.FromFloat(math.Atan2(z3.X, z3.Y) * 360 / (2 * math.Pi))
 }
