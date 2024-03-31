@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/pkg/errors"
@@ -86,5 +87,70 @@ func main() {
 			fmt.Println("ERROR:", err)
 			continue
 		}
+	}
+}
+
+// Both of the following abstractions might include some uncertainties
+// / error bars / values with probabilities attached.  But at any
+// given time, when performing a challenge, we do need to decide what
+// the bot should do next.  So we somehow need to keep those
+// uncertainties small enough to at least take the next step.
+
+// Abstraction of what we believe the state of the challenge arena to
+// be, and how much of the challenge/arena remains to be done.
+type Arena interface {
+}
+
+// Abstraction of where we believe the bot to be within the arena, and
+// its orientation at that position.
+type Position interface {
+}
+
+// Abstraction of some motion that we've already instructed the bot to
+// perform, and that it has started and may still be performing.  (In
+// principle could include either "do X until further notice" or "do X
+// for the next T seconds".)
+type Motion interface {
+}
+
+// Abstraction of the challenge as a whole.
+type Challenge interface {
+	StartingArena() Arena
+	StartingPosition() Position
+	AtEnd(Arena, Position) bool
+	UpdateBeliefs(Arena, Position, time.Duration) (Arena, Position)
+}
+
+func logic() {
+
+	var (
+		arena     Arena
+		position  Position
+		challenge Challenge
+	)
+
+	challenge.Start()
+
+	startTime := time.Now()
+
+	for !challenge.AtEnd() {
+
+		elapsedTime := time.Now().Sub(startTime)
+
+		// Challenge iteration:
+		// - Use sensors to update our beliefs about the arena
+		//   and where we are within it.
+		// - Compute the next position that we want the bot to
+		//   move to.
+		// - Compute how long to wait before calling Iterate
+		//   again.
+		nextTargetPosition, recheckTime = challenge.Iterate(elapsedTime)
+
+		// Tell the bot to start (or continue) moving to that
+		// position.
+		bot.RequestMotionTo(nextTargetPosition)
+
+		// Sleep for the indicated time before next iteration.
+		time.Sleep(recheckTime)
 	}
 }
