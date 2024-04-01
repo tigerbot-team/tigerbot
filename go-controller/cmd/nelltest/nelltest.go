@@ -116,7 +116,7 @@ const PositiveAnglesAnticlockwise float64 = 1
 // Where we believe the bot to be within the arena, and its
 // orientation at that position, w.r.t. a coordinate system that makes
 // sense for the arena.
-type ArenaPosition struct {
+type Position struct {
 	x, y    float64 // millimetres
 	heading float64 // w.r.t. the positive X direction, +tive CCW
 }
@@ -130,7 +130,7 @@ var lastThrottleRequest *ThrottleRequest
 
 const RADIANS_PER_DEGREE = math.Pi / 180
 
-func NewArenaPosition(old *ArenaPosition, rotations float64) *ArenaPosition {
+func NewPosition(old *Position, rotations float64) *Position {
 	// Mapping from wheel rotations to actual ahead and sideways
 	// displacement depends on the throttle angle.
 	normalizedAngle := angle.FromFloat(lastThrottleRequest.angle).Float()
@@ -151,39 +151,39 @@ func NewArenaPosition(old *ArenaPosition, rotations float64) *ArenaPosition {
 	sin := math.Sin(old.heading * RADIANS_PER_DEGREE)
 	cos := math.Cos(old.heading * RADIANS_PER_DEGREE)
 
-	return &ArenaPosition{
+	return &Position{
 		x:       old.x - aheadDisplacement*sin - leftDisplacement*cos,
 		y:       old.y + aheadDisplacement*cos - leftDisplacement*sin,
 		heading: old.heading,
 	}
 }
 
-func Move(from, to *ArenaPosition) {
-	if to.heading != from.heading {
+func StartMotion(current, target *Position) {
+	if target.heading != current.heading {
 		hh.SetThrottle(0)
-		hh.SetHeading(xHeading + to.heading*PositiveAnglesAnticlockwise)
+		hh.SetHeading(xHeading + target.heading*PositiveAnglesAnticlockwise)
 		hh.Wait(context.Background())
 	}
 	var displacementHeading float64
-	if to.x == from.x {
-		if to.y > from.y {
+	if target.x == current.x {
+		if target.y > current.y {
 			displacementHeading = 90
-		} else if to.y < from.y {
+		} else if target.y < current.y {
 			displacementHeading = -90
 		} else {
 			return
 		}
-	} else if to.y == from.y {
-		if to.x > from.x {
+	} else if target.y == current.y {
+		if target.x > current.x {
 			displacementHeading = 0
 		} else {
 			displacementHeading = 180
 		}
 	} else {
-		displacementHeading = math.Atan2(float64(to.y-from.y), float64(to.x-from.x)) / RADIANS_PER_DEGREE
+		displacementHeading = math.Atan2(float64(target.y-current.y), float64(target.x-current.x)) / RADIANS_PER_DEGREE
 	}
 	newThrottleRequest := &ThrottleRequest{
-		angle:    displacementHeading - to.heading,
+		angle:    displacementHeading - target.heading,
 		throttle: 1,
 	}
 	if lastThrottleRequest != nil && *newThrottleRequest != *lastThrottleRequest {
@@ -201,42 +201,57 @@ type Motion interface {
 
 // Abstraction of the challenge as a whole.
 type Challenge interface {
-	StartingArena() Arena
-	StartingPosition() Position
+	// Set any internal state to reflect the beginning of the
+	// challenge and return the initial position and whatever
+	// initial knowledge we have about the arena.
+	Start() (Arena, Position)
+
+	// Use available sensors to update our beliefs about the arena
+	// and where we are within it.
+	UpdateBeliefs(arena Arena, position Position, timeSinceStart time.Duration) (Arena, Position)
+
 	AtEnd(Arena, Position) bool
-	UpdateBeliefs(Arena, Position, time.Duration) (Arena, Position)
 }
 
 func logic() {
 
-	var (
-		arena     Arena
-		position  Position
-		challenge Challenge
-	)
+	var challenge Challenge
+	var currentTarget *Position
 
-	challenge.Start()
-
+	arena, position := challenge.Start()
 	startTime := time.Now()
 
-	for !challenge.AtEnd() {
+	for {
+		timeSinceStart := time.Now().Sub(startTime)
 
-		elapsedTime := time.Now().Sub(startTime)
+		arena, position = challenge.UpdateBeliefs(arena, position, timeSinceStart)
 
-		// Challenge iteration:
-		// - Use sensors to update our beliefs about the arena
-		//   and where we are within it.
-		// - Compute the next position that we want the bot to
-		//   move to.
-		// - Compute how long to wait before calling Iterate
-		//   again.
-		nextTargetPosition, recheckTime = challenge.Iterate(elapsedTime)
+		if currentTarget != nil && TargetReached(currentTarget, position) {
+			// TODO: Stop motors.
+			currentTarget = nil
+			if challenge.AtEnd(arena, position) {
+				break
+			}
+		}
 
-		// Tell the bot to start (or continue) moving to that
-		// position.
-		bot.RequestMotionTo(nextTargetPosition)
+		// Compute the next position that we want the bot to
+		// move to, and how long to wait before rechecking
+		// where we are.
+		var moveTime time.Duration
+		currentTarget, moveTime = challenge.NextTarget(arena, position, timeSinceStart, currentTarget)
 
-		// Sleep for the indicated time before next iteration.
-		time.Sleep(recheckTime)
+		// Start moving to that position.  Note, even if the
+		// target is unchanged since last iteration, our idea
+		// of position has probably changed, so best to work
+		// out the required motion from scratch again.
+		StartMotion(position, currentTarget)
+
+		// Allow motion for the indicated time.
+		time.Sleep(moveTime)
+
+		// TODO: Stop motors.
+
+		// Update current position based on dead reckoning.
+		position = *NewPosition(position, hh.Rotations())
 	}
 }
