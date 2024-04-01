@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime"
 	"strings"
@@ -12,6 +14,8 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/pkg/errors"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/cameracontrol"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
 )
 
 var CLI struct {
@@ -101,9 +105,91 @@ func main() {
 type Arena interface {
 }
 
-// Abstraction of where we believe the bot to be within the arena, and
-// its orientation at that position.
-type Position interface {
+// Absolute HH heading that corresponds to the arena's positive X
+// direction.
+var xHeading float64
+
+var hh hardware.HeadingAbsolute
+
+const PositiveAnglesAnticlockwise float64 = 1
+
+// Where we believe the bot to be within the arena, and its
+// orientation at that position, w.r.t. a coordinate system that makes
+// sense for the arena.
+type ArenaPosition struct {
+	x, y    float64 // millimetres
+	heading float64 // w.r.t. the positive X direction, +tive CCW
+}
+
+type ThrottleRequest struct {
+	angle    float64 // CCW from straight ahead (bot-relative)
+	throttle float64
+}
+
+var lastThrottleRequest *ThrottleRequest
+
+const RADIANS_PER_DEGREE = math.Pi / 180
+
+func NewArenaPosition(old *ArenaPosition, rotations float64) *ArenaPosition {
+	// Mapping from wheel rotations to actual ahead and sideways
+	// displacement depends on the throttle angle.
+	normalizedAngle := angle.FromFloat(lastThrottleRequest.angle).Float()
+
+	// Round to the closest multiple of 5 degrees.  Note, Golang
+	// rounds towards zero when converting float64 to int.
+	var quantizedAngleOver5 int
+	if normalizedAngle > 0 {
+		quantizedAngleOver5 = int(normalizedAngle/5 + 0.5)
+	} else {
+		quantizedAngleOver5 = int(normalizedAngle/5 - 0.5)
+	}
+
+	// quantizedAngleOver5 is now from -36 to 36 (inclusive).
+	aheadDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].ahead
+	leftDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].left
+
+	sin := math.Sin(old.heading * RADIANS_PER_DEGREE)
+	cos := math.Cos(old.heading * RADIANS_PER_DEGREE)
+
+	return &ArenaPosition{
+		x:       old.x - aheadDisplacement*sin - leftDisplacement*cos,
+		y:       old.y + aheadDisplacement*cos - leftDisplacement*sin,
+		heading: old.heading,
+	}
+}
+
+func Move(from, to *ArenaPosition) {
+	if to.heading != from.heading {
+		hh.SetThrottle(0)
+		hh.SetHeading(xHeading + to.heading*PositiveAnglesAnticlockwise)
+		hh.Wait(context.Background())
+	}
+	var displacementHeading float64
+	if to.x == from.x {
+		if to.y > from.y {
+			displacementHeading = 90
+		} else if to.y < from.y {
+			displacementHeading = -90
+		} else {
+			return
+		}
+	} else if to.y == from.y {
+		if to.x > from.x {
+			displacementHeading = 0
+		} else {
+			displacementHeading = 180
+		}
+	} else {
+		displacementHeading = math.Atan2(float64(to.y-from.y), float64(to.x-from.x)) / RADIANS_PER_DEGREE
+	}
+	newThrottleRequest := &ThrottleRequest{
+		angle:    displacementHeading - to.heading,
+		throttle: 1,
+	}
+	if lastThrottleRequest != nil && *newThrottleRequest != *lastThrottleRequest {
+		hh.SetThrottle(newThrottleRequest)
+		lastThrottleRequest = newThrottleRequest
+	}
 }
 
 // Abstraction of some motion that we've already instructed the bot to
