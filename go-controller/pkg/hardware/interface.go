@@ -3,6 +3,7 @@ package hardware
 import (
 	"context"
 	"fmt"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
 	"sync"
 	"time"
 )
@@ -17,7 +18,7 @@ type Interface interface {
 	StopMotorControl()
 
 	// Read the current state of the hardware.  Reads the current best guess from cache.
-	CurrentHeading() float64
+	CurrentHeading() angle.PlusMinus180
 	CurrentDistanceReadings(revision revision) DistanceReadings
 	CurrentMotorDistances() (l, r float64)
 
@@ -28,7 +29,7 @@ type Interface interface {
 }
 
 type RawControl interface {
-	SetMotorSpeeds(left, right int8)
+	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int16) error
 }
 
 type HeadingAbsolute interface {
@@ -39,7 +40,7 @@ type HeadingAbsolute interface {
 }
 
 type HeadingRelative interface {
-	SetYawAndThrottle(yaw, throttle float64)
+	SetYawAndThrottle(yawRate, throttle, translation float64)
 }
 
 type revision uint64
@@ -78,7 +79,7 @@ func (r Reading) String() string {
 }
 
 type I2CInterface interface {
-	SetMotorSpeeds(left, right int8)
+	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int16) error
 	SetServo(n int, value float64)
 	SetPWM(n int, value float64)
 	CurrentDistanceReadings(revision revision) DistanceReadings

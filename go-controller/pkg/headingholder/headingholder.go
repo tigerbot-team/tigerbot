@@ -12,7 +12,7 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/bno08x"
 )
 
-const motorFullRange = 0x5fff
+const motorFullRange = 0x1000
 
 func NewYawRateAndThrottle(motors RawControl) *YawRateAndThrottle {
 	return &YawRateAndThrottle{
@@ -27,17 +27,18 @@ type RawControl interface {
 type YawRateAndThrottle struct {
 	Motors RawControl
 
-	controlLock       sync.Mutex
-	yawRate, throttle float64
-	currentHeading    angle.PlusMinus180
+	controlLock                    sync.Mutex
+	yawRate, throttle, translation float64
+	currentHeading                 angle.PlusMinus180
 }
 
-func (h *YawRateAndThrottle) SetYawAndThrottle(yawRate, throttle float64) {
+func (h *YawRateAndThrottle) SetYawAndThrottle(yawRate, throttle, translation float64) {
 	h.controlLock.Lock()
 	defer h.controlLock.Unlock()
 
 	h.yawRate = yawRate
 	h.throttle = throttle
+	h.translation = translation
 }
 
 func (h *YawRateAndThrottle) CurrentHeading() angle.PlusMinus180 {
@@ -57,7 +58,7 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	}
 
 	var headingEstimate angle.PlusMinus180
-	var targetHeading = angle.FromFloat(lastIMUReport.YawDegrees())
+	var targetHeading = lastIMUReport.RobotYaw()
 	var filteredTranslation, filteredThrottle float64
 	var motorRotationSpeed float64
 	var lastHeadingError float64
@@ -72,6 +73,7 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		maxThrottleDeltaPerSec = 2
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * bno08x.ReportInterval.Seconds()
+	maxTranslationDelta := maxThrottleDelta
 	var lastLoopStart = time.Now()
 
 	defer func() {
@@ -89,12 +91,13 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// We use an angle.PlusMinus180 to make sure we do our modulo arithmetic
 		// correctly...
-		headingEstimate = angle.FromFloat(imuReport.YawDegrees())
+		headingEstimate = imuReport.RobotYaw()
 
 		// Grab the current control values.
 		h.controlLock.Lock()
 		targetYawRate := h.yawRate
 		targetThrottle := h.throttle
+		targetTranslation := h.translation
 		h.currentHeading = headingEstimate
 		h.controlLock.Unlock()
 
@@ -147,13 +150,21 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		} else {
 			filteredThrottle = targetThrottle
 		}
+		if targetTranslation > filteredTranslation+maxTranslationDelta {
+			filteredTranslation += maxTranslationDelta
+		} else if targetTranslation < filteredTranslation-maxTranslationDelta {
+			filteredTranslation -= maxTranslationDelta
+		} else {
+			filteredTranslation = targetTranslation
+		}
 
 		// Map the values to speeds for each motor.  Motor rotation direction:
 		// positive = anti-clockwise.
-		frontLeft := filteredThrottle + motorRotationSpeed + filteredTranslation
-		frontRight := -filteredThrottle + motorRotationSpeed - filteredTranslation
-		backLeft := filteredThrottle + motorRotationSpeed - filteredTranslation
-		backRight := -filteredThrottle + motorRotationSpeed + filteredTranslation
+		frontLeft := filteredThrottle - motorRotationSpeed - filteredTranslation
+		backLeft := filteredThrottle - motorRotationSpeed + filteredTranslation
+
+		frontRight := -filteredThrottle - motorRotationSpeed - filteredTranslation
+		backRight := -filteredThrottle - motorRotationSpeed + filteredTranslation
 
 		m := max(frontLeft, frontRight, backLeft, backRight)
 		scale := 1.0

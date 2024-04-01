@@ -12,16 +12,13 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/ina219"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
-
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 )
 
 const (
 	NumServoPorts = 16
 
-	NoteMux      = "MUX"
-	NoteProp     = "PROP"
+	NotePico     = "PICO"
 	NoteTOFs     = "DISTANCE"
 	NoteServo    = "SERVO"
 	NotePowerMon = "PWR MON"
@@ -33,9 +30,9 @@ type I2CController struct {
 	lock sync.Mutex
 
 	// Desired values.  Stored off in case we need to re-initialise the hardware.
-	motorL, motorR      int8
-	pwmPorts            map[int]pwmTypes // Either servoPosition or pwmValue
-	pwmPortsWithUpdates map[int]bool
+	motorFL, motorFR, motorBL, motorBR int16
+	pwmPorts                           map[int]pwmTypes // Either servoPosition or pwmValue
+	pwmPortsWithUpdates                map[int]bool
 
 	prop        picobldc.Interface
 	tofsEnabled bool
@@ -73,29 +70,32 @@ func NewI2CController() *I2CController {
 
 func (c *I2CController) SetToFsEnabled(enabled bool) {
 	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.tofsEnabled = enabled
-	c.lock.Unlock()
 }
 
-func (c *I2CController) SetMotorSpeeds(left, right int8) {
+func (c *I2CController) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int16) error {
 	c.lock.Lock()
-	c.motorL = left
-	c.motorR = right
-	c.lock.Unlock()
+	defer c.lock.Unlock()
+	c.motorFR = frontRight
+	c.motorFL = frontLeft
+	c.motorBL = backLeft
+	c.motorBR = backRight
+	return nil
 }
 
 func (c *I2CController) SetServo(n int, value float64) {
 	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.pwmPorts[n] = servoPosition(value)
 	c.pwmPortsWithUpdates[n] = true
-	c.lock.Unlock()
 }
 
 func (c *I2CController) SetPWM(n int, value float64) {
 	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.pwmPorts[n] = pwmValue(value)
 	c.pwmPortsWithUpdates[n] = true
-	c.lock.Unlock()
 }
 
 func (c *I2CController) CurrentDistanceReadings(rev revision) DistanceReadings {
@@ -135,28 +135,15 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		}
 	}()
 
-	mx, err := mux.New("/dev/i2c-1")
+	pico, err := picobldc.New()
 	if err != nil {
-		screen.SetNotice(NoteMux, screen.LevelErr)
-		fmt.Println("Failed to open mux", err)
+		fmt.Println("Failed to open Pico", err)
+		screen.SetNotice(NotePico, screen.LevelErr)
 		return
 	}
-	defer mx.Close()
-
-	err = mx.SelectSinglePort(mux.BusPropeller)
-	if err != nil {
-		fmt.Println("Failed to select mux port", err)
-		return
-	}
-	screen.ClearNotice(NoteMux)
-
-	prop, err := picobldc.New()
-	if err != nil {
-		fmt.Println("Failed to open prop", err)
-		screen.SetNotice(NoteProp, screen.LevelErr)
-		return
-	}
-	defer prop.Close()
+	defer func() {
+		_ = pico.Close()
+	}()
 
 	//var tofs []tofsensor.Interface
 	//defer func() {
@@ -226,24 +213,15 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	//	return readings, nil
 	//}
 
-	err = mx.SelectSinglePort(mux.BusOthers)
-	if err != nil {
-		screen.SetNotice(NoteMux, screen.LevelErr)
-		fmt.Println("Failed to select mux port", err)
-		return
-	}
-	var powerSensors []ina219.Interface
-	for _, addr := range []int{0x41, 0x44} {
+	// Only one sensor on the main bus, Pico also has one as a peripheral.
+	var powerSensors []powerMonitor
+	for _, addr := range []int{0x40} {
 		pwrSen, err := ina219.NewI2C("/dev/i2c-1", addr)
 		if err != nil {
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
 			continue
 		}
 		shuntOhms := 0.1
-		if addr == ina219.Addr2 {
-			// Motor sensor has a smaller shunt.
-			shuntOhms = 0.05
-		}
 		err = pwrSen.Configure(shuntOhms, 10)
 		if err != nil {
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
@@ -251,34 +229,23 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		}
 		powerSensors = append(powerSensors, pwrSen)
 	}
+	powerSensors = append(powerSensors, pico)
 
 	dummyServos := pca9685.Dummy()
 	var servos = dummyServos
 	defer func() {
-		err = mx.SelectSinglePort(mux.BusOthers)
-		if err != nil {
-			fmt.Println("Failed to select port when shutting down servos: ", err)
-			screen.SetNotice(NoteMux, screen.LevelErr)
-			return
-		}
 		_ = servos.Close()
 	}()
 
 	var lastServoInitTime time.Time
 
-	resetOrDummyOutServos := func() error {
+	resetOrDummyOutServos := func() {
 		fmt.Println("Resetting servos...")
 		lastServoInitTime = time.Now()
 		if servos != dummyServos {
 			fmt.Println("Closing old servo controller.")
 			_ = servos.Close()
 			servos = dummyServos
-		}
-		err = mx.SelectSinglePort(mux.BusOthers)
-		if err != nil {
-			screen.SetNotice(NoteMux, screen.LevelErr)
-			fmt.Println("Failed to select mux port", err)
-			return err
 		}
 		servos, err = pca9685.New("/dev/i2c-1")
 		if err != nil {
@@ -304,20 +271,23 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			c.pwmPortsWithUpdates[n] = true
 		}
 		c.lock.Unlock()
-
-		return nil
 	}
-	err = resetOrDummyOutServos()
-	if err != nil {
-		fmt.Println("Failed to select port when initialising servos: ", err)
-		screen.SetNotice(NoteMux, screen.LevelErr)
-		return
-	}
+	resetOrDummyOutServos()
 
 	ticker := time.NewTicker(25 * time.Millisecond)
 
-	var lastL, lastR int8
+	var lastFL, lastFR, lastBL, lastBR int16
 	var lastPowerReadingTime time.Time
+	var lastMotorUpdTime time.Time
+
+	// Enable Pico watchdog just before we start the loop.
+	const picoWatchdogTimeout = time.Second
+	if err := pico.SetWatchdog(picoWatchdogTimeout); err != nil {
+		fmt.Println("Failed to configure Pico watchdog", err)
+		screen.SetNotice(NotePico, screen.LevelErr)
+		return
+	}
+	fmt.Println("Pico watchdog enabled.")
 
 	if initDone != nil {
 		initDone.Done()
@@ -347,22 +317,19 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		c.lock.Lock()
 		fl, fr, bl, br := c.motorFL, c.motorFR, c.motorBL, c.motorBR
 		c.lock.Unlock()
-		// Speeds have changed
-		err = mx.SelectSinglePort(mux.BusPropeller)
-		if err != nil {
-			screen.SetNotice(NoteMux, screen.LevelErr)
-			fmt.Println("Failed to update mux port", err)
-			return
-		}
-		if lastL != l || lastR != r {
-			err = prop.SetMotorSpeeds(l, r, 0, 0)
+
+		speedsChanged := fl != lastFL || fr != lastFR || bl != lastBL || br != lastBR
+		needToPetWatchdog := time.Since(lastMotorUpdTime) > (picoWatchdogTimeout / 10)
+		if speedsChanged || needToPetWatchdog {
+			err = pico.SetMotorSpeeds(fl, fr, bl, br)
 			if err != nil {
 				fmt.Println("Failed to update motor speeds", err)
-				screen.SetNotice(NoteProp, screen.LevelErr)
+				screen.SetNotice(NotePico, screen.LevelErr)
 				return
 			}
-			lastL, lastR = l, r
-			screen.ClearNotice(NoteProp)
+			lastFL, lastFR, lastBL, lastBR = fl, fr, bl, br
+			screen.ClearNotice(NotePico)
+			lastMotorUpdTime = time.Now()
 		}
 
 		//m1, m2, err := prop.GetEncoderPositions()
@@ -374,11 +341,11 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		//	c.leftMotorDist = leftMM
 		//	c.rightMotorDist = rightMM
 		//	c.lock.Unlock()
-		//	screen.ClearNotice(NoteProp)
+		//	screen.ClearNotice(NotePico)
 		//	err = prop.StartEncoderRead()
 		//	if err != nil {
 		//		fmt.Println("Failed to start encoder read", err)
-		//		screen.SetNotice(NoteProp, screen.LevelErr)
+		//		screen.SetNotice(NotePico, screen.LevelErr)
 		//		return
 		//	}
 		//} else if err != picobldc.ErrNotReady {
@@ -386,20 +353,9 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		//}
 
 		if servos == dummyServos && time.Since(lastServoInitTime) > 1*time.Second {
-			err = resetOrDummyOutServos()
-			if err != nil {
-				screen.SetNotice(NoteMux, screen.LevelErr)
-				fmt.Println("Failed to select mux port while initialising servos", err)
-				return
-			}
+			resetOrDummyOutServos()
 		}
 
-		err = mx.SelectSinglePort(mux.BusOthers)
-		if err != nil {
-			screen.SetNotice(NoteMux, screen.LevelErr)
-			fmt.Println("Failed to update mux port", err)
-			return
-		}
 		c.lock.Lock()
 		pwmUpdatesCopy := c.pwmPortsWithUpdates
 		c.pwmPortsWithUpdates = make(map[int]bool)
@@ -428,17 +384,17 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 
 		if time.Since(lastPowerReadingTime) > 1*time.Second {
 			for i, ps := range powerSensors {
-				bv, err := ps.ReadBusVoltage()
+				bv, err := ps.BusVoltage()
 				if err != nil {
 					screen.SetNotice(NotePowerMon, screen.LevelErr)
 					continue
 				}
-				bc, err := ps.ReadCurrent()
+				bc, err := ps.CurrentAmps()
 				if err != nil {
 					screen.SetNotice(NotePowerMon, screen.LevelErr)
 					continue
 				}
-				bp, err := ps.ReadPower()
+				bp, err := ps.PowerWatts()
 				if err != nil {
 					screen.SetNotice(NotePowerMon, screen.LevelErr)
 					continue
@@ -450,4 +406,10 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			lastPowerReadingTime = time.Now()
 		}
 	}
+}
+
+type powerMonitor interface {
+	BusVoltage() (float64, error)
+	CurrentAmps() (float64, error)
+	PowerWatts() (float64, error)
 }

@@ -165,7 +165,7 @@ func (p *PicoBLDC) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int
 }
 
 func (p *PicoBLDC) Close() error {
-	_ = p.Reset()
+	_ = p.maybeConfigure(true, false, false)
 	return p.dev.Close()
 }
 
@@ -271,39 +271,39 @@ func (p *PicoBLDC) maybeConfigure(resetMotorSpeeds bool, enableMotors bool, forc
 	return nil
 }
 
-func (p *PicoBLDC) BattVolts() (float32, error) {
+func (p *PicoBLDC) BusVoltage() (float64, error) {
 	raw, err := p.readReg(RegBattV)
 	if err != nil {
 		return 0, err
 	}
-	v := float32(raw) * BattVLSB
+	v := float64(raw) * BattVLSB
 	return v, nil
 }
 
-func (p *PicoBLDC) CurrentAmps() (float32, error) {
+func (p *PicoBLDC) CurrentAmps() (float64, error) {
 	raw, err := p.readReg(RegCurrent)
 	if err != nil {
 		return 0, err
 	}
-	v := float32(raw) * CurrentLSB
+	v := float64(raw) * CurrentLSB
 	return v, nil
 }
 
-func (p *PicoBLDC) PowerWatts() (float32, error) {
+func (p *PicoBLDC) PowerWatts() (float64, error) {
 	raw, err := p.readReg(RegPower)
 	if err != nil {
 		return 0, err
 	}
-	v := float32(raw) * PowerLSB
+	v := float64(raw) * PowerLSB
 	return v, nil
 }
 
-func (p *PicoBLDC) TemperatureC() (float32, error) {
+func (p *PicoBLDC) TemperatureC() (float64, error) {
 	raw, err := p.readReg(RegTemperature)
 	if err != nil {
 		return 0, err
 	}
-	v := float32(raw) * TemperatureLSB
+	v := float64(raw) * TemperatureLSB
 	return v, nil
 }
 

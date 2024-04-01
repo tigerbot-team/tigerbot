@@ -29,7 +29,7 @@ func main() {
 		_ = pico.SetMotorSpeeds(0, 100, 0, 0)
 		setTime := time.Since(loopStart)
 		fmt.Printf("Motor update time: %s\n", setTime.Round(100*time.Microsecond))
-		battV, _ := pico.BattVolts()
+		battV, _ := pico.BusVoltage()
 		current, _ := pico.CurrentAmps()
 		power, _ := pico.PowerWatts()
 		tempC, _ := pico.TemperatureC()
