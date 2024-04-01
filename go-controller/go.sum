@@ -1,3 +1,9 @@
+github.com/alecthomas/assert/v2 v2.6.0 h1:o3WJwILtexrEUk3cUVal3oiQY2tfgr/FHWiz/v2n4FU=
+github.com/alecthomas/assert/v2 v2.6.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
+github.com/alecthomas/kong v0.9.0 h1:G5diXxc85KvoV2f0ZRVuMsi45IrBgx9zDNGNj165aPA=
+github.com/alecthomas/kong v0.9.0/go.mod h1:Y47y5gKfHp1hDc7CH7OeXgLIpp+Q2m1Ni0L5s3bI8Os=
+github.com/alecthomas/repr v0.4.0 h1:GhI2A8MACjfegCPVq9f1FLvIBS+DrQ2KQBFZP1iFzXc=
+github.com/alecthomas/repr v0.4.0/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
 github.com/creack/goselect v0.1.2 h1:2DNy14+JPjRBgPzAd1thbQp4BSIihxcBf0IXhQXDRa0=
 github.com/creack/goselect v0.1.2/go.mod h1:a/NhLweNvqIYMuxcMOuWY516Cimucms3DglDzQP3hKY=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
@@ -12,6 +18,8 @@ github.com/gopherjs/gopherjs v0.0.0-20180420180156-fcfa75a46cca h1:nusn9GyaXDiON
 github.com/gopherjs/gopherjs v0.0.0-20180420180156-fcfa75a46cca/go.mod h1:wJfORRmW1u3UXTncJ5qlYoELFm8eSnnEO6hX4iZ3EWY=
 github.com/hajimehoshi/oto v0.0.0-20180404145402-7a1d13b19d82 h1:Ub4U4W87BWF85gDemt36PiuitaO4LRVaQkDCgzp77hM=
 github.com/hajimehoshi/oto v0.0.0-20180404145402-7a1d13b19d82/go.mod h1:Co7jIdNa4+UYZF0whfBysf8qY6o7oV8dFC1Ld//5HmY=
+github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
+github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/hybridgroup/mjpeg v0.0.0-20140228234708-4680f319790e/go.mod h1:eagM805MRKrioHYuU7iKLUyFPVKqVV6um5DAvCkUtXs=
 github.com/pascaldekloe/goe v0.1.0/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144TG7ZOy1lc=
 github.com/pkg/errors v0.8.1-0.20180311214515-816c9085562c h1:SZvPVPsWE261bl8uxQ6Siq+ExNmYomz4CTU9E0ALgj4=
