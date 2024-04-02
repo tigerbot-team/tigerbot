@@ -41,6 +41,7 @@ type I2CController struct {
 	nextRevision                  revision
 	distanceReadings              DistanceReadings
 	leftMotorDist, rightMotorDist float64
+	accumulatedRotations          picobldc.PerMotorVal[float64]
 }
 
 type pwmTypes interface {
@@ -109,11 +110,11 @@ func (c *I2CController) CurrentDistanceReadings(rev revision) DistanceReadings {
 
 	return c.distanceReadings
 }
-func (c *I2CController) CurrentMotorDistances() (l, r float64) {
+func (c *I2CController) AccumulatedRotations() picobldc.PerMotorVal[float64] {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	return c.leftMotorDist, c.rightMotorDist
+	return c.accumulatedRotations
 }
 
 func (c *I2CController) Loop(ctx context.Context, initDone *sync.WaitGroup) {
@@ -145,73 +146,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 		_ = pico.Close()
 	}()
 
-	//var tofs []tofsensor.Interface
-	//defer func() {
-	//	for _, tof := range tofs {
-	//		_ = tof.Close()
-	//	}
-	//}()
-	//for _, port := range []int{
-	//	mux.BusTOFLeftRear, mux.BusTOFLeftFront,
-	//	mux.BusTOFForwardLeft, mux.BusTOFForwardRight,
-	//	mux.BusTOFRightFront, mux.BusTOFRightRear,
-	//} {
-	//	fmt.Println("Initialising ToF ", port)
-	//
-	//	err := mx.SelectSinglePort(port)
-	//	if err != nil {
-	//		fmt.Println("Failed to select mux port", err)
-	//		return
-	//	}
-	//
-	//	tof, err := tofsensor.New("/dev/i2c-1", 0x29, byte(0x30+port))
-	//	if err != nil {
-	//		tof, err = tofsensor.New("/dev/i2c-1", byte(0x30+port))
-	//		if err != nil {
-	//			fmt.Println("Failed to open sensor", err)
-	//			return
-	//		}
-	//	}
-	//
-	//	err = tof.StartContinuousMeasurements()
-	//	if err != nil {
-	//		fmt.Println("Failed to start continuous measurements", err)
-	//		return
-	//	}
-	//	tofs = append(tofs, tof)
-	//}
-
-	//readTofs := func() (DistanceReadings, error) {
-	//	err := mx.SelectMultiplePorts(0x3f)
-	//	readings := DistanceReadings{
-	//		CaptureTime: time.Now(),
-	//		Readings:    make([]Reading, len(tofs)),
-	//		Revision:    c.nextRevision,
-	//	}
-	//	c.nextRevision++
-	//	if err != nil {
-	//		screen.SetNotice(NoteMux, screen.LevelErr)
-	//		fmt.Println("Failed to select mux port", err)
-	//		return readings, err
-	//	}
-	//	someErrors := false
-	//	for j, tof := range tofs {
-	//		readingInMM, err := tof.GetNextContinuousMeasurement()
-	//		readings.Readings[j] = Reading{
-	//			DistanceMM: readingInMM,
-	//			Error:      err,
-	//		}
-	//		if err != nil {
-	//			someErrors = true
-	//		}
-	//		if someErrors {
-	//			screen.SetNotice(NoteTOFs, screen.LevelErr)
-	//		} else {
-	//			screen.ClearNotice(NoteTOFs)
-	//		}
-	//	}
-	//	return readings, nil
-	//}
+	distanceTracker := picobldc.NewDistanceTracker(pico)
 
 	// Only one sensor on the main bus, Pico also has one as a peripheral.
 	var powerSensors []powerMonitor
@@ -297,23 +232,6 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 	for ctx.Err() == nil {
 		<-ticker.C
 
-		//c.lock.Lock()
-		//tofsEnabled := c.tofsEnabled
-		//c.lock.Unlock()
-
-		//if tofsEnabled {
-		//	readings, err := readTofs()
-		//	if err != nil {
-		//		fmt.Println("Failed to read tofs", err)
-		//		return
-		//	}
-		//	fmt.Println("ToF readings:", readings)
-		//	c.lock.Lock()
-		//	c.distanceReadings = readings
-		//	c.revisionUpdated.Broadcast()
-		//	c.lock.Unlock()
-		//}
-
 		c.lock.Lock()
 		fl, fr, bl, br := c.motorFL, c.motorFR, c.motorBL, c.motorBR
 		c.lock.Unlock()
@@ -332,25 +250,15 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			lastMotorUpdTime = time.Now()
 		}
 
-		//m1, m2, err := prop.GetEncoderPositions()
-		//if err == nil {
-		//	rightMM := float64(-m2) / motorToMMScaleFactor
-		//	leftMM := float64(-m1) / motorToMMScaleFactor
-		//	fmt.Println("Motor positions: ", m1, "=", leftMM, "mm ", m2, "=", rightMM, "mm")
-		//	c.lock.Lock()
-		//	c.leftMotorDist = leftMM
-		//	c.rightMotorDist = rightMM
-		//	c.lock.Unlock()
-		//	screen.ClearNotice(NotePico)
-		//	err = prop.StartEncoderRead()
-		//	if err != nil {
-		//		fmt.Println("Failed to start encoder read", err)
-		//		screen.SetNotice(NotePico, screen.LevelErr)
-		//		return
-		//	}
-		//} else if err != picobldc.ErrNotReady {
-		//	fmt.Println("Failed to read encoders", err)
-		//}
+		if err := distanceTracker.Poll(); err != nil {
+			fmt.Println("Failed to poll motor distances, will retry on next loop", err)
+			screen.SetNotice(NotePico, screen.LevelErr)
+		} else {
+			acc := distanceTracker.AccumulatedRotations()
+			c.lock.Lock()
+			c.accumulatedRotations = acc
+			c.lock.Unlock()
+		}
 
 		if servos == dummyServos && time.Since(lastServoInitTime) > 1*time.Second {
 			resetOrDummyOutServos()

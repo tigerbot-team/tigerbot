@@ -24,9 +24,10 @@ func main() {
 	}
 	fmt.Println("Watchdog enabled.")
 
+	distance := picobldc.NewDistanceTracker(pico)
 	for {
 		loopStart := time.Now()
-		_ = pico.SetMotorSpeeds(0, 100, 0, 0)
+		_ = pico.SetMotorSpeeds(500, -1000, 1500, -2000)
 		setTime := time.Since(loopStart)
 		fmt.Printf("Motor update time: %s\n", setTime.Round(100*time.Microsecond))
 		battV, _ := pico.BusVoltage()
@@ -35,6 +36,9 @@ func main() {
 		tempC, _ := pico.TemperatureC()
 		status, _ := pico.Status()
 		fmt.Printf("%.1fC %.2fV %.3fA %.3fW Status=%x\n", tempC, battV, current, power, status)
+		_ = distance.Poll()
+		rot := distance.AccumulatedRotations()
+		fmt.Printf("fl=%7f fr=%7f bl=%7f br=%7f\n", rot[picobldc.FrontLeft], rot[picobldc.FrontRight], rot[picobldc.BackLeft], rot[picobldc.BackRight])
 		time.Sleep(500 * time.Millisecond)
 	}
 }

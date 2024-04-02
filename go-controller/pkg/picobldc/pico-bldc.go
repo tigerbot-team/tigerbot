@@ -49,8 +49,19 @@ const (
 	RegBattV // LSB=4mV
 	RegCurrent
 	RegPower
-
 	RegTemperature // LSB = 0.01C
+
+	RegMot0Travel
+	RegMot1Travel
+	RegMot2Travel
+	RegMot3Travel
+)
+
+const (
+	FrontLeft  = 3
+	FrontRight = 0
+	BackLeft   = 2
+	BackRight  = 1
 )
 
 const (
@@ -76,8 +87,13 @@ const (
 	RegStatusWatchdogExpired
 )
 
+const NumMotors = 4
+
+type PerMotorVal[T any] [NumMotors]T
+
 type Interface interface {
 	SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight int16) error
+	RawDistancesTraveled() (raw PerMotorVal[int16], err error)
 	Close() error
 }
 
@@ -116,8 +132,13 @@ func (p *PicoBLDC) Reset() error {
 
 var ErrNotReady = errors.New("Pico-BLDC not ready")
 
-func (p *PicoBLDC) GetEncoderPositions() (frontLeft, frontRight, backLeft, backRight int16, err error) {
-	// TODO
+func (p *PicoBLDC) RawDistancesTraveled() (raw PerMotorVal[int16], err error) {
+	for m := 0; m < NumMotors; m++ {
+		raw[m], err = p.readRegSigned(RegMot0Travel + Register(m))
+		if err != nil {
+			return
+		}
+	}
 	return
 }
 
@@ -328,10 +349,16 @@ func (p *PicoBLDC) readReg(reg Register) (uint16, error) {
 	return binary.BigEndian.Uint16(buf[:]), nil
 }
 
+func (p *PicoBLDC) readRegSigned(reg Register) (int16, error) {
+	u, err := p.readReg(reg)
+	return int16(u), err
+}
+
 type dummyPico struct {
 }
 
-func (p *dummyPico) GetEncoderPositions() (m1, m2 int32, err error) {
+func (p *dummyPico) RawDistancesTraveled() (raw PerMotorVal[int16], err error) {
+
 	return
 }
 
