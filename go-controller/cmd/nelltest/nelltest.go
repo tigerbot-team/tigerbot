@@ -109,8 +109,6 @@ type Arena interface {
 // direction.
 var xHeading float64
 
-var hh hardware.HeadingAbsolute
-
 const PositiveAnglesAnticlockwise float64 = 1
 
 // Where we believe the bot to be within the arena, and its
@@ -192,6 +190,12 @@ func StartMotion(current, target *Position) {
 	}
 }
 
+func TargetReached(currentTarget, position *Position) bool {
+	const maxDelta float64 = 10 // millimetres
+	return (math.Abs(currentTarget.x-position.x) <= maxDelta &&
+		math.Abs(currentTarget.y-position.y) <= maxDelta)
+}
+
 // Abstraction of some motion that we've already instructed the bot to
 // perform, and that it has started and may still be performing.  (In
 // principle could include either "do X until further notice" or "do X
@@ -199,37 +203,40 @@ func StartMotion(current, target *Position) {
 type Motion interface {
 }
 
-// Abstraction of the challenge as a whole.
 type Challenge interface {
 	// Set any internal state to reflect the beginning of the
-	// challenge and return the initial position and whatever
-	// initial knowledge we have about the arena.
-	Start() (Arena, Position)
+	// challenge and return the initial bot position.
+	Start() *Position
 
 	// Use available sensors to update our beliefs about the arena
 	// and where we are within it.
-	UpdateBeliefs(arena Arena, position Position, timeSinceStart time.Duration) (Arena, Position)
+	UpdateBeliefs(position *Position, timeSinceStart time.Duration) *Position
 
-	AtEnd(Arena, Position) bool
+	// Return the next target position that the bot should move
+	// to, and how long it should move towards that position
+	// before re-evaluating.
+	NextTarget(position *Position, timeSinceStart time.Duration, currentTarget *Position) (*Position, time.Duration)
+
+	// Decide if we've finished the challenge.
+	AtEnd(*Position) bool
 }
 
-func logic() {
+func doChallenge(challenge Challenge, hh hardware.HeadingAbsolute) {
 
-	var challenge Challenge
 	var currentTarget *Position
 
-	arena, position := challenge.Start()
+	position := challenge.Start()
 	startTime := time.Now()
 
 	for {
 		timeSinceStart := time.Now().Sub(startTime)
 
-		arena, position = challenge.UpdateBeliefs(arena, position, timeSinceStart)
+		position = challenge.UpdateBeliefs(position, timeSinceStart)
 
 		if currentTarget != nil && TargetReached(currentTarget, position) {
 			// TODO: Stop motors.
 			currentTarget = nil
-			if challenge.AtEnd(arena, position) {
+			if challenge.AtEnd(position) {
 				break
 			}
 		}
@@ -238,7 +245,7 @@ func logic() {
 		// move to, and how long to wait before rechecking
 		// where we are.
 		var moveTime time.Duration
-		currentTarget, moveTime = challenge.NextTarget(arena, position, timeSinceStart, currentTarget)
+		currentTarget, moveTime = challenge.NextTarget(position, timeSinceStart, currentTarget)
 
 		// Start moving to that position.  Note, even if the
 		// target is unchanged since last iteration, our idea
@@ -252,6 +259,6 @@ func logic() {
 		// TODO: Stop motors.
 
 		// Update current position based on dead reckoning.
-		position = *NewPosition(position, hh.Rotations())
+		position = NewPosition(position, hh.Rotations())
 	}
 }
