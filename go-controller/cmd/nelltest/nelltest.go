@@ -210,48 +210,42 @@ type Challenge interface {
 
 	// Use available sensors to update our beliefs about the arena
 	// and where we are within it.
-	UpdateBeliefs(position *Position, timeSinceStart time.Duration) *Position
-
-	// Return the next target position that the bot should move
-	// to, and how long it should move towards that position
-	// before re-evaluating.
-	NextTarget(position *Position, timeSinceStart time.Duration, currentTarget *Position) (*Position, time.Duration)
-
-	// Decide if we've finished the challenge.
-	AtEnd(*Position) bool
+	Iterate(position, target *Position, timeSinceStart time.Duration) (bool, *Position, time.Duration)
 }
 
-func doChallenge(challenge Challenge, hh hardware.HeadingAbsolute) {
+func doChallenge(challenge Challenge, h hardware.Interface) {
 
-	var currentTarget *Position
-
+	hh := h.StartHeadingHoldMode()
 	position := challenge.Start()
 	startTime := time.Now()
+	target := (*Position)(nil)
 
 	for {
+		// Note, the bot is stationary at the start of each
+		// iteration of this loop.
+
 		timeSinceStart := time.Now().Sub(startTime)
 
-		position = challenge.UpdateBeliefs(position, timeSinceStart)
-
-		if currentTarget != nil && TargetReached(currentTarget, position) {
-			// TODO: Stop motors.
-			currentTarget = nil
-			if challenge.AtEnd(position) {
-				break
-			}
+		// Challenge-specific iteration: given current
+		// position, current target, and time since start of
+		// challenge,
+		//
+		// - Use sensors to update where we think we are and
+		//   what we think the arena is.
+		//
+		// - Decide if we've reached the end of the challenge.
+		//   If not...
+		//
+		// - Compute the next target position that the bot
+		//   should move towards, and for how long it should
+		//   do that before re-evaluating.
+		atEnd, target, moveTime := challenge.Iterate(position, target, timeSinceStart)
+		if atEnd {
+			break
 		}
 
-		// Compute the next position that we want the bot to
-		// move to, and how long to wait before rechecking
-		// where we are.
-		var moveTime time.Duration
-		currentTarget, moveTime = challenge.NextTarget(position, timeSinceStart, currentTarget)
-
-		// Start moving to that position.  Note, even if the
-		// target is unchanged since last iteration, our idea
-		// of position has probably changed, so best to work
-		// out the required motion from scratch again.
-		StartMotion(position, currentTarget)
+		// Start moving to the target position.
+		StartMotion(position, target)
 
 		// Allow motion for the indicated time.
 		time.Sleep(moveTime)
