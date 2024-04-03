@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 	"sync"
 	"time"
 
@@ -99,8 +100,8 @@ func (h *Hardware) CurrentDistanceReadings(rev revision) DistanceReadings {
 	return h.i2c.CurrentDistanceReadings(rev)
 }
 
-func (h *Hardware) CurrentMotorDistances() (l, r float64) {
-	return h.i2c.CurrentMotorDistances()
+func (h *Hardware) AccumulatedRotations() picobldc.PerMotorVal[float64] {
+	return h.i2c.AccumulatedRotations()
 }
 
 func (h *Hardware) DisableServos() {
