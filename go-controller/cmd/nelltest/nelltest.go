@@ -16,6 +16,7 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/cameracontrol"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 )
 
 var CLI struct {
@@ -128,37 +129,44 @@ var lastThrottleRequest *ThrottleRequest
 
 const RADIANS_PER_DEGREE = math.Pi / 180
 
-func NewPosition(old *Position, rotations float64) *Position {
-	// Mapping from wheel rotations to actual ahead and sideways
-	// displacement depends on the throttle angle.
-	normalizedAngle := angle.FromFloat(lastThrottleRequest.angle).Float()
+func MakeUpdatePosition(lastRotations picobldc.PerMotorVal[float64]) func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
+	return func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
+		// Calculate an overall "rotations" number that we
+		// will use to scale our calibration table.
+		rotations := float64(0)
+		for m := range newRotations {
+			rotations += math.Abs(newRotations[m] - lastRotations[m])
+			lastRotations[m] = newRotations[m]
+		}
 
-	// Round to the closest multiple of 5 degrees.  Note, Golang
-	// rounds towards zero when converting float64 to int.
-	var quantizedAngleOver5 int
-	if normalizedAngle > 0 {
-		quantizedAngleOver5 = int(normalizedAngle/5 + 0.5)
-	} else {
-		quantizedAngleOver5 = int(normalizedAngle/5 - 0.5)
-	}
+		// Mapping from wheel rotations to actual ahead and
+		// sideways displacement depends on the throttle
+		// angle.
+		normalizedAngle := angle.FromFloat(lastThrottleRequest.angle).Float()
 
-	// quantizedAngleOver5 is now from -36 to 36 (inclusive).
-	aheadDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].ahead
-	leftDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].left
+		// Round to the closest multiple of 5 degrees.  Note, Golang
+		// rounds towards zero when converting float64 to int.
+		var quantizedAngleOver5 int
+		if normalizedAngle > 0 {
+			quantizedAngleOver5 = int(normalizedAngle/5 + 0.5)
+		} else {
+			quantizedAngleOver5 = int(normalizedAngle/5 - 0.5)
+		}
 
-	sin := math.Sin(old.heading * RADIANS_PER_DEGREE)
-	cos := math.Cos(old.heading * RADIANS_PER_DEGREE)
+		// quantizedAngleOver5 is now from -36 to 36 (inclusive).
+		aheadDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].ahead
+		leftDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].left
 
-	return &Position{
-		x:       old.x - aheadDisplacement*sin - leftDisplacement*cos,
-		y:       old.y + aheadDisplacement*cos - leftDisplacement*sin,
-		heading: old.heading,
+		sin := math.Sin(position.heading * RADIANS_PER_DEGREE)
+		cos := math.Cos(position.heading * RADIANS_PER_DEGREE)
+
+		position.x -= (aheadDisplacement*sin + leftDisplacement*cos)
+		position.y += (aheadDisplacement*cos - leftDisplacement*sin)
 	}
 }
 
-func StartMotion(current, target *Position) {
+func StartMotion(hh hardware.HeadingAbsolute, current, target *Position) {
 	if target.heading != current.heading {
-		hh.SetThrottle(0)
 		hh.SetHeading(xHeading + target.heading*PositiveAnglesAnticlockwise)
 		hh.Wait(context.Background())
 	}
@@ -196,13 +204,6 @@ func TargetReached(currentTarget, position *Position) bool {
 		math.Abs(currentTarget.y-position.y) <= maxDelta)
 }
 
-// Abstraction of some motion that we've already instructed the bot to
-// perform, and that it has started and may still be performing.  (In
-// principle could include either "do X until further notice" or "do X
-// for the next T seconds".)
-type Motion interface {
-}
-
 type Challenge interface {
 	// Set any internal state to reflect the beginning of the
 	// challenge and return the initial bot position.
@@ -219,6 +220,7 @@ func doChallenge(challenge Challenge, h hardware.Interface) {
 	position := challenge.Start()
 	startTime := time.Now()
 	target := (*Position)(nil)
+	UpdatePosition := MakeUpdatePosition(h.AccumulatedRotations())
 
 	for {
 		// Note, the bot is stationary at the start of each
@@ -245,7 +247,7 @@ func doChallenge(challenge Challenge, h hardware.Interface) {
 		}
 
 		// Start moving to the target position.
-		StartMotion(position, target)
+		StartMotion(hh, position, target)
 
 		// Allow motion for the indicated time.
 		time.Sleep(moveTime)
@@ -254,6 +256,6 @@ func doChallenge(challenge Challenge, h hardware.Interface) {
 		hh.SetThrottle(0)
 
 		// Update current position based on dead reckoning.
-		position = NewPosition(position, hh.Rotations())
+		UpdatePosition(position, h.AccumulatedRotations())
 	}
 }
