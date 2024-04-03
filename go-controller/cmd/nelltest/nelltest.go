@@ -256,7 +256,8 @@ func doChallenge(challenge Challenge, hh hardware.HeadingAbsolute) {
 		// Allow motion for the indicated time.
 		time.Sleep(moveTime)
 
-		// TODO: Stop motors.
+		// Stop moving.
+		hh.SetThrottle(0)
 
 		// Update current position based on dead reckoning.
 		position = NewPosition(position, hh.Rotations())
