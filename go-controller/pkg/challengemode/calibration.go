@@ -1,6 +1,6 @@
 package challengemode
 
-var mmPerRotation = [73]struct{ ahead, left float64 }{ // To be filled in properly
+var mmPerRotation = [72]struct{ ahead, left float64 }{ // To be filled in properly
 	{0, 0}, // -180
 	{0, 0}, // -175
 	{0, 0}, // -170
@@ -73,5 +73,4 @@ var mmPerRotation = [73]struct{ ahead, left float64 }{ // To be filled in proper
 	{0, 0}, // +165
 	{0, 0}, // +170
 	{0, 0}, // +175
-	{0, 0}, // +180
 }

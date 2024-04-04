@@ -278,8 +278,9 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 		}
 
 		// quantizedAngleOver5 is now from -36 to 36 (inclusive).
-		aheadDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].ahead
-		leftDisplacement := rotations * mmPerRotation[quantizedAngleOver5+36].left
+		index := (quantizedAngleOver5 + 36) % 72
+		aheadDisplacement := rotations * mmPerRotation[index].ahead
+		leftDisplacement := rotations * mmPerRotation[index].left
 
 		sin := math.Sin(position.heading * RADIANS_PER_DEGREE)
 		cos := math.Cos(position.heading * RADIANS_PER_DEGREE)
