@@ -10,6 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/ecodisaster"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/escaperoute"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/lavapalava"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/minesweeper"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/duckshoot"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
@@ -56,6 +61,10 @@ func main() {
 
 	allModes := []Mode{
 		rcmode.New("GUN MODE", "/sounds/duckshootmode.wav", hw, duckshoot.NewServoController()),
+		challengemode.New(hw, escaperoute.New()),
+		challengemode.New(hw, lavapalava.New()),
+		challengemode.New(hw, minesweeper.New()),
+		challengemode.New(hw, ecodisaster.New()),
 		pausemode.New(hw),
 	}
 	var activeMode Mode = allModes[0]
