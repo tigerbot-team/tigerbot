@@ -1,4 +1,4 @@
-package main
+package challengemode
 
 var mmPerRotation = [73]struct{ ahead, left float64 }{ // To be filled in properly
 	{0, 0}, // -180
