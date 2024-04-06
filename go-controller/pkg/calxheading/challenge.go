@@ -1,4 +1,4 @@
-package ecodisaster
+package calxheading
 
 import (
 	"time"
@@ -15,12 +15,21 @@ func New() challengemode.Challenge {
 }
 
 func (c *challenge) Name() string {
-	return "ECODISASTER"
+	return "CALXHEADING"
 }
 
 func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
 	c.log = log
-	panic("implement me!")
+
+	// By definition, when this mode runs, the bot has been placed
+	// facing the positive X axis of the arena.  X and Y positions
+	// do not matter.  HeadingIsExact: true will cause the current
+	// HH heading value to be stored in calibratedXHeading, ready
+	// for the real challenge.
+	return &challengemode.Position{
+		Heading:        0,
+		HeadingIsExact: true,
+	}
 }
 
 func (c *challenge) Iterate(
@@ -32,5 +41,5 @@ func (c *challenge) Iterate(
 	*challengemode.Position,
 	time.Duration,
 ) {
-	panic("implement me!")
+	return true, nil, 0
 }

@@ -15,12 +15,27 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 )
 
+const (
+	// Total bot dimensions.
+	dxBot = float64(0)
+	dyBot = float64(0)
+)
+
+// Absolute HH heading value that corresponds to the current arena's
+// positive X direction.
+//
+// Shortly before each challenge, place the bot facing the arena's
+// positive X direction and run the CALXHEADING mode.  This will read
+// the HH heading value and store in calibratedXHeading.
+var calibratedXHeading float64
+
 // Where we believe the bot to be within the arena, and its
 // orientation at that position, w.r.t. a coordinate system that makes
 // sense for the arena.
 type Position struct {
-	x, y    float64 // millimetres
-	heading float64 // w.r.t. the positive X direction, +tive CCW
+	X, Y           float64 // millimetres
+	Heading        float64 // w.r.t. the positive X direction, +tive CCW
+	HeadingIsExact bool
 }
 
 type Challenge interface {
@@ -28,7 +43,7 @@ type Challenge interface {
 
 	// Set any internal state to reflect the beginning of the
 	// challenge and return the initial bot position.
-	Start() *Position
+	Start(Log) *Position
 
 	// Use available sensors to update our beliefs about the arena
 	// and where we are within it.
@@ -52,10 +67,6 @@ type ChallengeMode struct {
 	challenge         Challenge
 	name              string
 	lastThrottleAngle float64 // CCW from bot-relative straight ahead
-
-	// Absolute HH heading that corresponds to the challenge's
-	// positive X direction.
-	xHeading float64
 }
 
 func New(hw hardware.Interface, challenge Challenge) *ChallengeMode {
@@ -152,14 +163,21 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 	// Get initial (believed) position - determined by the
 	// challenge.  We don't have a target yet.
-	position := m.challenge.Start()
+	position := m.challenge.Start(m.log)
 	target := (*Position)(nil)
 
-	// Get initial heading as reported by the hardware.  Then we
-	// can note the offset from our coordinate system (positive X
-	// axis = 0) to the hardware's heading.
-	initialHeading := m.hw.CurrentHeading()
-	m.xHeading = initialHeading - position.heading*PositiveAnglesAnticlockwise
+	initialHeading := m.hw.CurrentHeading().Float()
+	if position.HeadingIsExact {
+		// Get initial heading as reported by the hardware.
+		// Then we can store the offset from our coordinate
+		// system (positive X axis = 0) to the hardware's
+		// heading.
+		calibratedXHeading = initialHeading - position.Heading*PositiveAnglesAnticlockwise
+		m.log("Set calibratedXHeading = %v", calibratedXHeading)
+	} else {
+		position.Heading = (initialHeading - calibratedXHeading) / PositiveAnglesAnticlockwise
+		m.log("Initial bot heading = %v", position.Heading)
+	}
 
 	// Let the user know that we're ready, then wait for the "GO" signal.
 	m.hw.PlaySound("/sounds/ready.wav")
@@ -249,6 +267,8 @@ func (m *ChallengeMode) log(f string, args ...any) {
 	fmt.Println(m.name + ": " + fmt.Sprintf(f, args...))
 }
 
+type Log func(string, ...any)
+
 const RADIANS_PER_DEGREE = math.Pi / 180
 
 const PositiveAnglesAnticlockwise float64 = 1 // Invert me if HeadingAbsolute uses the opposite sign.
@@ -282,39 +302,39 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 		aheadDisplacement := rotations * mmPerRotation[index].ahead
 		leftDisplacement := rotations * mmPerRotation[index].left
 
-		sin := math.Sin(position.heading * RADIANS_PER_DEGREE)
-		cos := math.Cos(position.heading * RADIANS_PER_DEGREE)
+		sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
+		cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
 
-		position.x -= (aheadDisplacement*sin + leftDisplacement*cos)
-		position.y += (aheadDisplacement*cos - leftDisplacement*sin)
+		position.X -= (aheadDisplacement*sin + leftDisplacement*cos)
+		position.Y += (aheadDisplacement*cos - leftDisplacement*sin)
 	}
 }
 
 func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target *Position) {
-	if target.heading != current.heading {
-		hh.SetHeading(m.xHeading + target.heading*PositiveAnglesAnticlockwise)
+	if target.Heading != current.Heading {
+		hh.SetHeading(calibratedXHeading + target.Heading*PositiveAnglesAnticlockwise)
 		hh.Wait(context.Background())
 	}
 	var displacementHeading float64
-	if target.x == current.x {
-		if target.y > current.y {
+	if target.X == current.X {
+		if target.Y > current.Y {
 			displacementHeading = 90
-		} else if target.y < current.y {
+		} else if target.Y < current.Y {
 			displacementHeading = -90
 		} else {
 			return
 		}
-	} else if target.y == current.y {
-		if target.x > current.x {
+	} else if target.Y == current.Y {
+		if target.X > current.X {
 			displacementHeading = 0
 		} else {
 			displacementHeading = 180
 		}
 	} else {
-		displacementHeading = math.Atan2(float64(target.y-current.y), float64(target.x-current.x)) / RADIANS_PER_DEGREE
+		displacementHeading = math.Atan2(float64(target.Y-current.Y), float64(target.X-current.X)) / RADIANS_PER_DEGREE
 	}
 	newThrottleRequest := &ThrottleRequest{
-		angle:    displacementHeading - target.heading,
+		angle:    displacementHeading - target.Heading,
 		throttle: 1,
 	}
 	hh.SetThrottle(newThrottleRequest)
@@ -324,6 +344,6 @@ func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target
 // Utility for challenge-specific code.
 func TargetReached(currentTarget, position *Position) bool {
 	const maxDelta float64 = 10 // millimetres
-	return (math.Abs(currentTarget.x-position.x) <= maxDelta &&
-		math.Abs(currentTarget.y-position.y) <= maxDelta)
+	return (math.Abs(currentTarget.X-position.X) <= maxDelta &&
+		math.Abs(currentTarget.Y-position.Y) <= maxDelta)
 }

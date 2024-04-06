@@ -6,7 +6,9 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
 )
 
-type challenge struct{}
+type challenge struct {
+	log challengemode.Log
+}
 
 func New() challengemode.Challenge {
 	return &challenge{}
@@ -16,7 +18,8 @@ func (c *challenge) Name() string {
 	return "MINESWEEPER"
 }
 
-func (c *challenge) Start() *challengemode.Position {
+func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
+	c.log = log
 	panic("implement me!")
 }
 
