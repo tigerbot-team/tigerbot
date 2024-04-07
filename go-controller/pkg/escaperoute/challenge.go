@@ -34,28 +34,56 @@ type stage int
 
 const (
 	INIT stage = iota
-	PAST_LEFT_EDGE_OF_FIRST_BLOCK
-	ADVANCED_TO_FACE_SECOND_BLOCK
-	PAST_RIGHT_EDGE_OF_SECOND_BLOCK
-	ADVANCED_TO_FACE_THIRD_BLOCK
-	PAST_LEFT_EDGE_OF_THIRD_BLOCK
+	FACING_FIRST_BLOCK
+	FACING_FIRST_EDGE
+	PAST_FIRST_EDGE
+	FACING_SECOND_BLOCK
+	FACING_SECOND_EDGE
+	PAST_SECOND_EDGE
+	FACING_THIRD_BLOCK
+	FACING_THIRD_EDGE
+	PAST_THIRD_EDGE
 	ADVANCED_PAST_EXIT
 )
+
+type blockColour int
+
+const (
+	BLUE blockColour = iota
+	GREEN
+	RED
+)
+
+var dyBlock [3]float64
+
+func init() {
+	dyBlock[BLUE] = dyBlue
+	dyBlock[GREEN] = dyGreen
+	dyBlock[RED] = dyRed
+}
 
 func (s stage) String() string {
 	switch s {
 	case INIT:
 		return "INIT"
-	case PAST_LEFT_EDGE_OF_FIRST_BLOCK:
-		return "PAST_LEFT_EDGE_OF_FIRST_BLOCK"
-	case ADVANCED_TO_FACE_SECOND_BLOCK:
-		return "ADVANCED_TO_FACE_SECOND_BLOCK"
-	case PAST_RIGHT_EDGE_OF_SECOND_BLOCK:
-		return "PAST_RIGHT_EDGE_OF_SECOND_BLOCK"
-	case ADVANCED_TO_FACE_THIRD_BLOCK:
-		return "ADVANCED_TO_FACE_THIRD_BLOCK"
-	case PAST_LEFT_EDGE_OF_THIRD_BLOCK:
-		return "PAST_LEFT_EDGE_OF_THIRD_BLOCK"
+	case FACING_FIRST_BLOCK:
+		return "FACING_FIRST_BLOCK"
+	case FACING_FIRST_EDGE:
+		return "FACING_FIRST_EDGE"
+	case PAST_FIRST_EDGE:
+		return "PAST_FIRST_EDGE"
+	case FACING_SECOND_BLOCK:
+		return "FACING_SECOND_BLOCK"
+	case FACING_SECOND_EDGE:
+		return "FACING_SECOND_EDGE"
+	case PAST_SECOND_EDGE:
+		return "PAST_SECOND_EDGE"
+	case FACING_THIRD_BLOCK:
+		return "FACING_THIRD_BLOCK"
+	case FACING_THIRD_EDGE:
+		return "FACING_THIRD_EDGE"
+	case PAST_THIRD_EDGE:
+		return "PAST_THIRD_EDGE"
 	case ADVANCED_PAST_EXIT:
 		return "ADVANCED_PAST_EXIT"
 	}
@@ -63,12 +91,18 @@ func (s stage) String() string {
 }
 
 type challenge struct {
-	log   challengemode.Log
-	stage stage
+	log             challengemode.Log
+	stage           stage
+	blockDone       map[blockColour]bool
+	thisBlockColour blockColour
+	xTarget         float64
+	yTarget         float64
 }
 
 func New() challengemode.Challenge {
-	return &challenge{}
+	return &challenge{
+		blockDone: map[blockColour]bool{},
+	}
 }
 
 func (c *challenge) Name() string {
@@ -78,9 +112,18 @@ func (c *challenge) Name() string {
 func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
 	c.log = log
 	c.stage = INIT
+	c.blockDone[BLUE] = false
+	c.blockDone[GREEN] = false
+	c.blockDone[RED] = false
+
+	// Assume we're initially positioned in the middle of the
+	// start box.  Also make this the initial target - so that we
+	// will rotate if needed, but not try to displace.
+	c.xTarget = dxTotal - (dxInitial / 2)
+	c.yTarget = dyInitial / 2
 	return &challengemode.Position{
-		X: dxTotal - (dxInitial / 2),
-		Y: dyInitial / 2,
+		X: c.xTarget,
+		Y: c.yTarget,
 	}
 }
 
@@ -93,21 +136,92 @@ func (c *challenge) Iterate(
 	*challengemode.Position,
 	time.Duration,
 ) {
+
 	c.log("Stage = %v", c.stage)
-nextStage:
-	switch c.stage {
-	case INIT:
+	for {
+		// Return the current target, if we haven't yet
+		// reached it.
 		target = &challengemode.Position{
-			X:       (dxTotal - dxBlock) / 2,
-			Y:       dyInitial / 2,
+			X:       c.xTarget,
+			Y:       c.yTarget,
 			Heading: 90,
 		}
-		if challengemode.TargetReached(target, position) {
-			c.stage = PAST_LEFT_EDGE_OF_FIRST_BLOCK
-			goto nextStage
+		if !challengemode.TargetReached(target, position) {
+			c.log("Target (%v, %v, %v) not yet reached", target.X, target.Y, target.Heading)
+			return false, target, time.Second
 		}
-		return false, target, time.Second
-	case PAST_LEFT_EDGE_OF_FIRST_BLOCK:
+		c.log("Target (%v, %v, %v) reached", target.X, target.Y, target.Heading)
 
+		// Current target reached, so transition to next
+		// stage.
+		c.stage += 1
+		c.log("Stage => %v", c.stage)
+		switch c.stage {
+		case FACING_FIRST_BLOCK:
+			// Use camera to identify block colour.
+			c.thisBlockColour = c.IdentifyFacingBlockColour()
+
+			// Move to where the left edge of the block
+			// should be.
+			c.xTarget = dxTotal - dxBlock
+			c.yTarget = dyInitial / 2
+		case FACING_FIRST_EDGE:
+			// Use camera to check believed position against block
+			// edge.  Offset value is +tive if the edge is to the
+			// right of the camera centreline and -tive if the
+			// edge is to the left.
+			c.AdjustPositionByBlockEdge(position)
+
+			// Move to position for driving past the block.
+			c.xTarget = (dxTotal - dxBlock) / 2
+		case PAST_FIRST_EDGE:
+			// Advance to Y position facing next block.
+			c.yTarget = dyInitial + dyBlock[c.thisBlockColour] + dyGap/2
+		case FACING_SECOND_BLOCK:
+			// Use camera to identify block colour.
+			c.thisBlockColour = c.IdentifyFacingBlockColour()
+
+			// Move to where the right edge of the block should be.
+			c.xTarget = dxBlock
+		case FACING_SECOND_EDGE:
+			// Use camera to check believed position against block
+			// edge.  Offset value is +tive if the edge is to the
+			// right of the camera centreline and -tive if the
+			// edge is to the left.
+			c.AdjustPositionByBlockEdge(position)
+
+			// Move to position for driving past the block.
+			c.xTarget = (dxTotal + dxBlock) / 2
+		case PAST_SECOND_EDGE:
+			// Advance to Y position facing next block.
+			c.yTarget += dyBlock[c.thisBlockColour] + dyGap
+		case FACING_THIRD_BLOCK:
+			// Move to where the left edge of the block should be.
+			c.xTarget = dxTotal - dxBlock
+		case FACING_THIRD_EDGE:
+			// Use camera to check believed position against block
+			// edge.  Offset value is +tive if the edge is to the
+			// right of the camera centreline and -tive if the
+			// edge is to the left.
+			c.AdjustPositionByBlockEdge(position)
+
+			// Move to position for driving past the block.
+			c.xTarget = (dxTotal - dxBlock) / 2
+		case PAST_THIRD_EDGE:
+			// Move past exit.
+			c.yTarget = dyTotal
+		case ADVANCED_PAST_EXIT:
+			return true, nil, 0
+		}
 	}
+}
+
+func (c *challenge) IdentifyFacingBlockColour() blockColour {
+	panic("implement me")
+}
+
+func (c *challenge) AdjustPositionByBlockEdge(position *challengemode.Position) {
+	blockEdgeOffset := c.GetBlockEdgeOffset()
+	position.X -= blockEdgeOffset * adjustmentMMPerOffset
+	panic("implement me")
 }

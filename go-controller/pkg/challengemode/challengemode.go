@@ -343,7 +343,9 @@ func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target
 
 // Utility for challenge-specific code.
 func TargetReached(currentTarget, position *Position) bool {
-	const maxDelta float64 = 10 // millimetres
-	return (math.Abs(currentTarget.X-position.X) <= maxDelta &&
-		math.Abs(currentTarget.Y-position.Y) <= maxDelta)
+	const maxPositionDelta float64 = 10 // millimetres
+	const maxHeadingDelta float64 = 5   // degrees
+	return (math.Abs(currentTarget.X-position.X) <= maxPositionDelta &&
+		math.Abs(currentTarget.Y-position.Y) <= maxPositionDelta &&
+		math.Abs(currentTarget.Heading-position.Heading) <= maxHeadingDelta)
 }
