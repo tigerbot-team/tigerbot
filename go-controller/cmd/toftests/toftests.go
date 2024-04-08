@@ -13,7 +13,7 @@ func main() {
 		_ = tof.Close()
 	}()
 
-	tof, err := vl53l5cx.New("/dev/i2c-1")
+	tof, err := vl53l5cx.New("/dev/i2c-2")
 	if err != nil {
 		fmt.Println("Failed to open sensor ", err)
 		os.Exit(1)
