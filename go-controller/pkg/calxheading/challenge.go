@@ -34,12 +34,11 @@ func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
 
 func (c *challenge) Iterate(
 	position *challengemode.Position,
-	target *challengemode.Position,
 	timeSinceStart time.Duration,
 ) (
-	bool,
-	*challengemode.Position,
-	time.Duration,
+	bool, // at end
+	*challengemode.Position, // next target
+	time.Duration, // move time
 ) {
 	return true, nil, 0
 }

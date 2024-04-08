@@ -129,19 +129,17 @@ func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
 
 func (c *challenge) Iterate(
 	position *challengemode.Position,
-	target *challengemode.Position,
 	timeSinceStart time.Duration,
 ) (
-	bool,
-	*challengemode.Position,
-	time.Duration,
+	bool, // at end
+	*challengemode.Position, // next target
+	time.Duration, // move time
 ) {
-
 	c.log("Stage = %v", c.stage)
 	for {
 		// Return the current target, if we haven't yet
 		// reached it.
-		target = &challengemode.Position{
+		target := &challengemode.Position{
 			X:       c.xTarget,
 			Y:       c.yTarget,
 			Heading: 90,

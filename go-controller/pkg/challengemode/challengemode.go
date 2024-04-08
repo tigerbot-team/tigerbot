@@ -47,7 +47,7 @@ type Challenge interface {
 
 	// Use available sensors to update our beliefs about the arena
 	// and where we are within it.
-	Iterate(position, target *Position, timeSinceStart time.Duration) (bool, *Position, time.Duration)
+	Iterate(position *Position, timeSinceStart time.Duration) (bool, *Position, time.Duration)
 }
 
 type ChallengeMode struct {
@@ -206,7 +206,7 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 		// - Compute the next target position that the bot
 		//   should move towards, and for how long it should
 		//   do that before re-evaluating.
-		atEnd, target, moveTime := m.challenge.Iterate(position, target, timeSinceStart)
+		atEnd, target, moveTime := m.challenge.Iterate(position, timeSinceStart)
 		if atEnd {
 			break
 		}
