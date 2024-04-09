@@ -125,6 +125,10 @@ func (b *BNO08X) openAndLoop(ctx context.Context) interface{} {
 	if err != nil {
 		return fmt.Errorf("failed to open serial port %s: %w", serialDevice, err)
 	}
+	defer func() {
+		_ = s.Close()
+		fmt.Println("Closed serial port.")
+	}()
 
 	br := bufio.NewReader(s)
 resync:
