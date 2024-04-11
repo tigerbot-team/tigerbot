@@ -66,7 +66,11 @@ func nextState(state *world, c int, i int) (*world, bool) {
 
 	// Update what the bot is carrying and whether a drop-off is
 	// needed.
-	if c != state.botColour {
+	if state.botLoad == 0 {
+		dropOffNeeded = false
+		next.botLoad = 1
+		next.botColour = c
+	} else if c != state.botColour {
 		// Change of colour.
 		dropOffNeeded = true
 		next.botLoad = 1
