@@ -1,6 +1,9 @@
 package ecodisaster
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 const (
 	// Indices into various arrays.
@@ -42,12 +45,12 @@ func initialState(barrels [2][]coords) *world {
 
 // The following state, if we decide to pick up (and hence remove) the
 // Ith barrel of colour C.
-func nextState(state *world, c int, i int) (*world, bool) {
+func nextState(state *world, c int, i int) (*world, bool, bool) {
 	next := &world{
 		barrels:   [2][]coords{nil, nil},
 		botColour: state.botColour,
 	}
-	dropOffNeeded := false
+	dropOffNeededBeforeChoice := false
 
 	// Copy remaining coordinates of the barrels whose colour we
 	// are picking up.
@@ -67,25 +70,25 @@ func nextState(state *world, c int, i int) (*world, bool) {
 	// Update what the bot is carrying and whether a drop-off is
 	// needed.
 	if state.botLoad == 0 {
-		dropOffNeeded = false
+		dropOffNeededBeforeChoice = false
 		next.botLoad = 1
 		next.botColour = c
 	} else if c != state.botColour {
 		// Change of colour.
-		dropOffNeeded = true
+		dropOffNeededBeforeChoice = true
 		next.botLoad = 1
 		next.botColour = c
 	} else if state.botLoad == BOT_CAPACITY {
 		// Bot was already full, even though the colour is not
 		// changing.
-		dropOffNeeded = true
+		dropOffNeededBeforeChoice = true
 		next.botLoad = 1
 	} else {
 		// Same colour and bot still has capacity.
 		next.botLoad = state.botLoad + 1
 	}
 
-	return next, dropOffNeeded
+	return next, dropOffNeededBeforeChoice, len(next.barrels[0]) == 0 && len(next.barrels[1]) == 0
 }
 
 type choice struct {
@@ -97,12 +100,13 @@ type choice struct {
 }
 
 type route struct {
-	description string
+	// The first choice that this route makes.
+	first choice
 
-	// The sequence of barrel choices.
-	choices []choice
+	// The route following that first choice.
+	next *route
 
-	// The cost of this route.
+	// The overall cost of this route.
 	cost int
 }
 
@@ -134,77 +138,58 @@ func bestRoute(p *botPosition, state *world) *route {
 	minCost := 0
 	var bestChoice *choice = nil
 	var bestFollowingRoute *route
-	var bestDesc string
-	for _, nextColour := range []int{RED, GREEN} {
-		for i := range state.barrels[nextColour] {
-			i := i
-			newBotPosition := &botPosition{
-				coords: state.barrels[nextColour][i],
+	for _, choiceColour := range []int{RED, GREEN} {
+		for choiceIndex := range state.barrels[choiceColour] {
+			choiceIndex := choiceIndex
+			choicePosition := &botPosition{
+				coords: state.barrels[choiceColour][choiceIndex],
 			}
-			followingState, dropOffNeeded := nextState(state, nextColour, i)
-			followingBestRoute := bestRoute(newBotPosition, followingState)
+			followingState, dropOffNeededBeforeChoice, dropOffNeededAfterChoice := nextState(state, choiceColour, choiceIndex)
+			followingBestRoute := bestRoute(choicePosition, followingState)
 
 			// The bot is currently at P.  If a drop-off
 			// is needed it must move:
 			// 1. from P to the drop zone for state.botColour
-			// 2. from the drop zone to newBotPosition
+			// 2. from the drop zone to choicePosition
 			//    (the chosen next barrel)
 			// 3. then follow the best route from
-			//    newBotPosition onwards.
+			//    choicePosition onwards.
 			// If a drop-off is not needed it must move:
-			// 1. from P to newBotPosition
+			// 1. from P to choicePosition
 			// 2. then follow the best route from
-			//    newBotPosition onwards.
+			//    choicePosition onwards.
 			var thisChoiceCost int
-			desc := fmt.Sprintf("%v", state.botLoad)
-			if state.botLoad != 0 {
-				desc += colours[state.botColour]
-			}
-			if dropOffNeeded {
+			if dropOffNeededBeforeChoice {
 				thisChoiceCost = moveCost(p, dropZone[state.botColour]) +
 					dropCost() +
-					moveCost(dropZone[state.botColour], newBotPosition)
-				desc += "-Z" + colours[state.botColour]
+					moveCost(dropZone[state.botColour], choicePosition)
 			} else {
-				thisChoiceCost = moveCost(p, newBotPosition)
+				thisChoiceCost = moveCost(p, choicePosition)
 			}
-			desc += "-" + colours[nextColour] + state.barrels[nextColour][i].String()
-			thisChoiceCost += followingBestRoute.cost
+			if dropOffNeededAfterChoice {
+				thisChoiceCost += moveCost(choicePosition, dropZone[choiceColour]) + dropCost()
+			}
+			if followingBestRoute != nil {
+				thisChoiceCost += followingBestRoute.cost
+			}
 			if bestChoice == nil || thisChoiceCost < minCost {
 				minCost = thisChoiceCost
 				bestChoice = &choice{
-					colour: nextColour,
-					coords: state.barrels[nextColour][i],
+					colour: choiceColour,
+					coords: state.barrels[choiceColour][choiceIndex],
 				}
 				bestFollowingRoute = followingBestRoute
-				bestDesc = desc
 			}
 		}
 	}
 	if bestChoice == nil {
-		// No more barrels to choose from.
-		if state.botLoad == 0 {
-			return &route{
-				description: "DONE",
-				choices:     nil,
-				cost:        0,
-			}
-		} else {
-			return &route{
-				description: "Z" + colours[state.botColour],
-				choices:     nil,
-				cost:        moveCost(p, dropZone[state.botColour]) + dropCost(),
-			}
-		}
+		// No more barrels to collect.
+		return nil
 	}
 	r := &route{
-		description: bestDesc + "-" + bestFollowingRoute.description,
-		choices:     make([]choice, len(bestFollowingRoute.choices)+1),
-		cost:        minCost,
-	}
-	r.choices[0] = *bestChoice
-	for j := 1; j < len(r.choices); j++ {
-		r.choices[j] = bestFollowingRoute.choices[j-1]
+		first: *bestChoice,
+		next:  bestFollowingRoute,
+		cost:  minCost,
 	}
 	bestRouteCache[cacheKey] = r
 	return r
@@ -250,7 +235,7 @@ func TestBarrels() {
 	fmt.Printf("Best route is %v\n", r)
 	fmt.Printf("Route cache:\n")
 	for key, route := range bestRouteCache {
-		if len(route.choices) >= 9 && len(route.choices) <= 9 {
+		if route.len() >= 9 {
 			fmt.Printf("%v -> %v\n", key, route)
 		}
 	}
@@ -259,11 +244,20 @@ func TestBarrels() {
 var colours [2]string
 
 func (r *route) String() string {
-	s := fmt.Sprintf("%v %v ", r.cost, r.description)
-	for _, choice := range r.choices {
-		//fmt.Println(s)
-		//fmt.Printf("%+v\n", choice)
-		s += fmt.Sprintf("-%v%v", colours[choice.colour], choice.coords)
+	return strconv.Itoa(r.cost) + " " + r.choices()
+}
+
+func (r *route) choices() string {
+	s := colours[r.first.colour] + r.first.coords.String()
+	if r.next != nil {
+		s += "-" + r.next.choices()
 	}
 	return s
+}
+
+func (r *route) len() int {
+	if r.next != nil {
+		return 1 + r.next.len()
+	}
+	return 1
 }
