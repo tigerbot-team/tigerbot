@@ -165,7 +165,6 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 	// Get initial (believed) position - determined by the
 	// challenge.  We don't have a target yet.
 	position, stopEachIteration := m.challenge.Start(m.log)
-	target := (*Position)(nil)
 
 	initialHeading := m.hw.CurrentHeading().Float()
 	if position.HeadingIsExact {

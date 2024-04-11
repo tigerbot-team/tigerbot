@@ -1,4 +1,4 @@
-package main
+package ecodisaster
 
 import "fmt"
 
@@ -227,7 +227,7 @@ func abs(value int) int {
 	return value
 }
 
-func main() {
+func TestBarrels() {
 	colours[RED] = "R"
 	colours[GREEN] = "G"
 	barrels := [2][]coords{{

@@ -11,35 +11,17 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/pkg/errors"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/cameracontrol"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/ecodisaster"
 )
-
-var CLI struct {
-	Quit QuitCmd `cmd:"" help:"Quit"`
-	Sub  SubCmd  `cmd:"" help:"Command for subprocess."`
-	Rm   struct {
-		Force     bool `help:"Force removal."`
-		Recursive bool `help:"Recursively remove files."`
-
-		Paths []string `arg:"" name:"path" help:"Paths to remove." type:"path"`
-	} `cmd:"" help:"Remove files."`
-
-	Ls struct {
-		Paths []string `arg:"" optional:"" name:"path" help:"Paths to list." type:"path"`
-	} `cmd:"" help:"List paths."`
-}
 
 type Context struct {
 	cameraControl *cameracontrol.CameraControl
 }
 
-type SubCmd struct {
-	Command string `arg:"" name:"command"`
-}
-
-func (c *SubCmd) Run(ctx *Context) error {
-	result, err := ctx.cameraControl.Execute(c.Command)
-	log.Printf("CameraControl result=%v err=%v\n", result, err)
-	return err
+var CLI struct {
+	Quit    QuitCmd    `cmd:"" help:"Quit"`
+	Camera  CameraCmd  `cmd:"" help:"Command for camera subprocess"`
+	Barrels BarrelsCmd `cmd:"" help:"Barrel route test"`
 }
 
 type QuitCmd struct{}
@@ -49,6 +31,25 @@ func (q *QuitCmd) Run(ctx *Context) error {
 }
 
 var Quit = errors.New("Quit")
+
+type CameraCmd struct {
+	Command string `arg:"" name:"command"`
+}
+
+func (c *CameraCmd) Run(ctx *Context) error {
+	result, err := ctx.cameraControl.Execute(c.Command)
+	log.Printf("CameraControl result=%v err=%v\n", result, err)
+	return err
+}
+
+type BarrelsCmd struct {
+	Command string `arg:"" name:"command"`
+}
+
+func (c *BarrelsCmd) Run(ctx *Context) error {
+	ecodisaster.TestBarrels()
+	return nil
+}
 
 func main() {
 	fmt.Println("---- nelltest ----")
@@ -87,15 +88,4 @@ func main() {
 			continue
 		}
 	}
-}
-
-// Both of the following abstractions might include some uncertainties
-// / error bars / values with probabilities attached.  But at any
-// given time, when performing a challenge, we do need to decide what
-// the bot should do next.  So we somehow need to keep those
-// uncertainties small enough to at least take the next step.
-
-// Abstraction of what we believe the state of the challenge arena to
-// be, and how much of the challenge/arena remains to be done.
-type Arena interface {
 }
