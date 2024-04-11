@@ -18,7 +18,7 @@ func (c *challenge) Name() string {
 	return "LAVAPALAVA"
 }
 
-func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
+func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool) {
 	c.log = log
 	panic("implement me!")
 }

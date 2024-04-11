@@ -18,7 +18,7 @@ func (c *challenge) Name() string {
 	return "CALXHEADING"
 }
 
-func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
+func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool) {
 	c.log = log
 
 	// By definition, when this mode runs, the bot has been placed
@@ -29,7 +29,7 @@ func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
 	return &challengemode.Position{
 		Heading:        0,
 		HeadingIsExact: true,
-	}
+	}, true
 }
 
 func (c *challenge) Iterate(

@@ -42,8 +42,9 @@ type Challenge interface {
 	Name() string
 
 	// Set any internal state to reflect the beginning of the
-	// challenge and return the initial bot position.
-	Start(Log) *Position
+	// challenge; return the initial bot position and whether to
+	// stop motors after each iteration.
+	Start(Log) (*Position, bool)
 
 	// Use available sensors to update our beliefs about the arena
 	// and where we are within it.
@@ -163,7 +164,7 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 	// Get initial (believed) position - determined by the
 	// challenge.  We don't have a target yet.
-	position := m.challenge.Start(m.log)
+	position, stopEachIteration := m.challenge.Start(m.log)
 	target := (*Position)(nil)
 
 	initialHeading := m.hw.CurrentHeading().Float()
@@ -218,8 +219,10 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 		// Allow motion for the indicated time.
 		time.Sleep(moveTime)
 
-		// Stop moving.
-		hh.SetThrottle(0)
+		if stopEachIteration {
+			// Stop moving.
+			hh.SetThrottle(0)
+		}
 
 		// Update current position based on dead reckoning.
 		// Note, uses m.lastThrottleAngle.

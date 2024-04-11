@@ -109,7 +109,7 @@ func (c *challenge) Name() string {
 	return "ESCAPEROUTE"
 }
 
-func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
+func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool) {
 	c.log = log
 	c.stage = INIT
 	c.blockDone[BLUE] = false
@@ -124,7 +124,7 @@ func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
 	return &challengemode.Position{
 		X: c.xTarget,
 		Y: c.yTarget,
-	}
+	}, true
 }
 
 func (c *challenge) Iterate(

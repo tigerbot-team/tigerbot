@@ -61,7 +61,7 @@ func (c *challenge) Name() string {
 	return "MINESWEEPER"
 }
 
-func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
+func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool) {
 	c.log = log
 	c.stage = INIT
 
@@ -78,7 +78,7 @@ func (c *challenge) Start(log challengemode.Log) *challengemode.Position {
 	c.xTarget = position.X
 	c.yTarget = position.Y
 
-	return position
+	return position, true
 }
 
 func (c *challenge) Iterate(
