@@ -3,10 +3,11 @@ package hardware
 import (
 	"context"
 	"fmt"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 	"sync"
 	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 )
 
 type Interface interface {
@@ -38,6 +39,21 @@ type HeadingAbsolute interface {
 	AddHeadingDelta(delta float64)
 	SetThrottle(float64)
 	Wait(ctx context.Context) (residual float64, err error)
+
+	// SetThrottle with an angled displacement - i.e. not changing
+	// the direction that the bot is facing (aka the "heading"),
+	// but using mecanum wheels to move other than just straight
+	// ahead.
+	//
+	// First arg `throttle` is the same as in `SetThrottle`,
+	// i.e. a measurement of speed.
+	//
+	// Second arg `angle` is in degrees, measured CCW
+	// w.r.t. straight ahead.
+	//
+	// (So `SetThrottleWithAngle(throttle, 0)` should be
+	// equivalent to `SetThrottle(throttle)`.
+	SetThrottleWithAngle(throttle float64, angle float64)
 }
 
 type HeadingRelative interface {

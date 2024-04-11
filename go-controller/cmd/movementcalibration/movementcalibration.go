@@ -84,7 +84,7 @@ func main() {
 			for j := 0; j < 2; j++ {
 				fmt.Printf("%v/4:\n", 1+j+2*dir)
 				startRotations := hw.AccumulatedRotations()
-				hh.SetThrottle(float64(throttleSpeed), float64(angle[dir]))
+				hh.SetThrottleWithAngle(float64(throttleSpeed), float64(angle[dir]))
 				time.Sleep(time.Duration(4*(j+1)) * time.Second)
 				hw.StopMotorControl()
 				endRotations := hw.AccumulatedRotations()

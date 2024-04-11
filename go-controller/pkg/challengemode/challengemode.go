@@ -336,12 +336,8 @@ func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target
 	} else {
 		displacementHeading = math.Atan2(float64(target.Y-current.Y), float64(target.X-current.X)) / RADIANS_PER_DEGREE
 	}
-	newThrottleRequest := &ThrottleRequest{
-		angle:    displacementHeading - target.Heading,
-		throttle: 1,
-	}
-	hh.SetThrottle(newThrottleRequest)
-	m.lastThrottleAngle = newThrottleRequest.angle
+	hh.SetThrottleWithAngle(1, displacementHeading-target.Heading)
+	m.lastThrottleAngle = displacementHeading - target.Heading
 }
 
 // Utility for challenge-specific code.

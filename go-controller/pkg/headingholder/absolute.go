@@ -53,6 +53,10 @@ func (h *Absolute) SetThrottle(throttle float64) {
 	h.throttle = throttle
 }
 
+func (h *Absolute) SetThrottleWithAngle(throttle, angle float64) {
+	panic("implement me")
+}
+
 func (h *Absolute) CurrentHeading() angle.PlusMinus180 {
 	h.controlLock.Lock()
 	defer h.controlLock.Unlock()
