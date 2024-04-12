@@ -63,6 +63,7 @@ func main() {
 
 	// Our global context, we cancel it to trigger shutdown.
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Initialise the hardware.
 	hw := hardware.New()
