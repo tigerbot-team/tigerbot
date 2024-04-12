@@ -7,23 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/mux"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pca9685"
 )
 
 func main() {
-	mx, err := mux.New("/dev/i2c-1")
-	if err != nil {
-		fmt.Println("Failed to open mux", err)
-		return
-	}
-
-	err = mx.SelectSinglePort(6)
-	if err != nil {
-		fmt.Println("Failed to select mux port", err)
-		return
-	}
-
 	pwmController, err := pca9685.New("/dev/i2c-1")
 	if err != nil {
 		fmt.Println("Failed to open PCA9685", err)

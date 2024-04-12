@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	Addr1 = 0x40
+	// Note: servo board uses 0x40 by default.
+	Addr1 = 0x41
 
 	RegConfig      = 0
 	RegShuntV      = 1

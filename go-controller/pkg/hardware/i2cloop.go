@@ -156,8 +156,9 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
 			continue
 		}
-		shuntOhms := 0.1
-		err = pwrSen.Configure(shuntOhms, 10)
+		const shuntOhms = 0.05
+		const maxCurrentAmps = 5.0
+		err = pwrSen.Configure(shuntOhms, maxCurrentAmps)
 		if err != nil {
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
 			continue

@@ -75,7 +75,7 @@ func ClearNotice(msg string) {
 }
 
 func LoopUpdatingScreen(ctx context.Context) {
-	f, err := os.OpenFile("/dev/fb1", os.O_RDWR, 0666)
+	f, err := os.OpenFile("/dev/fb0", os.O_RDWR, 0666)
 	if err != nil {
 		fmt.Println("Failed to open screen, ignoring")
 		return
