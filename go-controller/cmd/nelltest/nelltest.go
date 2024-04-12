@@ -10,12 +10,11 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/pkg/errors"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/cameracontrol"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/ecodisaster"
 )
 
 type Context struct {
-	cameraControl *cameracontrol.CameraControl
 }
 
 var CLI struct {
@@ -37,7 +36,7 @@ type CameraCmd struct {
 }
 
 func (c *CameraCmd) Run(ctx *Context) error {
-	result, err := ctx.cameraControl.Execute(c.Command)
+	result, err := challengemode.CameraExecute(c.Command)
 	log.Printf("CameraControl result=%v err=%v\n", result, err)
 	return err
 }
@@ -60,13 +59,7 @@ func main() {
 		panic(err)
 	}
 
-	ctx := &Context{
-		cameraControl: cameracontrol.New(),
-	}
-	err = ctx.cameraControl.Start()
-	if err != nil {
-		panic(err)
-	}
+	ctx := &Context{}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
