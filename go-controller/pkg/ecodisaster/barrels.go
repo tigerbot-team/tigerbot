@@ -2,6 +2,7 @@ package ecodisaster
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 
@@ -160,11 +161,29 @@ func routeCacheKey(p *challengemode.Position, state *arena) string {
 }
 
 func toCollectBarrel(state *arena, p *challengemode.Position, coords *coords) (int, *challengemode.Position) {
-	panic("implement me")
+	// Placeholder implementation: cost proportional to distance.
+	cost := math.Hypot(coords.x-p.X, coords.y-p.Y)
+	endPosition := &challengemode.Position{
+		X:       coords.x,
+		Y:       coords.y,
+		Heading: p.Heading,
+	}
+	return int(cost), endPosition
 }
 
 func toDropOff(state *arena, p *challengemode.Position, dropColour int) (int, *challengemode.Position) {
-	panic("implement me")
+	// Placeholder implementation: cost proportional to distance.
+	if dropColour == RED {
+		return toCollectBarrel(state, p, &coords{
+			x: (xRedDropL + xRedDropR) / 2,
+			y: yDropB,
+		})
+	} else {
+		return toCollectBarrel(state, p, &coords{
+			x: (xGreenDropL + xGreenDropR) / 2,
+			y: yDropB,
+		})
+	}
 }
 
 // Given a bot position and a set of barrels that still need
@@ -316,10 +335,12 @@ func TestBarrels() {
 
 	r := bestRoute(initialBotPosition, initialState(barrels))
 	fmt.Printf("Best route is %v\n", r)
-	fmt.Printf("Route cache:\n")
-	for key, route := range bestRouteCache {
-		if route.len() >= 9 {
-			fmt.Printf("%v -> %v\n", key, route)
+	if false {
+		fmt.Printf("Route cache:\n")
+		for key, route := range bestRouteCache {
+			if route.len() >= 9 {
+				fmt.Printf("%v -> %v\n", key, route)
+			}
 		}
 	}
 }
@@ -331,9 +352,14 @@ func (r *route) String() string {
 }
 
 func (r *route) choices() string {
-	s := colours[r.first.colour] + r.first.coords.String()
+	var s string
+	if r.first.pickUp {
+		s = colours[r.first.colour] + r.first.coords.String()
+	} else if r.first.dropOff {
+		s = "D" + colours[r.first.colour]
+	}
 	if r.next != nil {
-		s += "-" + r.next.choices()
+		s += " " + r.next.choices()
 	}
 	return s
 }
