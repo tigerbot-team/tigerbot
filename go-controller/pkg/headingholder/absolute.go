@@ -3,6 +3,8 @@ package headingholder
 import (
 	"context"
 	"fmt"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/chassis"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 	"math"
 	"sync"
 	"time"
@@ -29,9 +31,10 @@ type Absolute struct {
 }
 
 type controls struct {
-	targetHeading  angle.PlusMinus180
-	currentHeading angle.PlusMinus180
-	throttle       float64
+	targetHeading     angle.PlusMinus180
+	currentHeading    angle.PlusMinus180
+	throttleMMPerS    float64
+	translationMMPerS float64
 }
 
 func (h *Absolute) SetHeading(desiredHeaading float64) {
@@ -47,14 +50,17 @@ func (h *Absolute) AddHeadingDelta(delta float64) {
 	h.targetHeading = h.targetHeading.AddFloat(delta)
 }
 
+// SetThrottle is equivalent to SetThrottleWithAngle with an angle of 0 (i.e. straight ahead)
 func (h *Absolute) SetThrottle(throttle float64) {
-	h.controlLock.Lock()
-	defer h.controlLock.Unlock()
-	h.throttle = throttle
+	h.SetThrottleWithAngle(throttle, 0)
 }
 
-func (h *Absolute) SetThrottleWithAngle(throttle, angle float64) {
-	panic("implement me")
+func (h *Absolute) SetThrottleWithAngle(throttleMMPerS, angle float64) {
+	h.controlLock.Lock()
+	defer h.controlLock.Unlock()
+	angleRads := angle * 2 * math.Pi / 360
+	h.throttleMMPerS = throttleMMPerS * math.Cos(angleRads)
+	h.translationMMPerS = throttleMMPerS * math.Sin(angleRads)
 }
 
 func (h *Absolute) CurrentHeading() angle.PlusMinus180 {
@@ -127,6 +133,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	initialHeading := lastIMUReport.RobotYaw()
 	var headingEstimate angle.PlusMinus180
 	var filteredThrottle float64
+	var filteredTranslation float64
 	var motorRotationSpeed float64
 	var lastHeadingError float64
 	var iHeadingError float64
@@ -138,9 +145,11 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		maxIntegral            = 0.3
 		maxD                   = 100
 		maxRotationThrottle    = 0.3
-		maxThrottleDeltaPerSec = 1
+		maxThrottleDeltaPerSec = 100
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * bno08x.ReportInterval.Seconds()
+	maxTranslationDelta := maxThrottleDelta
+
 	var lastLoopStart = time.Now()
 
 	defer func() {
@@ -200,7 +209,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.3f\n",
 			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
 
-		targetThrottle := controls.throttle
+		targetThrottle := controls.throttleMMPerS
 		if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
 			fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
@@ -210,24 +219,41 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		} else {
 			filteredThrottle = targetThrottle
 		}
-
-		// Map the values to speeds for each motor.
-		left := filteredThrottle - motorRotationSpeed
-		right := -filteredThrottle - motorRotationSpeed
-
-		m := math.Max(left, right)
-		scale := 1.0
-		if m > 1 {
-			scale = 1.0 / m
+		targetTranslation := controls.translationMMPerS
+		if targetTranslation > filteredTranslation+maxTranslationDelta {
+			filteredTranslation += maxTranslationDelta
+		} else if targetTranslation < filteredTranslation-maxTranslationDelta {
+			filteredTranslation -= maxTranslationDelta
+		} else {
+			filteredTranslation = targetTranslation
 		}
 
-		l := scaleMotorOutput(left*scale, motorFullRange)
-		r := scaleMotorOutput(right*scale, motorFullRange)
+		// Map the values to speeds for each motor.  Motor rotation direction:
+		// positive = anti-clockwise.
+		throttleRPS := filteredThrottle / chassis.WheelCircumMM
+		translationRPS := filteredTranslation * math.Sqrt2 / chassis.WheelCircumMM
+		rotationRPS := motorRotationSpeed * 4096 // TODO fudge factor
 
-		if err := h.Motors.SetMotorSpeeds(l, r, l, r); err != nil {
+		var frontLeftRPS float64 = throttleRPS - rotationRPS - translationRPS
+		var backLeftRPS float64 = throttleRPS - rotationRPS + translationRPS
+		var frontRightRPS float64 = -throttleRPS - rotationRPS - translationRPS
+		var backRightRPS float64 = -throttleRPS - rotationRPS + translationRPS
+
+		m := max(frontLeftRPS, frontRightRPS, backLeftRPS, backRightRPS)
+		scale := 1.0
+		const maxRPS float64 = 1.0
+		if m > maxRPS {
+			scale = maxRPS / m
+		}
+
+		fl := picobldc.RPSToMotorSpeed(frontLeftRPS * scale)
+		fr := picobldc.RPSToMotorSpeed(frontRightRPS * scale)
+		bl := picobldc.RPSToMotorSpeed(backLeftRPS * scale)
+		br := picobldc.RPSToMotorSpeed(backRightRPS * scale)
+
+		if err := h.Motors.SetMotorSpeeds(fl, fr, bl, br); err != nil {
 			fmt.Println("Failed to set motor speeds:", err)
 		}
-
 		lastHeadingError = headingError
 	}
 }

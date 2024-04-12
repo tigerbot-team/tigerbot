@@ -89,6 +89,13 @@ const (
 
 const NumMotors = 4
 
+// Speed is a 16-bit signed fixed point number representing rotations per second.
+// 1 sign bit, 5 integral bits, 10 fractional bits.
+
+const SpeedScaleFactor = 1 << 10
+const SpeedRPSLSB = 1.0 / SpeedScaleFactor
+const SpeedMax = math.MaxInt16 * SpeedRPSLSB
+
 type PerMotorVal[T any] [NumMotors]T
 
 type Interface interface {
@@ -369,4 +376,15 @@ func (p *dummyPico) SetMotorSpeeds(frontLeft, frontRight, backLeft, backRight in
 
 func (p *dummyPico) Close() error {
 	return nil
+}
+
+func RPSToMotorSpeed(rps float64) int16 {
+	scaled := rps * SpeedScaleFactor
+	if scaled >= math.MaxInt16 {
+		return math.MaxInt16
+	}
+	if scaled <= math.MinInt16 {
+		return math.MinInt16
+	}
+	return int16(scaled)
 }

@@ -37,13 +37,13 @@ type RawControl interface {
 type HeadingAbsolute interface {
 	SetHeading(desiredHeaading float64)
 	AddHeadingDelta(delta float64)
-	SetThrottle(float64)
+	SetThrottle(throttleMMPerS float64)
 	Wait(ctx context.Context) (residual float64, err error)
 
-	// SetThrottle with an angled displacement - i.e. not changing
-	// the direction that the bot is facing (aka the "heading"),
-	// but using mecanum wheels to move other than just straight
-	// ahead.
+	// SetThrottleWithAngle is like SetThrottle with an angled
+	//displacement - i.e. not changing the direction that the bot
+	//is facing (aka the "heading"), but using mecanum wheels to
+	// move other than just straight ahead.
 	//
 	// First arg `throttle` is the same as in `SetThrottle`,
 	// i.e. a measurement of speed.
@@ -53,7 +53,7 @@ type HeadingAbsolute interface {
 	//
 	// (So `SetThrottleWithAngle(throttle, 0)` should be
 	// equivalent to `SetThrottle(throttle)`.
-	SetThrottleWithAngle(throttle float64, angle float64)
+	SetThrottleWithAngle(throttleMMPerS float64, angle float64)
 }
 
 type HeadingRelative interface {
