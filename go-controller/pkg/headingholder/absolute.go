@@ -134,17 +134,12 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	var headingEstimate angle.PlusMinus180
 	var filteredThrottle float64
 	var filteredTranslation float64
-	var motorRotationSpeed float64
+	var rotationMMPerS float64
 	var lastHeadingError float64
 	var iHeadingError float64
 
 	const (
-		kp                     = 0.01
-		ki                     = 0.03
-		kd                     = 0.0001
-		maxIntegral            = 0.3
-		maxD                   = 100
-		maxRotationThrottle    = 0.3
+		maxRotationMMPerS      = 400
 		maxThrottleDeltaPerSec = 100
 	)
 	maxThrottleDelta := maxThrottleDeltaPerSec * bno08x.ReportInterval.Seconds()
@@ -157,6 +152,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			fmt.Println("Failed to set motor speeds:", err)
 		}
 	}()
+	lastPrint := time.Now()
 	for cxt.Err() == nil {
 		// This should pop every 10ms
 		imuReport := m.WaitForReportAfter(lastIMUReport.Time)
@@ -180,35 +176,47 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		loopTimeSecs := loopTime.Seconds()
 		targetHeading := controls.targetHeading
 
+		const (
+			kp          = 8.0
+			ki          = 0.8
+			kd          = 0.50
+			maxIntegral = 20
+			maxD        = 100
+		)
+
 		// Calculate the error/derivative/integral.
-		headingError := targetHeading.Sub(headingEstimate).Float()
-		dHeadingError := (headingError - lastHeadingError) / loopTimeSecs
+		headingErrorDegrees := targetHeading.Sub(headingEstimate).Float()
+		dHeadingError := (headingErrorDegrees - lastHeadingError) / loopTimeSecs
 		if dHeadingError > maxD {
 			dHeadingError = maxD
 		} else if dHeadingError < -maxD {
 			dHeadingError = -maxD
 		}
-		iHeadingError += headingError * loopTimeSecs
-		if iHeadingError > maxIntegral {
-			iHeadingError = maxIntegral
-		} else if iHeadingError < -maxIntegral {
-			iHeadingError = -maxIntegral
+
+		if math.Abs(headingErrorDegrees) < 5 {
+			iHeadingError += headingErrorDegrees * loopTimeSecs
+			if iHeadingError > maxIntegral {
+				iHeadingError = maxIntegral
+			} else if iHeadingError < -maxIntegral {
+				iHeadingError = -maxIntegral
+			}
+		} else {
+			iHeadingError = 0
 		}
 
-		// Calculate the correction to apply.
-		rotationCorrection := kp*headingError + ki*iHeadingError + kd*dHeadingError
-
-		// Add the correction to the current speed.  We want 0 correction to mean "hold the same motor speed".
-		motorRotationSpeed = rotationCorrection
-		if motorRotationSpeed > maxRotationThrottle {
-			motorRotationSpeed = maxRotationThrottle
-		} else if motorRotationSpeed < -maxRotationThrottle {
-			motorRotationSpeed = -maxRotationThrottle
+		// Calculate how fast we want the bot as a whole to rotate.
+		desiredBotDegreesPS := kp*headingErrorDegrees + ki*iHeadingError + kd*dHeadingError
+		rotationMMPerS = desiredBotDegreesPS * chassis.WheelTurningCircleDiaMM / 360
+		if rotationMMPerS > maxRotationMMPerS {
+			rotationMMPerS = maxRotationMMPerS
+		} else if rotationMMPerS < -maxRotationMMPerS {
+			rotationMMPerS = -maxRotationMMPerS
 		}
 
-		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.3f\n",
-			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
-
+		if time.Since(lastPrint) > 300*time.Millisecond {
+			fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.3f\n",
+				loopTime, headingEstimate, targetHeading, headingErrorDegrees, iHeadingError, dHeadingError, rotationMMPerS)
+		}
 		targetThrottle := controls.throttleMMPerS
 		if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
@@ -232,8 +240,12 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		// positive = anti-clockwise.
 		throttleRPS := filteredThrottle / chassis.WheelCircumMM
 		translationRPS := filteredTranslation * math.Sqrt2 / chassis.WheelCircumMM
-		rotationRPS := motorRotationSpeed * 4096 // TODO fudge factor
+		rotationRPS := rotationMMPerS / chassis.WheelCircumMM
 
+		if time.Since(lastPrint) > 300*time.Millisecond {
+			fmt.Printf("RPS: th=%.2f tr=%.2f ro=%.2f\n", throttleRPS, translationRPS, rotationRPS)
+			lastPrint = time.Now()
+		}
 		var frontLeftRPS float64 = throttleRPS - rotationRPS - translationRPS
 		var backLeftRPS float64 = throttleRPS - rotationRPS + translationRPS
 		var frontRightRPS float64 = -throttleRPS - rotationRPS - translationRPS
@@ -254,6 +266,6 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		if err := h.Motors.SetMotorSpeeds(fl, fr, bl, br); err != nil {
 			fmt.Println("Failed to set motor speeds:", err)
 		}
-		lastHeadingError = headingError
+		lastHeadingError = headingErrorDegrees
 	}
 }
