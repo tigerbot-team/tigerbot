@@ -38,6 +38,10 @@ type Position struct {
 	HeadingIsExact bool
 }
 
+func (p *Position) String() string {
+	return fmt.Sprintf("%.0f:%.0f:%.0f", p.X, p.Y, p.Heading)
+}
+
 type Challenge interface {
 	Name() string
 

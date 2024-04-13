@@ -2,6 +2,8 @@ package minesweeper
 
 import (
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
@@ -81,6 +83,27 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 	return position, true
 }
 
+func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64) {
+	rsp, err := challengemode.CameraExecute("id-mine")
+	if err != nil {
+		c.log("IdentifyMine camera err=%v", err)
+	}
+	rspWords := strings.Split(rsp, " ")
+	confidence, err = strconv.ParseFloat(rspWords[0], 64)
+	if err != nil {
+		c.log("confidence '%v' err=%v", rspWords[0], err)
+	}
+	headingAdjust, err = strconv.ParseFloat(rspWords[1], 64)
+	if err != nil {
+		c.log("headingAdjust '%v' err=%v", rspWords[1], err)
+	}
+	distance, err = strconv.ParseFloat(rspWords[2], 64)
+	if err != nil {
+		c.log("distance '%v' err=%v", rspWords[2], err)
+	}
+	return
+}
+
 func (c *challenge) Iterate(
 	position *challengemode.Position,
 	timeSinceStart time.Duration,
@@ -100,7 +123,7 @@ func (c *challenge) Iterate(
 			// it's slightly to the left or right, and the
 			// distance left to travel in order for part
 			// of the bot to be over the square.
-			targetConfidence, headingAdjust, distance := c.IdentifyTarget()
+			targetConfidence, headingAdjust, distance := c.IdentifyMine()
 			if c.approachingTarget {
 				// Check in case target confidence is going down.
 				if targetConfidence < c.bestConfidence*allowedConfidenceDrop {
@@ -116,7 +139,7 @@ func (c *challenge) Iterate(
 					c.bestConfidence = targetConfidence
 					c.bestHeading = position.Heading + headingAdjust
 				}
-				nextHeading := position.Heading + 20
+				nextHeading := position.Heading + 40
 				if targetConfidence < immediateConfidenceThreshold &&
 					nextHeading < c.searchInitialHeading+360 {
 					// Not confident enough yet,
