@@ -50,6 +50,13 @@ class CommandServer(object):
     def do_test_id(self):
         return self._id_block_colour("test-id.jpg")
 
+    def do_id_mine(self):
+        file_name = self._take_picture()
+        return self._id_mine(file_name)
+
+    def do_test_mine(self):
+        return self._id_mine("test-mine.jpg")
+
     def _id_block_colour(self, filename):
         img = cv2.imread(filename)
         print("Shape =", img.shape)
@@ -58,21 +65,7 @@ class CommandServer(object):
         bestColour = ""
         bestArea = 0
         for colour, range in hue_ranges.items():
-            if range.max > range.min:
-                mask = self._hsv_mask(hsv, range.min, range.max)
-            else:
-                mask = (self._hsv_mask(hsv, range.min, 180) +
-                        self._hsv_mask(hsv, 0, range.max))
-
-            # Apply two iterations each of erosion and dilation, to
-            # remove noise.
-            mask = cv2.erode(mask, None, iterations=2)
-            mask = cv2.dilate(mask, None, iterations=2)
-
-            # Find contours of the mask.
-            contours, _ = cv2.findContours(mask.copy(),
-                                           cv2.RETR_EXTERNAL,
-                                           cv2.CHAIN_APPROX_SIMPLE)
+            contours = self._contours_in_hue_range(hsv, range)
             largestContour = max(contours, key=cv2.contourArea)
             largestContourArea = cv2.contourArea(largestContour)
 
@@ -84,10 +77,46 @@ class CommandServer(object):
 
         return bestColour
 
+    def _id_mine(self, filename):
+        img = cv2.imread(filename)
+        print("Shape =", img.shape)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+        contours = self._contours_in_hue_range(hsv, hue_ranges["red"])
+        largestContour = max(contours, key=cv2.contourArea)
+        largestContourArea = cv2.contourArea(largestContour)
+        M = cv2.moments(largestContour)
+        x = int(M["m10"] / M["m00"])
+        y = int(M["m01"] / M["m00"])
+
+        print("largestContourArea", largestContourArea)
+        print("X", x)
+        print("Y", y)
+
+        return ""
+
     def _hsv_mask(self, hsv, min, max):
         lower = np.array([min, 50, 50])
         upper = np.array([max, 255, 255])
         return cv2.inRange(hsv, lower, upper)
+
+    def _contours_in_hue_range(self, hsv, hue_range):
+        if hue_range.max > hue_range.min:
+            mask = self._hsv_mask(hsv, hue_range.min, hue_range.max)
+        else:
+            mask = (self._hsv_mask(hsv, hue_range.min, 180) +
+                    self._hsv_mask(hsv, 0, hue_range.max))
+
+        # Apply two iterations each of erosion and dilation, to
+        # remove noise.
+        mask = cv2.erode(mask, None, iterations=2)
+        mask = cv2.dilate(mask, None, iterations=2)
+
+        # Find contours of the mask.
+        contours, _ = cv2.findContours(mask.copy(),
+                                       cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        return contours
 
 
 class HueRange(object):
