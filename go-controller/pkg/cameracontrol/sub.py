@@ -94,8 +94,8 @@ class CommandServer(object):
         print("X", x)
         print("Y", y)
 
-        cv2.drawContours(img, [largestContour], 0, (0, 255, 0), 3)
         cv2.drawContours(img, contours, -1, (255, 0, 0), 3)
+        cv2.drawContours(img, [largestContour], 0, (0, 255, 0), 3)
         contourFileName = filename.replace('.jpg', '-contour.jpg')
         cv2.imwrite(contourFileName, img)
 
