@@ -82,21 +82,27 @@ class CommandServer(object):
         print("Shape =", img.shape)
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-        contours = self._contours_in_hue_range(hsv, hue_ranges["red"])
+        contours = self._contours_in_hue_range(hsv, HueRange(165, 10))
         largestContour = max(contours, key=cv2.contourArea)
         largestContourArea = cv2.contourArea(largestContour)
         M = cv2.moments(largestContour)
         x = int(M["m10"] / M["m00"])
         y = int(M["m01"] / M["m00"])
 
+
         print("largestContourArea", largestContourArea)
         print("X", x)
         print("Y", y)
 
+        cv2.drawContours(img, [largestContour], 0, (0, 255, 0), 3)
+        cv2.drawContours(img, contours, -1, (255, 0, 0), 3)
+        contourFileName = filename.replace('.jpg', '-contour.jpg')
+        cv2.imwrite(contourFileName, img)
+
         return ""
 
     def _hsv_mask(self, hsv, min, max):
-        lower = np.array([min, 50, 50])
+        lower = np.array([min, 100, 100])
         upper = np.array([max, 255, 255])
         return cv2.inRange(hsv, lower, upper)
 
