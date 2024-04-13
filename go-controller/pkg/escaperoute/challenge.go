@@ -215,11 +215,27 @@ func (c *challenge) Iterate(
 }
 
 func (c *challenge) IdentifyFacingBlockColour() blockColour {
-	panic("implement me")
+	rsp, err := challengemode.CameraExecute("id-block-colour")
+	if err != nil {
+		c.log("IdentifyFacingBlockColour camera err=%v", err)
+	}
+	switch rsp {
+	case "blue":
+		return BLUE
+	case "green":
+		return GREEN
+	default:
+		return RED
+	}
 }
 
 func (c *challenge) AdjustPositionByBlockEdge(position *challengemode.Position) {
-	blockEdgeOffset := c.GetBlockEdgeOffset()
-	position.X -= blockEdgeOffset * adjustmentMMPerOffset
-	panic("implement me")
+
+	// Commenting this out so that we have a potentially complete
+	// candidate code for escape route.  Can add it back in if we
+	// have time to do that.
+
+	//blockEdgeOffset := c.GetBlockEdgeOffset()
+	//position.X -= blockEdgeOffset * adjustmentMMPerOffset
+	//panic("implement me")
 }
