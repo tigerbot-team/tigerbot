@@ -150,7 +150,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 
 	// Only one sensor on the main bus, Pico also has one as a peripheral.
 	var powerSensors []powerMonitor
-	for _, addr := range []int{0x40} {
+	for _, addr := range []int{ina219.Addr1} {
 		pwrSen, err := ina219.NewI2C("/dev/i2c-1", addr)
 		if err != nil {
 			fmt.Println("Failed to open power sensor; ignoring! ", err)
