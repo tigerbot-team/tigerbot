@@ -150,6 +150,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 
 	// Only one sensor on the main bus, Pico also has one as a peripheral.
 	var powerSensors []powerMonitor
+	var busCells = []int{2, 4}
 	for _, addr := range []int{ina219.Addr1} {
 		pwrSen, err := ina219.NewI2C("/dev/i2c-1", addr)
 		if err != nil {
@@ -310,7 +311,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 				}
 				fmt.Printf("Bus %v: %.2fV %.2fA %.2fW\n", i, bv, bc, bp)
 				screen.ClearNotice(NotePowerMon)
-				screen.SetBusVoltage(i, bv)
+				screen.SetBusVoltage(i, bv, busCells[i])
 			}
 			lastPowerReadingTime = time.Now()
 		}
