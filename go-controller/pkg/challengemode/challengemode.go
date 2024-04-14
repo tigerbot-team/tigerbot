@@ -2,6 +2,7 @@ package challengemode
 
 import (
 	"context"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
 	"math"
 	"sync"
 
@@ -185,7 +186,9 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 	// Let the user know that we're ready, then wait for the "GO" signal.
 	m.hw.PlaySound("/sounds/ready.wav")
+	screen.SetNotice("Ready!", screen.LevelInfo)
 	m.startWG.Wait()
+	screen.ClearNotice("Ready!")
 
 	startTime := time.Now()
 

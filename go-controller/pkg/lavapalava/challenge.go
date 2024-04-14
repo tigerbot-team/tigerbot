@@ -62,3 +62,7 @@ func (c *challenge) Iterate(
 
 	return false, target, 500 * time.Millisecond
 }
+
+func (c *challenge) AnalyseWhiteLine() (float64, float64) {
+	return 0, 0
+}

@@ -6,10 +6,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pca9685"
 )
+
+var motorInitOnce sync.Once
 
 func main() {
 	pwmController, err := pca9685.New("/dev/i2c-1")
@@ -94,13 +97,25 @@ func main() {
 				reloadback = 1.0
 			)
 
-			err = pwmController.SetServo(motor1, v)
-			err = pwmController.SetServo(motor2, v)
-			fmt.Printf("firing\n")
-			time.Sleep(2000 * time.Millisecond)
+			motorInitOnce.Do(func() {
+				fmt.Println("Doing motor one-off init.")
+				err = pwmController.SetServo(motor1, 0)
+				err = pwmController.SetServo(motor2, 0)
+				time.Sleep(10 * time.Second)
+			})
+			fmt.Printf("Spin up...\n")
+			err = pwmController.SetServo(reload, reloadback)
+			for i := 0; i < 100; i++ {
+				err = pwmController.SetServo(motor1, v*float64(i)/100)
+				time.Sleep(10 * time.Millisecond)
+				err = pwmController.SetServo(motor2, v*float64(i)/100)
+				time.Sleep(10 * time.Millisecond)
+			}
+			time.Sleep(5000 * time.Millisecond)
+			fmt.Printf("Firing...\n")
 			err = pwmController.SetServo(reload, reloadfwd)
 			time.Sleep(500 * time.Millisecond)
-			fmt.Printf("resetting\n")
+			fmt.Printf("Resetting\n")
 			err = pwmController.SetServo(reload, reloadback)
 			err = pwmController.SetServo(motor1, 0)
 			err = pwmController.SetServo(motor2, 0)
