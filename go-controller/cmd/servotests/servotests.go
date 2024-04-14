@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pca9685"
 )
@@ -73,6 +74,36 @@ func main() {
 				fmt.Println("Failed to write to PCA9685: ", err)
 				return
 			}
+		case "f":
+			if len(parts) < 2 {
+				fmt.Println("Not enough parameters")
+				continue
+			}
+			v, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+			if err != nil {
+				fmt.Println("Expected float, not ", parts[1])
+				continue
+			}
+
+			fmt.Printf("spinning up\n")
+			const (
+				motor1     = 14
+				motor2     = 15
+				reload     = 13
+				reloadfwd  = 0.0
+				reloadback = 1.0
+			)
+
+			err = pwmController.SetServo(motor1, v)
+			err = pwmController.SetServo(motor2, v)
+			fmt.Printf("firing\n")
+			time.Sleep(2000 * time.Millisecond)
+			err = pwmController.SetServo(reload, reloadfwd)
+			time.Sleep(500 * time.Millisecond)
+			fmt.Printf("resetting\n")
+			err = pwmController.SetServo(reload, reloadback)
+			err = pwmController.SetServo(motor1, 0)
+			err = pwmController.SetServo(motor2, 0)
 		}
 	}
 }
