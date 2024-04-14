@@ -227,7 +227,8 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		} else {
 			filteredThrottle = targetThrottle
 		}
-		targetTranslation := controls.translationMMPerS
+		const mecFac = 1.044
+		targetTranslation := controls.translationMMPerS * mecFac
 		if targetTranslation > filteredTranslation+maxTranslationDelta {
 			filteredTranslation += maxTranslationDelta
 		} else if targetTranslation < filteredTranslation-maxTranslationDelta {
@@ -239,7 +240,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		// Map the values to speeds for each motor.  Motor rotation direction:
 		// positive = anti-clockwise.
 		throttleRPS := filteredThrottle / chassis.WheelCircumMM
-		translationRPS := filteredTranslation * math.Sqrt2 / chassis.WheelCircumMM
+		translationRPS := filteredTranslation / chassis.WheelCircumMM
 		rotationRPS := rotationMMPerS / chassis.WheelCircumMM
 
 		if time.Since(lastPrint) > 300*time.Millisecond {
