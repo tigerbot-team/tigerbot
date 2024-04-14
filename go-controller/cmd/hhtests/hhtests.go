@@ -47,7 +47,7 @@ func main() {
 		parts := strings.Split(line, " ")
 		switch parts[0] {
 		case "t":
-			if len(parts) < 3 {
+			if len(parts) < 4 {
 				fmt.Println("Not enough parameters")
 				continue
 			}
@@ -55,12 +55,21 @@ func main() {
 			throttle, err := strconv.ParseFloat(parts[1], 64)
 			if err != nil {
 				fmt.Printf("Failed to parse float: %v\n", err)
+				continue
 			}
 			angle, err := strconv.ParseFloat(parts[2], 64)
 			if err != nil {
 				fmt.Printf("Failed to parse float: %v\n", err)
+				continue
+			}
+			d, err := time.ParseDuration(parts[3])
+			if err != nil {
+				fmt.Printf("Failed to parse float: %v\n", err)
+				continue
 			}
 			hh.SetThrottleWithAngle(throttle, angle)
+			time.Sleep(d)
+			hh.SetThrottle(0)
 		case "h":
 			if len(parts) < 2 {
 				fmt.Println("Not enough parameters")
