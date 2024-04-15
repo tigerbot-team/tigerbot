@@ -220,10 +220,10 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		targetThrottle := controls.throttleMMPerS
 		if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
-			fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
+			//fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
 		} else if targetThrottle < filteredThrottle-maxThrottleDelta {
 			filteredThrottle -= maxThrottleDelta
-			fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
+			//fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
 		} else {
 			filteredThrottle = targetThrottle
 		}

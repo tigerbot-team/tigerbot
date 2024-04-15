@@ -194,7 +194,7 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 	UpdatePosition := m.MakeUpdatePosition(m.hw.AccumulatedRotations())
 
-	for {
+	for ctx.Err() == nil {
 		// Note, the bot is stationary at the start of each
 		// iteration of this loop.
 
@@ -220,10 +220,15 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 		// Start moving to the target position.  Note, sets
 		// m.lastThrottleAngle.
-		m.StartMotion(hh, position, target)
+		m.StartMotion(ctx, hh, position, target, moveTime)
 
 		// Allow motion for the indicated time.
-		time.Sleep(moveTime)
+		select {
+		case <-time.After(moveTime):
+		case <-ctx.Done():
+			m.log("Context done.")
+			return
+		}
 
 		if stopEachIteration {
 			// Stop moving.
@@ -308,8 +313,11 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 
 		// quantizedAngleOver5 is now from -36 to 36 (inclusive).
 		index := (quantizedAngleOver5 + 36) % 72
-		aheadDisplacement := rotations * mmPerRotation[index].ahead
-		leftDisplacement := rotations * mmPerRotation[index].left
+
+		m := mmPerRotation[index]
+		fmt.Println("mm per rotation: ", m)
+		aheadDisplacement := rotations * m.ahead
+		leftDisplacement := rotations * m.left
 
 		sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
 		cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
@@ -319,10 +327,15 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 	}
 }
 
-func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target *Position) {
+func (m *ChallengeMode) StartMotion(
+	ctx context.Context,
+	hh hardware.HeadingAbsolute,
+	current, target *Position,
+	moveTime time.Duration) {
 	if target.Heading != current.Heading {
+		m.log("Heading change %v -> %v", current.Heading, target.Heading)
 		hh.SetHeading(calibratedXHeading + target.Heading*PositiveAnglesAnticlockwise)
-		hh.Wait(context.Background())
+		hh.Wait(ctx)
 	}
 	var displacementHeading float64
 	if target.X == current.X {
@@ -340,10 +353,27 @@ func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target
 			displacementHeading = 180
 		}
 	} else {
-		displacementHeading = math.Atan2(float64(target.Y-current.Y), float64(target.X-current.X)) / RADIANS_PER_DEGREE
+		displacementHeading = math.Atan2(
+			float64(target.Y-current.Y),
+			float64(target.X-current.X),
+		) / RADIANS_PER_DEGREE
 	}
-	hh.SetThrottleWithAngle(1, displacementHeading-target.Heading)
-	m.lastThrottleAngle = displacementHeading - target.Heading
+
+	dX := target.X - current.X
+	dY := target.Y - current.Y
+	m.log("current %v target %v", current, target)
+	m.log("dx=%f dy=%f", dX, dY)
+	dist := math.Sqrt((dX * dX) + (dY * dY))
+
+	throttle := dist * 0.9 / moveTime.Seconds()
+	const maxThrottle = 200
+	if throttle > maxThrottle {
+		throttle = maxThrottle
+	}
+	heading := displacementHeading - target.Heading
+	m.log("Setting throttle %f heading %f", throttle, heading)
+	hh.SetThrottleWithAngle(throttle, heading)
+	m.lastThrottleAngle = heading
 }
 
 // Utility for challenge-specific code.
