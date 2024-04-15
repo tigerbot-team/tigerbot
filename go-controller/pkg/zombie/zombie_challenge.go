@@ -22,21 +22,16 @@ type stage int
 
 const (
 	INIT stage = iota
+	HUNT_RIGHT
+	HUNT_LEFT
 )
 
 type challenge struct {
-	log               challengemode.Log
-	stage             stage
-	xTarget           float64
-	yTarget           float64
-	headingTarget     float64
-	obeyHeadingTarget bool
-
-	// Searching.
-	searchInitialHeading float64
-	bestHeading          float64
-	bestConfidence       float64
-	approachingTarget    bool
+	log           challengemode.Log
+	stage         stage
+	xTarget       float64
+	yTarget       float64
+	headingTarget float64
 }
 
 func New() challengemode.Challenge {
@@ -74,11 +69,44 @@ func (c *challenge) Iterate(
 	c.log("Stage = %v", c.stage)
 	switch c.stage {
 	case INIT:
-		return false, &challengemode.Position{
+		initialTarget := &challengemode.Position{
 			X:       startX,
 			Y:       targetY,
 			Heading: fixedHeading,
-		}, 1 * time.Second
+		}
+
+		if challengemode.TargetReached(initialTarget, position) {
+			c.stage = HUNT_RIGHT
+			return false, initialTarget, 0
+		}
+
+		return false, initialTarget, 1 * time.Second
+	case HUNT_RIGHT:
+		target := &challengemode.Position{
+			X:       dxTotal - 200,
+			Y:       targetY,
+			Heading: fixedHeading,
+		}
+
+		if challengemode.TargetReached(target, position) {
+			c.stage = HUNT_LEFT
+			return false, target, 0
+		}
+
+		return false, target, 1 * time.Second
+	case HUNT_LEFT:
+		target := &challengemode.Position{
+			X:       200,
+			Y:       targetY,
+			Heading: fixedHeading,
+		}
+
+		if challengemode.TargetReached(target, position) {
+			c.stage = HUNT_RIGHT
+			return false, target, 0
+		}
+
+		return false, target, 1 * time.Second
 	}
 	panic("unknown stage")
 }
