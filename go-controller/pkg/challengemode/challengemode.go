@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/chassis"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/joystick"
@@ -279,13 +280,99 @@ const RADIANS_PER_DEGREE = math.Pi / 180
 
 const PositiveAnglesAnticlockwise float64 = 1 // Invert me if HeadingAbsolute uses the opposite sign.
 
+func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
+	// To get all the signs right, use angles in the different
+	// quadrants to make the tangents positive, and not if we need
+	// to end up inverting the absolute X and Y displacements.
+	var T, YF, XS float64
+	if normalizedAngle > 90 {
+		T = 180 - normalizedAngle
+		YF = -1
+		XS = 1
+	} else if normalizedAngle >= 0 {
+		T = normalizedAngle
+		YF = 1
+		XS = 1
+	} else if normalizedAngle > -90 {
+		T = -normalizedAngle
+		YF = 1
+		XS = -1
+	} else {
+		T = normalizedAngle + 180
+		YF = -1
+		XS = -1
+	}
+
+	// If F = forwards throttle (+tive ahead) and S = sideways
+	// throttle (+tive left):
+	//
+	// BL = (F + S)
+	// FR = - (F + S)
+	//
+	// BR = - (F - S)
+	// FL = (F - S)
+	//
+	// So in theory BL = -FR and BR = -FL.  In practice those are
+	// accurate to 1-2% when the absolute values are large, but we
+	// see errors 20% or more when the absolute values are small.
+	// Since we think we can rely on the HH _heading_, we use that
+	// together with whichever pair of wheel rotations has the
+	// larger absolute values.
+	blminusfr := bl - fr
+	flminusbr := fl - br
+	var F, S float64
+	const k = float64(1.044)
+	if math.Abs(blminusfr) >= math.Abs(flminusbr) {
+		// blminusfr = 2 (F + S)
+		//
+		// If closer to forwards than sideways, use
+		// S/kF = tan T, where k is 1.044.
+		if normalizedAngle <= -135 ||
+			(normalizedAngle >= -45 && normalizedAngle <= 45) ||
+			normalizedAngle > 135 {
+			// blminusfr = 2F (1 + k tan T)
+			tan := math.Tan(T * RADIANS_PER_DEGREE)
+			F = 0.5 * blminusfr / (1 + k*tan)
+			S = k * F * tan
+		} else {
+			// Use Fk/S = tan (90 - T).
+			//
+			// blminusfr = 2S (1 + k tan (90 - T))
+			tan := math.Tan((90 - T) * RADIANS_PER_DEGREE)
+			S = 0.5 * blminusfr / (1 + k*tan)
+			F = S * tan / k
+		}
+	} else {
+		// flminusbr = 2 (F - S)
+		if normalizedAngle <= -135 ||
+			(normalizedAngle >= -45 && normalizedAngle <= 45) ||
+			normalizedAngle > 135 {
+			// flminusbr = 2F (1 - k tan T)
+			tan := math.Tan(T * RADIANS_PER_DEGREE)
+			F = 0.5 * flminusbr / (1 - k*tan)
+			S = k * F * tan
+		} else {
+			// Use Fk/S = tan (90 - T).
+			//
+			// flminusbr = -2S (1 - k tan (90 - T))
+			tan := math.Tan((90 - T) * RADIANS_PER_DEGREE)
+			S = -0.5 * flminusbr / (1 - k*tan)
+			F = S * tan / k
+		}
+	}
+
+	return chassis.WheelCircumMM * YF * F, chassis.WheelCircumMM * XS * S / k
+}
+
 func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[float64]) func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
 	return func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
-		// Calculate an overall "rotations" number that we
-		// will use to scale our calibration table.
-		rotations := float64(0)
+		// Calculate incremental rotations of the 4 wheels
+		// since last time this function was called.
+		bl := newRotations[picobldc.BackLeft] - lastRotations[picobldc.BackLeft]
+		br := newRotations[picobldc.BackRight] - lastRotations[picobldc.BackRight]
+		fl := newRotations[picobldc.FrontLeft] - lastRotations[picobldc.FrontLeft]
+		fr := newRotations[picobldc.FrontRight] - lastRotations[picobldc.FrontRight]
 		for m := range newRotations {
-			rotations += math.Abs(newRotations[m] - lastRotations[m])
 			lastRotations[m] = newRotations[m]
 		}
 
@@ -294,19 +381,7 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 		// angle.
 		normalizedAngle := angle.FromFloat(m.lastThrottleAngle).Float()
 
-		// Round to the closest multiple of 5 degrees.  Note, Golang
-		// rounds towards zero when converting float64 to int.
-		var quantizedAngleOver5 int
-		if normalizedAngle > 0 {
-			quantizedAngleOver5 = int(normalizedAngle/5 + 0.5)
-		} else {
-			quantizedAngleOver5 = int(normalizedAngle/5 - 0.5)
-		}
-
-		// quantizedAngleOver5 is now from -36 to 36 (inclusive).
-		index := (quantizedAngleOver5 + 36) % 72
-		aheadDisplacement := rotations * mmPerRotation[index].ahead
-		leftDisplacement := rotations * mmPerRotation[index].left
+		aheadDisplacement, leftDisplacement := Displacements(normalizedAngle, bl, br, fl, fr)
 
 		sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
 		cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
@@ -350,4 +425,30 @@ func TargetReached(currentTarget, position *Position) bool {
 	return (math.Abs(currentTarget.X-position.X) <= maxPositionDelta &&
 		math.Abs(currentTarget.Y-position.Y) <= maxPositionDelta &&
 		math.Abs(currentTarget.Heading-position.Heading) <= maxHeadingDelta)
+}
+
+type obs struct {
+	angle, fr, bl, br, fl float64
+}
+
+func TestDisplace() {
+	var observations = []obs{
+		{-165, 2.4296875, -2.40625, 1.09375, -1.0546875},
+		{-150, 2.87109375, -2.84375, 0.3125, -0.2578125},
+		{-135, 3.125, -3.08984375, -0.48828125, 0.5546875},
+		{-120, 3.1484375, -3.07421875, -1.23046875, 1.328125},
+		{-105, 2.984375, -2.921875, -1.94921875, 2.0234375},
+		{0, -1.828125, 1.79296875, -1.73828125, 1.71875},
+		{15, -2.36328125, 2.34765625, -1.0703125, 1.046875},
+		{15, -2.3828125, 2.34375, -1.0859375, 1.046875},
+		{30, -2.83984375, 2.83203125, -0.3046875, 0.2734375},
+		{45, -3.09765625, 3.1015625, 0.50390625, -0.5390625},
+		{60, -3.14453125, 3.11328125, 1.2578125, -1.31640625},
+		{75, -2.97265625, 2.93359375, 1.9453125, -2.0078125},
+	}
+
+	for _, o := range observations {
+		ahead, left := Displacements(o.angle, o.bl, o.br, o.fl, o.fr)
+		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
+	}
 }

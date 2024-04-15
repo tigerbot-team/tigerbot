@@ -18,9 +18,10 @@ type Context struct {
 }
 
 var CLI struct {
-	Quit    QuitCmd    `cmd:"" help:"Quit"`
-	Camera  CameraCmd  `cmd:"" help:"Command for camera subprocess"`
-	Barrels BarrelsCmd `cmd:"" help:"Barrel route test"`
+	Quit     QuitCmd     `cmd:"" help:"Quit"`
+	Camera   CameraCmd   `cmd:"" help:"Command for camera subprocess"`
+	Barrels  BarrelsCmd  `cmd:"" help:"Barrel route test"`
+	Displace DisplaceCmd `cmd:"" help:""`
 }
 
 type QuitCmd struct{}
@@ -47,6 +48,15 @@ type BarrelsCmd struct {
 
 func (c *BarrelsCmd) Run(ctx *Context) error {
 	ecodisaster.TestBarrels()
+	return nil
+}
+
+type DisplaceCmd struct {
+	Command string `arg:"" name:"command"`
+}
+
+func (c *DisplaceCmd) Run(ctx *Context) error {
+	challengemode.TestDisplace()
 	return nil
 }
 
