@@ -93,10 +93,12 @@ func (c *challenge) Iterate(
 			return false, target, 0
 		}
 
+		challengemode.CameraExecute("find-zombies")
+
 		return false, target, 1 * time.Second
 	case HUNT_LEFT:
 		target := &challengemode.Position{
-			X:       200,
+			X:       250,
 			Y:       targetY,
 			Heading: fixedHeading,
 		}
@@ -105,6 +107,8 @@ func (c *challenge) Iterate(
 			c.stage = HUNT_RIGHT
 			return false, target, 0
 		}
+
+		challengemode.CameraExecute("find-zombies")
 
 		return false, target, 1 * time.Second
 	}

@@ -40,6 +40,17 @@ class CommandServer(object):
         self.last_picture_index = picture_index
         return file_name
 
+    def do_find_zombies(self):
+        im = self.cam.capture_array()
+        crop = im[1000:, 1000:3608]
+
+        frame_128 = cv2.resize(crop, (128,128))
+        frame_128 = cv2.rotate(frame_128, cv2.ROTATE_90_CLOCKWISE)
+        frame_red_blue = cv2.cvtColor(frame_128, cv2.COLOR_RGB2BGR)
+        frame_rgb565 = cv2.cvtColor(frame_red_blue, cv2.COLOR_RGB2BGR565)
+        with open('/dev/fb0', 'rb+') as buf:
+            buf.write(frame_rgb565)
+
     def do_take_picture(self):
         return self._take_picture()
 

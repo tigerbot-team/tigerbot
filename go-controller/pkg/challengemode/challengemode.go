@@ -163,6 +163,9 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 	defer m.log("Exiting sequence loop")
 	defer m.hw.StopMotorControl()
 
+	screen.SetEnabled(false)
+	defer screen.SetEnabled(true)
+
 	// We use the absolute heading hold mode so we can do things
 	// like "turn right 90 degrees".
 	hh := m.hw.StartHeadingHoldMode()

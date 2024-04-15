@@ -23,12 +23,19 @@ const (
 var (
 	lock sync.Mutex
 
+	enabled     = true
 	busVoltages = make([]float64, NumBuses)
 	busCells    = make([]int, NumBuses)
 	leds        = make([]color.RGBA, 2)
 	mode        string
 	notices     = make(map[string]NoticeLevel)
 )
+
+func SetEnabled(b bool) {
+	lock.Lock()
+	defer lock.Unlock()
+	enabled = b
+}
 
 func SetBusVoltage(n int, bv float64, numCells int) {
 	lock.Lock()
@@ -87,6 +94,14 @@ func LoopUpdatingScreen(ctx context.Context) {
 
 	invert := false
 	for range time.NewTicker(500 * time.Millisecond).C {
+		lock.Lock()
+		en := enabled
+		lock.Unlock()
+		if !en {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
 		if ctx.Err() != nil {
 			var buf [128 * 128 * 2]byte
 			_, _ = f.Seek(0, 0)
