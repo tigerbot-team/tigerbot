@@ -2,9 +2,10 @@ package challengemode
 
 import (
 	"context"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
 	"math"
 	"sync"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
 
 	"fmt"
 	"sync/atomic"
@@ -290,13 +291,35 @@ const RADIANS_PER_DEGREE = math.Pi / 180
 
 const PositiveAnglesAnticlockwise float64 = 1 // Invert me if HeadingAbsolute uses the opposite sign.
 
+func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
+	rotations := math.Abs(bl) + math.Abs(br) + math.Abs(fl) + math.Abs(fr)
+
+	// Round to the closest multiple of 5 degrees.  Note, Golang
+	// rounds towards zero when converting float64 to int.
+	var quantizedAngleOver5 int
+	if normalizedAngle > 0 {
+		quantizedAngleOver5 = int(normalizedAngle/5 + 0.5)
+	} else {
+		quantizedAngleOver5 = int(normalizedAngle/5 - 0.5)
+	}
+
+	// quantizedAngleOver5 is now from -36 to 36 (inclusive).
+	index := (quantizedAngleOver5 + 36) % 72
+
+	m := mmPerRotation[index]
+	fmt.Println("mm per rotation: ", m, "rotations:", rotations)
+	return rotations * m.ahead, rotations * m.left
+}
+
 func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[float64]) func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
 	return func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
-		// Calculate an overall "rotations" number that we
-		// will use to scale our calibration table.
-		rotations := float64(0)
+		// Calculate incremental rotations of the 4 wheels
+		// since last time this function was called.
+		bl := newRotations[picobldc.BackLeft] - lastRotations[picobldc.BackLeft]
+		br := newRotations[picobldc.BackRight] - lastRotations[picobldc.BackRight]
+		fl := newRotations[picobldc.FrontLeft] - lastRotations[picobldc.FrontLeft]
+		fr := newRotations[picobldc.FrontRight] - lastRotations[picobldc.FrontRight]
 		for m := range newRotations {
-			rotations += math.Abs(newRotations[m] - lastRotations[m])
 			lastRotations[m] = newRotations[m]
 		}
 
@@ -305,22 +328,7 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 		// angle.
 		normalizedAngle := angle.FromFloat(m.lastThrottleAngle).Float()
 
-		// Round to the closest multiple of 5 degrees.  Note, Golang
-		// rounds towards zero when converting float64 to int.
-		var quantizedAngleOver5 int
-		if normalizedAngle > 0 {
-			quantizedAngleOver5 = int(normalizedAngle/5 + 0.5)
-		} else {
-			quantizedAngleOver5 = int(normalizedAngle/5 - 0.5)
-		}
-
-		// quantizedAngleOver5 is now from -36 to 36 (inclusive).
-		index := (quantizedAngleOver5 + 36) % 72
-
-		m := mmPerRotation[index]
-		fmt.Println("mm per rotation: ", m, "rotations:", rotations)
-		aheadDisplacement := rotations * m.ahead
-		leftDisplacement := rotations * m.left
+		aheadDisplacement, leftDisplacement := Displacements(normalizedAngle, bl, br, fl, fr)
 
 		sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
 		cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
@@ -386,4 +394,36 @@ func TargetReached(currentTarget, position *Position) bool {
 	return math.Abs(currentTarget.X-position.X) <= maxPositionDelta &&
 		math.Abs(currentTarget.Y-position.Y) <= maxPositionDelta &&
 		math.Abs(currentTarget.Heading-position.Heading) <= maxHeadingDelta
+}
+
+type obs struct {
+	angle, fr, bl, br, fl float64
+}
+
+func TestDisplace() {
+	var observations = []obs{
+		// Guessed values for rectilinear motion.
+		{-180, 10, -10, 10, -10},
+		{-90, 10, -10, -10, 10},
+		{0, -10, 10, -10, 10},
+		{90, -10, 10, 10, -10},
+		// From Saturday.
+		{-165, 2.4296875, -2.40625, 1.09375, -1.0546875},
+		{-150, 2.87109375, -2.84375, 0.3125, -0.2578125},
+		{-135, 3.125, -3.08984375, -0.48828125, 0.5546875},
+		{-120, 3.1484375, -3.07421875, -1.23046875, 1.328125},
+		{-105, 2.984375, -2.921875, -1.94921875, 2.0234375},
+		{0, -1.828125, 1.79296875, -1.73828125, 1.71875},
+		{15, -2.36328125, 2.34765625, -1.0703125, 1.046875},
+		{15, -2.3828125, 2.34375, -1.0859375, 1.046875},
+		{30, -2.83984375, 2.83203125, -0.3046875, 0.2734375},
+		{45, -3.09765625, 3.1015625, 0.50390625, -0.5390625},
+		{60, -3.14453125, 3.11328125, 1.2578125, -1.31640625},
+		{75, -2.97265625, 2.93359375, 1.9453125, -2.0078125},
+	}
+
+	for _, o := range observations {
+		ahead, left := Displacements(o.angle, o.bl, o.br, o.fl, o.fr)
+		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
+	}
 }
