@@ -68,7 +68,7 @@ func main() {
 		challengemode.New(hw, lavapalava.New()),
 		challengemode.New(hw, minesweeper.New()),
 		challengemode.New(hw, ecodisaster.New()),
-		challengemode.New(hw, zombie.New()),
+		challengemode.New(hw, zombie.New(hw)),
 		pausemode.New(hw),
 	}
 	var activeMode Mode = allModes[0]

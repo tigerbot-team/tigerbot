@@ -1,6 +1,9 @@
 package zombie
 
 import (
+	"fmt"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
+	"sync"
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
@@ -32,10 +35,11 @@ type challenge struct {
 	xTarget       float64
 	yTarget       float64
 	headingTarget float64
+	hw            hardware.Interface
 }
 
-func New() challengemode.Challenge {
-	return &challenge{}
+func New(hw hardware.Interface) challengemode.Challenge {
+	return &challenge{hw: hw}
 }
 
 func (c *challenge) Name() string {
@@ -113,4 +117,41 @@ func (c *challenge) Iterate(
 		return false, target, 1 * time.Second
 	}
 	panic("unknown stage")
+}
+
+var motorInitOnce sync.Once
+
+const (
+	motor1     = 14
+	motor2     = 15
+	reload     = 13
+	reloadfwd  = 0.0
+	reloadback = 1.0
+	v          = 0.5
+)
+
+func (c *challenge) Fire() {
+	motorInitOnce.Do(func() {
+		fmt.Println("Doing motor one-off init.")
+		c.hw.SetServo(motor1, 0)
+		c.hw.SetServo(motor2, 0)
+		time.Sleep(5 * time.Second)
+	})
+
+	fmt.Printf("Spin up...\n")
+	c.hw.SetServo(reload, reloadback)
+	for i := 0; i < 100; i++ {
+		c.hw.SetServo(motor1, v*float64(i)/100)
+		time.Sleep(10 * time.Millisecond)
+		c.hw.SetServo(motor2, v*float64(i)/100)
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(5000 * time.Millisecond)
+	fmt.Printf("Firing...\n")
+	c.hw.SetServo(reload, reloadfwd)
+	time.Sleep(500 * time.Millisecond)
+	fmt.Printf("Resetting\n")
+	c.hw.SetServo(reload, reloadback)
+	c.hw.SetServo(motor1, 0)
+	c.hw.SetServo(motor2, 0)
 }
