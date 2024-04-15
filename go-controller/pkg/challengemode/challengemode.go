@@ -315,15 +315,15 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 		index := (quantizedAngleOver5 + 36) % 72
 
 		m := mmPerRotation[index]
-		fmt.Println("mm per rotation: ", m)
+		fmt.Println("mm per rotation: ", m, "rotations:", rotations)
 		aheadDisplacement := rotations * m.ahead
 		leftDisplacement := rotations * m.left
 
 		sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
 		cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
 
-		position.X -= (aheadDisplacement*sin + leftDisplacement*cos)
-		position.Y += (aheadDisplacement*cos - leftDisplacement*sin)
+		position.X += aheadDisplacement*cos - leftDisplacement*sin
+		position.Y += aheadDisplacement*sin + leftDisplacement*cos
 	}
 }
 
