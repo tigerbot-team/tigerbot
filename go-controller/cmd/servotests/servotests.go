@@ -6,9 +6,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/pca9685"
 )
+
+var motorInitOnce sync.Once
 
 func main() {
 	pwmController, err := pca9685.New("/dev/i2c-1")
@@ -73,6 +77,48 @@ func main() {
 				fmt.Println("Failed to write to PCA9685: ", err)
 				return
 			}
+		case "f":
+			if len(parts) < 2 {
+				fmt.Println("Not enough parameters")
+				continue
+			}
+			v, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+			if err != nil {
+				fmt.Println("Expected float, not ", parts[1])
+				continue
+			}
+
+			fmt.Printf("spinning up\n")
+			const (
+				motor1     = 14
+				motor2     = 15
+				reload     = 13
+				reloadfwd  = 0.0
+				reloadback = 1.0
+			)
+
+			motorInitOnce.Do(func() {
+				fmt.Println("Doing motor one-off init.")
+				err = pwmController.SetServo(motor1, 0)
+				err = pwmController.SetServo(motor2, 0)
+				time.Sleep(10 * time.Second)
+			})
+			fmt.Printf("Spin up...\n")
+			err = pwmController.SetServo(reload, reloadback)
+			for i := 0; i < 100; i++ {
+				err = pwmController.SetServo(motor1, v*float64(i)/100)
+				time.Sleep(10 * time.Millisecond)
+				err = pwmController.SetServo(motor2, v*float64(i)/100)
+				time.Sleep(10 * time.Millisecond)
+			}
+			time.Sleep(5000 * time.Millisecond)
+			fmt.Printf("Firing...\n")
+			err = pwmController.SetServo(reload, reloadfwd)
+			time.Sleep(500 * time.Millisecond)
+			fmt.Printf("Resetting\n")
+			err = pwmController.SetServo(reload, reloadback)
+			err = pwmController.SetServo(motor1, 0)
+			err = pwmController.SetServo(motor2, 0)
 		}
 	}
 }

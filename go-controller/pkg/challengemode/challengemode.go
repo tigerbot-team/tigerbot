@@ -5,6 +5,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
+
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -163,6 +165,9 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 	defer m.log("Exiting sequence loop")
 	defer m.hw.StopMotorControl()
 
+	screen.SetEnabled(false)
+	defer screen.SetEnabled(true)
+
 	// We use the absolute heading hold mode so we can do things
 	// like "turn right 90 degrees".
 	hh := m.hw.StartHeadingHoldMode()
@@ -186,13 +191,15 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 	// Let the user know that we're ready, then wait for the "GO" signal.
 	m.hw.PlaySound("/sounds/ready.wav")
+	screen.SetNotice("Ready!", screen.LevelInfo)
 	m.startWG.Wait()
+	screen.ClearNotice("Ready!")
 
 	startTime := time.Now()
 
 	UpdatePosition := m.MakeUpdatePosition(m.hw.AccumulatedRotations())
 
-	for {
+	for ctx.Err() == nil {
 		// Note, the bot is stationary at the start of each
 		// iteration of this loop.
 
@@ -218,10 +225,15 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 		// Start moving to the target position.  Note, sets
 		// m.lastThrottleAngle.
-		m.StartMotion(hh, position, target)
+		m.StartMotion(ctx, hh, position, target, moveTime)
 
 		// Allow motion for the indicated time.
-		time.Sleep(moveTime)
+		select {
+		case <-time.After(moveTime):
+		case <-ctx.Done():
+			m.log("Context done.")
+			return
+		}
 
 		if stopEachIteration {
 			// Stop moving.
@@ -279,6 +291,26 @@ type Log func(string, ...any)
 const RADIANS_PER_DEGREE = math.Pi / 180
 
 const PositiveAnglesAnticlockwise float64 = 1 // Invert me if HeadingAbsolute uses the opposite sign.
+
+func DisplacementsShaun(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
+	rotations := math.Abs(bl) + math.Abs(br) + math.Abs(fl) + math.Abs(fr)
+
+	// Round to the closest multiple of 5 degrees.  Note, Golang
+	// rounds towards zero when converting float64 to int.
+	var quantizedAngleOver5 int
+	if normalizedAngle > 0 {
+		quantizedAngleOver5 = int(normalizedAngle/5 + 0.5)
+	} else {
+		quantizedAngleOver5 = int(normalizedAngle/5 - 0.5)
+	}
+
+	// quantizedAngleOver5 is now from -36 to 36 (inclusive).
+	index := (quantizedAngleOver5 + 36) % 72
+
+	m := mmPerRotation[index]
+	fmt.Println("mm per rotation: ", m, "rotations:", rotations)
+	return rotations * m.ahead, rotations * m.left
+}
 
 func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
 	// To get all the signs right, use angles in the different
@@ -386,15 +418,20 @@ func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[fl
 		sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
 		cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
 
-		position.X -= (aheadDisplacement*sin + leftDisplacement*cos)
-		position.Y += (aheadDisplacement*cos - leftDisplacement*sin)
+		position.X += aheadDisplacement*cos - leftDisplacement*sin
+		position.Y += aheadDisplacement*sin + leftDisplacement*cos
 	}
 }
 
-func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target *Position) {
+func (m *ChallengeMode) StartMotion(
+	ctx context.Context,
+	hh hardware.HeadingAbsolute,
+	current, target *Position,
+	moveTime time.Duration) {
 	if target.Heading != current.Heading {
+		m.log("Heading change %v -> %v", current.Heading, target.Heading)
 		hh.SetHeading(calibratedXHeading + target.Heading*PositiveAnglesAnticlockwise)
-		hh.Wait(context.Background())
+		hh.Wait(ctx)
 	}
 	var displacementHeading float64
 	if target.X == current.X {
@@ -412,19 +449,36 @@ func (m *ChallengeMode) StartMotion(hh hardware.HeadingAbsolute, current, target
 			displacementHeading = 180
 		}
 	} else {
-		displacementHeading = math.Atan2(float64(target.Y-current.Y), float64(target.X-current.X)) / RADIANS_PER_DEGREE
+		displacementHeading = math.Atan2(
+			float64(target.Y-current.Y),
+			float64(target.X-current.X),
+		) / RADIANS_PER_DEGREE
 	}
-	hh.SetThrottleWithAngle(1, displacementHeading-target.Heading)
-	m.lastThrottleAngle = displacementHeading - target.Heading
+
+	dX := target.X - current.X
+	dY := target.Y - current.Y
+	m.log("current %v target %v", current, target)
+	m.log("dx=%f dy=%f", dX, dY)
+	dist := math.Sqrt((dX * dX) + (dY * dY))
+
+	throttle := dist * 0.9 / moveTime.Seconds()
+	const maxThrottle = 100
+	if throttle > maxThrottle {
+		throttle = maxThrottle
+	}
+	heading := displacementHeading - target.Heading
+	m.log("Setting throttle %f heading %f", throttle, heading)
+	hh.SetThrottleWithAngle(throttle, heading)
+	m.lastThrottleAngle = heading
 }
 
 // Utility for challenge-specific code.
 func TargetReached(currentTarget, position *Position) bool {
 	const maxPositionDelta float64 = 10 // millimetres
 	const maxHeadingDelta float64 = 5   // degrees
-	return (math.Abs(currentTarget.X-position.X) <= maxPositionDelta &&
+	return math.Abs(currentTarget.X-position.X) <= maxPositionDelta &&
 		math.Abs(currentTarget.Y-position.Y) <= maxPositionDelta &&
-		math.Abs(currentTarget.Heading-position.Heading) <= maxHeadingDelta)
+		math.Abs(currentTarget.Heading-position.Heading) <= maxHeadingDelta
 }
 
 type obs struct {
@@ -453,8 +507,15 @@ func TestDisplace() {
 		{75, -2.97265625, 2.93359375, 1.9453125, -2.0078125},
 	}
 
+	fmt.Println(">> Using lots of trigonometry...")
 	for _, o := range observations {
 		ahead, left := Displacements(o.angle, o.bl, o.br, o.fl, o.fr)
+		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
+	}
+
+	fmt.Println(">> Using Shaun's partially populated calibration table...")
+	for _, o := range observations {
+		ahead, left := DisplacementsShaun(o.angle, o.bl, o.br, o.fl, o.fr)
 		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
 	}
 }

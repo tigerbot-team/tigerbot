@@ -17,25 +17,36 @@ type NoticeLevel string
 const (
 	LevelErr  NoticeLevel = "e"
 	LevelInfo NoticeLevel = "i"
+	NumBuses              = 2
 )
 
 var (
 	lock sync.Mutex
 
-	busVoltages = make([]float64, 2)
+	enabled     = true
+	busVoltages = make([]float64, NumBuses)
+	busCells    = make([]int, NumBuses)
 	leds        = make([]color.RGBA, 2)
 	mode        string
 	notices     = make(map[string]NoticeLevel)
 )
 
-func SetBusVoltage(n int, bv float64) {
+func SetEnabled(b bool) {
+	lock.Lock()
+	defer lock.Unlock()
+	enabled = b
+}
+
+func SetBusVoltage(n int, bv float64, numCells int) {
 	lock.Lock()
 	defer lock.Unlock()
 	if n < 0 || n >= len(busVoltages) {
 		return
 	}
 	busVoltages[n] = bv
+	busCells[n] = numCells
 }
+
 func SetBusVoltages(bvs []float64) {
 	lock.Lock()
 	defer lock.Unlock()
@@ -83,6 +94,14 @@ func LoopUpdatingScreen(ctx context.Context) {
 
 	invert := false
 	for range time.NewTicker(500 * time.Millisecond).C {
+		lock.Lock()
+		en := enabled
+		lock.Unlock()
+		if !en {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
 		if ctx.Err() != nil {
 			var buf [128 * 128 * 2]byte
 			_, _ = f.Seek(0, 0)
@@ -112,14 +131,16 @@ func LoopUpdatingScreen(ctx context.Context) {
 
 		lock.Lock()
 		voltage := busVoltages[0]
+		numCells := busCells[0]
 		lock.Unlock()
 		dc.Translate(0, lineHeight)
-		drawPowerBar(dc, voltage, invert)
+		drawPowerBar(dc, voltage, numCells, invert)
 		lock.Lock()
 		voltage = busVoltages[1]
+		numCells = busCells[1]
 		lock.Unlock()
 		dc.Translate(34, 0)
-		drawPowerBar(dc, voltage, invert)
+		drawPowerBar(dc, voltage, numCells, invert)
 		dc.Translate(-34, 0)
 
 		lock.Lock()
@@ -231,15 +252,21 @@ const (
 	overallBarHeight = bottomBarHeight + numUpperBars*upperBarInterval
 )
 
-func drawPowerBar(dc *gg.Context, voltage float64, invert bool) {
-	var cellVoltage float64
-	if voltage > 9 {
-		// assume the 4-cell pack
-		cellVoltage = voltage / 4
-	} else {
-		// assume the 2-cell pack
-		cellVoltage = voltage / 2
+func drawPowerBar(dc *gg.Context, voltage float64, numCells int, invert bool) {
+	if numCells == 0 {
+		// Guess
+		switch true {
+		case voltage > 13.2:
+			numCells = 4
+		case voltage > 8.5:
+			numCells = 3
+		case voltage > 4.3:
+			numCells = 2
+		default:
+			numCells = 1
+		}
 	}
+	cellVoltage := voltage / float64(numCells)
 	charge := (cellVoltage - minCellVoltage) / (maxCellVoltage - minCellVoltage)
 
 	// Draw the larger power bar at the bottom. Colour depends on charge level.

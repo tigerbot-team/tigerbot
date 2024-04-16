@@ -14,18 +14,18 @@ import (
 const (
 	ServoMotor1  = 15
 	ServoMotor2  = 14
-	ServoPitch   = 13
-	ServoPlunger = 12
+	ServoPitch   = 12
+	ServoPlunger = 13
 
 	ServoValueMotorOff = 0.0
-	ServoValueMotorOn  = 0.8
+	ServoValueMotorOn  = 0.5
 
-	ServoValuePlungerDefault = 0.13
-	ServoValuePlungerActive  = 1.0
+	ServoValuePlungerDefault = 1.0
+	ServoValuePlungerActive  = 0.0
 
-	ServoValuePitchDefault  = 127 / 255.0
-	ServoMaxPitch           = 191 / 255.0
-	ServoMinPitch           = 64 / 255.0
+	ServoValuePitchDefault  = 0.65
+	ServoMaxPitch           = 0.9
+	ServoMinPitch           = 0.5
 	PitchAutoRepeatInterval = 40 * time.Millisecond
 
 	MotorStopTime = 500 * time.Millisecond
