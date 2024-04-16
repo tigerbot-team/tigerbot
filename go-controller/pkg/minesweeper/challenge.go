@@ -66,6 +66,7 @@ func (c *challenge) Name() string {
 func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool) {
 	c.log = log
 	c.stage = INIT
+	c.log("Start")
 
 	// Assume we're initially positioned in the middle of the
 	// bottom left corner square.  Don't know the heading, but
@@ -84,7 +85,7 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 }
 
 func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64) {
-	rsp, err := challengemode.CameraExecute("id-mine")
+	rsp, err := challengemode.CameraExecute(c.log, "id-mine")
 	if err != nil {
 		c.log("IdentifyMine camera err=%v", err)
 	}
@@ -97,10 +98,10 @@ func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64)
 	if err != nil {
 		c.log("x '%v' err=%v", rspWords[1], err)
 	}
-	y, err := strconv.ParseFloat(rspWords[2], 64)
-	if err != nil {
-		c.log("y '%v' err=%v", rspWords[2], err)
-	}
+	//y, err := strconv.ParseFloat(rspWords[2], 64)
+	//if err != nil {
+	//	c.log("y '%v' err=%v", rspWords[2], err)
+	//}
 
 	// Based on calibration, there's a reasonably consistent
 	// inverse square relation between observed area and distance:
@@ -144,6 +145,7 @@ func (c *challenge) Iterate(
 			targetConfidence, headingAdjust, distance := c.IdentifyMine()
 			calcTarget := false
 			if c.approachingTarget {
+				c.log("approaching target")
 				// Check in case target confidence is going down.
 				if targetConfidence < c.bestConfidence*allowedConfidenceDrop {
 					c.log("Lost target")
@@ -154,13 +156,16 @@ func (c *challenge) Iterate(
 				}
 				c.bestHeading = position.Heading + headingAdjust
 			} else {
+				c.log("searching for target")
 				if targetConfidence > c.bestConfidence {
 					c.bestConfidence = targetConfidence
 					c.bestHeading = position.Heading + headingAdjust
+					c.log("bestConfidence %v bestHeading %v", c.bestConfidence, c.bestHeading)
 				}
 				nextHeading := position.Heading + 40
 				if targetConfidence < immediateConfidenceThreshold &&
 					nextHeading < c.searchInitialHeading+360 {
+					c.log("Not confident enough yet, nextHeading %v", nextHeading)
 					// Not confident enough yet,
 					// and we haven't looked round
 					// the whole circle yet.
@@ -173,6 +178,7 @@ func (c *challenge) Iterate(
 
 				// OK, we're going to start moving
 				// towards the believed target now.
+				c.log("Identified target")
 				c.approachingTarget = true
 				calcTarget = true
 			}
@@ -184,6 +190,7 @@ func (c *challenge) Iterate(
 				// moves onto the square, and when
 				// that happens we _don't_ want to
 				// recompute the target.
+				c.log("Compute target position")
 				c.bestConfidence = targetConfidence
 				c.xTarget = position.X + distance*math.Cos(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
 				c.yTarget = position.Y + distance*math.Sin(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
@@ -200,6 +207,7 @@ func (c *challenge) Iterate(
 			Heading: position.Heading,
 		}
 		if c.obeyHeadingTarget {
+			c.log("obey heading target")
 			target.Heading = c.headingTarget
 		}
 		if !challengemode.TargetReached(target, position) {
@@ -225,6 +233,7 @@ func (c *challenge) Iterate(
 			c.searchInitialHeading = position.Heading
 			c.bestConfidence = 0
 		case ON_BOMB_SQUARE:
+			c.log("Sit on bomb!")
 			// Sit here for a bit more than 1 second.
 			time.Sleep(1200 * time.Millisecond)
 

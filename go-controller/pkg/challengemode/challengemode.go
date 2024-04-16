@@ -2,6 +2,7 @@ package challengemode
 
 import (
 	"context"
+	"log"
 	"math"
 	"sync"
 
@@ -75,6 +76,8 @@ type ChallengeMode struct {
 	challenge         Challenge
 	name              string
 	lastThrottleAngle float64 // CCW from bot-relative straight ahead
+
+	rotationsBeforeMotion picobldc.PerMotorVal[float64]
 }
 
 func New(hw hardware.Interface, challenge Challenge) *ChallengeMode {
@@ -175,8 +178,10 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 	// Get initial (believed) position - determined by the
 	// challenge.  We don't have a target yet.
 	position, stopEachIteration := m.challenge.Start(m.log)
+	m.log("Initial position %#v stopEachIteration %v", *position, stopEachIteration)
 
 	initialHeading := m.hw.CurrentHeading().Float()
+	m.log("Initial heading %v", initialHeading)
 	if position.HeadingIsExact {
 		// Get initial heading as reported by the hardware.
 		// Then we can store the offset from our coordinate
@@ -197,9 +202,11 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 	startTime := time.Now()
 
-	UpdatePosition := m.MakeUpdatePosition(m.hw.AccumulatedRotations())
+	iterationCount := 0
 
 	for ctx.Err() == nil {
+		iterationCount += 1
+
 		// Note, the bot is stationary at the start of each
 		// iteration of this loop.
 
@@ -220,8 +227,11 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 		//   do that before re-evaluating.
 		atEnd, target, moveTime := m.challenge.Iterate(position, timeSinceStart)
 		if atEnd {
+			m.log("Reached end of challenge")
 			break
 		}
+		m.log("Iteration %v: position %#v", iterationCount, *position)
+		m.log("Iteration %v: target %#v moveTime %v", iterationCount, *target, moveTime)
 
 		// Start moving to the target position.  Note, sets
 		// m.lastThrottleAngle.
@@ -242,7 +252,7 @@ func (m *ChallengeMode) runSequence(ctx context.Context) {
 
 		// Update current position based on dead reckoning.
 		// Note, uses m.lastThrottleAngle.
-		UpdatePosition(position, m.hw.AccumulatedRotations())
+		m.UpdatePosition(position)
 	}
 
 	m.log("Run completed in %v", time.Since(startTime))
@@ -292,7 +302,7 @@ const RADIANS_PER_DEGREE = math.Pi / 180
 
 const PositiveAnglesAnticlockwise float64 = 1 // Invert me if HeadingAbsolute uses the opposite sign.
 
-func DisplacementsShaun(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
+func DisplacementsByTable(log Log, normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
 	rotations := math.Abs(bl) + math.Abs(br) + math.Abs(fl) + math.Abs(fr)
 
 	// Round to the closest multiple of 5 degrees.  Note, Golang
@@ -308,11 +318,11 @@ func DisplacementsShaun(normalizedAngle, bl, br, fl, fr float64) (ahead, left fl
 	index := (quantizedAngleOver5 + 36) % 72
 
 	m := mmPerRotation[index]
-	fmt.Println("mm per rotation: ", m, "rotations:", rotations)
+	log("mm per rotation %v rotations %v", m, rotations)
 	return rotations * m.ahead, rotations * m.left
 }
 
-func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
+func Displacements(log Log, normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
 	// To get all the signs right, use angles in the different
 	// quadrants to make the tangents positive, and not if we need
 	// to end up inverting the absolute X and Y displacements.
@@ -334,6 +344,7 @@ func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64
 		YF = -1
 		XS = -1
 	}
+	log("T %v YF %v XS %v", T, YF, XS)
 
 	// If F = forwards throttle (+tive ahead) and S = sideways
 	// throttle (+tive left):
@@ -352,9 +363,12 @@ func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64
 	// larger absolute values.
 	blminusfr := bl - fr
 	flminusbr := fl - br
+	log("blminusfr %v", blminusfr)
+	log("flminusbr %v", flminusbr)
 	var F, S float64
 	const k = float64(1.044)
 	if math.Abs(blminusfr) >= math.Abs(flminusbr) {
+		log("use blminusfr")
 		// blminusfr = 2 (F + S)
 		//
 		// If closer to forwards than sideways, use
@@ -362,11 +376,13 @@ func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64
 		if normalizedAngle <= -135 ||
 			(normalizedAngle >= -45 && normalizedAngle <= 45) ||
 			normalizedAngle > 135 {
+			log("closer to forwards")
 			// blminusfr = 2F (1 + k tan T)
 			tan := math.Tan(T * RADIANS_PER_DEGREE)
 			F = 0.5 * blminusfr / (1 + k*tan)
 			S = k * F * tan
 		} else {
+			log("closer to sideways")
 			// Use Fk/S = tan (90 - T).
 			//
 			// blminusfr = 2S (1 + k tan (90 - T))
@@ -375,10 +391,12 @@ func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64
 			F = S * tan / k
 		}
 	} else {
+		log("use flminusbr")
 		// flminusbr = 2 (F - S)
 		if normalizedAngle <= -135 ||
 			(normalizedAngle >= -45 && normalizedAngle <= 45) ||
 			normalizedAngle > 135 {
+			log("closer to forwards")
 			// flminusbr = 2F (1 - k tan T)
 			tan := math.Tan(T * RADIANS_PER_DEGREE)
 			F = 0.5 * flminusbr / (1 - k*tan)
@@ -387,40 +405,47 @@ func Displacements(normalizedAngle, bl, br, fl, fr float64) (ahead, left float64
 			// Use Fk/S = tan (90 - T).
 			//
 			// flminusbr = -2S (1 - k tan (90 - T))
+			log("closer to sideways")
 			tan := math.Tan((90 - T) * RADIANS_PER_DEGREE)
 			S = -0.5 * flminusbr / (1 - k*tan)
 			F = S * tan / k
 		}
 	}
+	log("F %v S %v", F, S)
 
 	return chassis.WheelCircumMM * YF * F, chassis.WheelCircumMM * XS * S / k
 }
 
-func (m *ChallengeMode) MakeUpdatePosition(lastRotations picobldc.PerMotorVal[float64]) func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
-	return func(position *Position, newRotations picobldc.PerMotorVal[float64]) {
-		// Calculate incremental rotations of the 4 wheels
-		// since last time this function was called.
-		bl := newRotations[picobldc.BackLeft] - lastRotations[picobldc.BackLeft]
-		br := newRotations[picobldc.BackRight] - lastRotations[picobldc.BackRight]
-		fl := newRotations[picobldc.FrontLeft] - lastRotations[picobldc.FrontLeft]
-		fr := newRotations[picobldc.FrontRight] - lastRotations[picobldc.FrontRight]
-		for m := range newRotations {
-			lastRotations[m] = newRotations[m]
-		}
+func (m *ChallengeMode) UpdatePosition(position *Position) {
+	newRotations := m.hw.AccumulatedRotations()
 
-		// Mapping from wheel rotations to actual ahead and
-		// sideways displacement depends on the throttle
-		// angle.
-		normalizedAngle := angle.FromFloat(m.lastThrottleAngle).Float()
-
-		aheadDisplacement, leftDisplacement := Displacements(normalizedAngle, bl, br, fl, fr)
-
-		sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
-		cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
-
-		position.X += aheadDisplacement*cos - leftDisplacement*sin
-		position.Y += aheadDisplacement*sin + leftDisplacement*cos
+	// Calculate incremental rotations of the 4 wheels
+	// since before motion started.
+	bl := newRotations[picobldc.BackLeft] - m.rotationsBeforeMotion[picobldc.BackLeft]
+	br := newRotations[picobldc.BackRight] - m.rotationsBeforeMotion[picobldc.BackRight]
+	fl := newRotations[picobldc.FrontLeft] - m.rotationsBeforeMotion[picobldc.FrontLeft]
+	fr := newRotations[picobldc.FrontRight] - m.rotationsBeforeMotion[picobldc.FrontRight]
+	for motor := range newRotations {
+		m.rotationsBeforeMotion[motor] = newRotations[motor]
 	}
+	m.log("bl %v br %v fl %v fr %v", bl, br, fl, fr)
+
+	// Mapping from wheel rotations to actual ahead and
+	// sideways displacement depends on the throttle
+	// angle.
+	normalizedAngle := angle.FromFloat(m.lastThrottleAngle).Float()
+	m.log("normalizedAngle %v", normalizedAngle)
+
+	aheadDisplacement, leftDisplacement := Displacements(m.log, normalizedAngle, bl, br, fl, fr)
+	m.log("aheadDisplacement %v", aheadDisplacement)
+	m.log("leftDisplacement %v", aheadDisplacement)
+
+	sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
+	cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
+
+	position.X += aheadDisplacement*cos - leftDisplacement*sin
+	position.Y += aheadDisplacement*sin + leftDisplacement*cos
+	m.log("position after movement %#v", *position)
 }
 
 func (m *ChallengeMode) StartMotion(
@@ -433,6 +458,10 @@ func (m *ChallengeMode) StartMotion(
 		hh.SetHeading(calibratedXHeading + target.Heading*PositiveAnglesAnticlockwise)
 		hh.Wait(ctx)
 	}
+
+	// After rotating, store the current wheel rotations.
+	m.rotationsBeforeMotion = m.hw.AccumulatedRotations()
+
 	var displacementHeading float64
 	if target.X == current.X {
 		if target.Y > current.Y {
@@ -454,6 +483,7 @@ func (m *ChallengeMode) StartMotion(
 			float64(target.X-current.X),
 		) / RADIANS_PER_DEGREE
 	}
+	m.log("displacementHeading %v", displacementHeading)
 
 	dX := target.X - current.X
 	dY := target.Y - current.Y
@@ -509,13 +539,13 @@ func TestDisplace() {
 
 	fmt.Println(">> Using lots of trigonometry...")
 	for _, o := range observations {
-		ahead, left := Displacements(o.angle, o.bl, o.br, o.fl, o.fr)
+		ahead, left := Displacements(log.Printf, o.angle, o.bl, o.br, o.fl, o.fr)
 		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
 	}
 
 	fmt.Println(">> Using Shaun's partially populated calibration table...")
 	for _, o := range observations {
-		ahead, left := DisplacementsShaun(o.angle, o.bl, o.br, o.fl, o.fr)
+		ahead, left := DisplacementsByTable(log.Printf, o.angle, o.bl, o.br, o.fl, o.fr)
 		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
 	}
 }

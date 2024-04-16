@@ -37,7 +37,7 @@ type CameraCmd struct {
 }
 
 func (c *CameraCmd) Run(ctx *Context) error {
-	result, err := challengemode.CameraExecute(c.Command)
+	result, err := challengemode.CameraExecute(log.Printf, c.Command)
 	log.Printf("CameraControl result=%v err=%v\n", result, err)
 	return err
 }

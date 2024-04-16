@@ -2,9 +2,10 @@ package zombie
 
 import (
 	"fmt"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 	"sync"
 	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
 )
@@ -97,7 +98,7 @@ func (c *challenge) Iterate(
 			return false, target, 0
 		}
 
-		challengemode.CameraExecute("find-zombies")
+		challengemode.CameraExecute(c.log, "find-zombies")
 
 		return false, target, 1 * time.Second
 	case HUNT_LEFT:
@@ -112,7 +113,7 @@ func (c *challenge) Iterate(
 			return false, target, 0
 		}
 
-		challengemode.CameraExecute("find-zombies")
+		challengemode.CameraExecute(c.log, "find-zombies")
 
 		return false, target, 1 * time.Second
 	}

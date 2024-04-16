@@ -215,7 +215,7 @@ func (c *challenge) Iterate(
 }
 
 func (c *challenge) IdentifyFacingBlockColour() blockColour {
-	rsp, err := challengemode.CameraExecute("id-block-colour")
+	rsp, err := challengemode.CameraExecute(c.log, "id-block-colour")
 	if err != nil {
 		c.log("IdentifyFacingBlockColour camera err=%v", err)
 	}
