@@ -97,8 +97,9 @@ class CommandServer(object):
         largestContour = max(contours, key=cv2.contourArea)
         largestContourArea = cv2.contourArea(largestContour)
         M = cv2.moments(largestContour)
-        x = int(M["m10"] / M["m00"])
-        y = int(M["m01"] / M["m00"])
+        rows, columns, _ = img.shape
+        x = (M["m10"] / M["m00"]) / columns
+        y = (M["m01"] / M["m00"]) / rows
 
 
         print("largestContourArea", largestContourArea)
@@ -110,7 +111,7 @@ class CommandServer(object):
         contourFileName = filename.replace('.jpg', '-contour.jpg')
         cv2.imwrite(contourFileName, img)
 
-        return ""
+        return "%f %f %f" % (largestContourArea, x, y)
 
     def _hsv_mask(self, hsv, min, max):
         lower = np.array([min, 100, 100])
