@@ -1,4 +1,7 @@
 
+build:
+	go build -v cmd/controller/controller.go
+
 run:
 	go run -v cmd/nelltest/nelltest.go
 
