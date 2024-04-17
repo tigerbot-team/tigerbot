@@ -440,12 +440,21 @@ func (m *ChallengeMode) UpdatePosition(position *Position) {
 	m.log("aheadDisplacement %v", aheadDisplacement)
 	m.log("leftDisplacement %v", leftDisplacement)
 
-	sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
-	cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
-
-	position.X += aheadDisplacement*cos - leftDisplacement*sin
-	position.Y += aheadDisplacement*sin + leftDisplacement*cos
+	dx, dy := AbsoluteDeltas(position.Heading, aheadDisplacement, leftDisplacement)
+	position.X += dx
+	position.Y += dy
 	m.log("position after movement %#v", *position)
+}
+
+// Given a `botHeading` (CCW relative to +tive X axis) and distances
+// that the bot wants to move `ahead` and `left`, calculate the DX and
+// DY relative to the arena coordinate system.
+func AbsoluteDeltas(botHeading, ahead, left float64) (dx, dy float64) {
+	sin := math.Sin(botHeading * RADIANS_PER_DEGREE)
+	cos := math.Cos(botHeading * RADIANS_PER_DEGREE)
+	dx = ahead*cos - left*sin
+	dy = ahead*sin + left*cos
+	return
 }
 
 func (m *ChallengeMode) StartMotion(

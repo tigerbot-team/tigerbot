@@ -136,6 +136,67 @@ class CommandServer(object):
                                        cv2.CHAIN_APPROX_SIMPLE)
         return contours
 
+    def do_white_line(self):
+        file_name = self._take_picture()
+        return self._white_line(file_name)
+
+    def do_test_white_line(self):
+        return self._white_line("test-white-line.jpg")
+
+    def _white_line(self, filename):
+        img = cv2.imread(filename)
+        rows, columns, _ = img.shape
+
+        # Pi camera takes photos at 4608 x 2592, which is stupidly
+        # high res, but too dangerous to change at this stage.  We
+        # will sample 20 rows from the lower half of the photo, and
+        # for each of those rows work out where the white line is.
+        centres = []
+        for j in range(20):
+            row = rows - 1 - j * (rows // 40)
+            # Horizontally, use 200 samples across the row.  In
+            # calibration photos the white line occupies approx 1/25
+            # of the photo width, so this should give us 8 samples in
+            # the white area.
+            dx = (columns - 1) // 200
+            yrow = []
+            for i in range(200):
+                col = i * dx
+                b = img.item(row, col, 0)
+                g = img.item(row, col, 1)
+                r = img.item(row, col, 2)
+                # Grayscale conversion per
+                # https://docs.opencv.org/4.x/de/d25/imgproc_color_conversions.html#color_convert_rgb_gray
+                y = 0.299 * r + 0.587 * g + 0.114 * b
+                yrow.append(y)
+                if i == 0:
+                    ymin = y
+                    ymax = y
+                else:
+                    if y < ymin:
+                        ymin = y
+                    if y > ymax:
+                        ymax = y
+            yavg = (ymin + ymax) / 2
+            count = 0
+            moment = 0
+            for i in range(200):
+                if yrow[i] > yavg:
+                    ynorm = (yrow[i] - ymin) / (ymax - ymin)
+                    count += ynorm
+                    moment += ynorm * i
+            if count > 0:
+                centres.append(moment / count)
+        print(centres)
+
+        # Fit a straight line to those centres.
+        fit = np.polyfit(np.array([j for j in range(len(centres))]),
+                         np.array(centres),
+                         1)
+        print(fit)
+
+        return "%f %f" % (fit[0], fit[1])
+
 
 class HueRange(object):
     def __init__(self, min, max):
