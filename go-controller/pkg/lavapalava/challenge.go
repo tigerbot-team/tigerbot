@@ -35,9 +35,10 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 	// that we don't want to switch off the motors after each
 	// iteration.
 	return &challengemode.Position{
-		Heading: 90,
-		X:       dxWidth / 2,
-		Y:       0,
+		Heading:        90,
+		X:              dxWidth / 2,
+		Y:              0,
+		HeadingIsExact: true,
 	}, false
 }
 
