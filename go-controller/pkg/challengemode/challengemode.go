@@ -329,7 +329,7 @@ func Displacements(log Log, normalizedAngle, bl, br, fl, fr float64) (ahead, lef
 	var T, YF, XS float64
 	if normalizedAngle > 90 {
 		T = 180 - normalizedAngle
-		YF = -1
+		YF = 1
 		XS = 1
 	} else if normalizedAngle >= 0 {
 		T = normalizedAngle
@@ -338,11 +338,11 @@ func Displacements(log Log, normalizedAngle, bl, br, fl, fr float64) (ahead, lef
 	} else if normalizedAngle > -90 {
 		T = -normalizedAngle
 		YF = 1
-		XS = -1
+		XS = 1
 	} else {
 		T = normalizedAngle + 180
-		YF = -1
-		XS = -1
+		YF = 1
+		XS = 1
 	}
 	log("T %v YF %v XS %v", T, YF, XS)
 
@@ -438,7 +438,7 @@ func (m *ChallengeMode) UpdatePosition(position *Position) {
 
 	aheadDisplacement, leftDisplacement := Displacements(m.log, normalizedAngle, bl, br, fl, fr)
 	m.log("aheadDisplacement %v", aheadDisplacement)
-	m.log("leftDisplacement %v", aheadDisplacement)
+	m.log("leftDisplacement %v", leftDisplacement)
 
 	sin := math.Sin(position.Heading * RADIANS_PER_DEGREE)
 	cos := math.Cos(position.Heading * RADIANS_PER_DEGREE)
