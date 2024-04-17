@@ -292,7 +292,7 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 			}
 		}
 
-		if time.Since(lastPowerReadingTime) > 1*time.Second {
+		if time.Since(lastPowerReadingTime) > 5*time.Second {
 			for i, ps := range powerSensors {
 				bv, err := ps.BusVoltage()
 				if err != nil {
@@ -309,10 +309,15 @@ func (c *I2CController) loopUntilSomethingBadHappens(ctx context.Context, initDo
 					screen.SetNotice(NotePowerMon, screen.LevelErr)
 					continue
 				}
-				fmt.Printf("Bus %v: %.2fV %.2fA %.2fW\n", i, bv, bc, bp)
+				name := "Pi"
+				if i > 0 {
+					name = "Traction"
+				}
+				fmt.Printf("%v bus: %.2fV %.2fA %.2fW ", name, bv, bc, bp)
 				screen.ClearNotice(NotePowerMon)
 				screen.SetBusVoltage(i, bv, busCells[i])
 			}
+			fmt.Println()
 			lastPowerReadingTime = time.Now()
 		}
 	}

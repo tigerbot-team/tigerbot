@@ -95,7 +95,7 @@ func (b *BNO08X) WaitForReportAfter(t time.Time) IMUReport {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	startTime := time.Now()
-	for b.lastReport.Time.Before(t) {
+	for !b.lastReport.Time.After(t) {
 		b.cond.Wait()
 		if time.Since(startTime) > time.Second {
 			panic("IMU hasn't responded for >1s")

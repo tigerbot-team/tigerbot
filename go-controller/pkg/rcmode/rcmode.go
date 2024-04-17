@@ -133,8 +133,12 @@ func MixGentle(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, transla
 	_ = rStickX
 
 	// Put all the values into the range (-1, 1) and apply expo.
-	yaw = applyExpo(float64(lStickX)/32767.0, expo) / 4
-	throttle = applyExpo(float64(rStickY)/-32767.0, expo) / 4
+	yaw = applyExpo(float64(lStickX)/32767.0, expo) / 3
+	throttleStick := rStickY
+	if math.Abs(float64(lStickY)) > math.Abs(float64(rStickY)) {
+		throttleStick = lStickY
+	}
+	throttle = applyExpo(float64(throttleStick)/-32767.0, expo) / 3
 	translation = applyExpo(float64(rStickX)/-32767.0, expo) / 2
 	return
 }
@@ -146,7 +150,11 @@ func MixAggressive(lStickX, lStickY, rStickX, rStickY int16) (yaw, throttle, tra
 
 	// Put all the values into the range (-1, 1) and apply expo.
 	yaw = applyExpo(float64(lStickX)/32767.0, expo)
-	throttle = applyExpo(float64(rStickY)/-32767.0, expo)
+	throttleStick := rStickY
+	if math.Abs(float64(lStickY)) > math.Abs(float64(rStickY)) {
+		throttleStick = lStickY
+	}
+	throttle = applyExpo(float64(throttleStick)/-32767.0, expo)
 	translation = applyExpo(float64(rStickX)/-32767.0, expo)
 
 	return
