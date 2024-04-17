@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/bno08x"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/headingholder/angle"
 )
 
@@ -125,25 +124,22 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		h.controlLock.Unlock()
 	}()
 
-	m, lastIMUReport, err := openIMU(cxt)
+	m, imuReport, err := openIMU(cxt)
 	if err != nil {
 		return
 	}
 
-	initialHeading := lastIMUReport.RobotYaw()
+	initialHeading := imuReport.RobotYaw()
 	var headingEstimate angle.PlusMinus180
 	var filteredThrottle float64
 	var filteredTranslation float64
-	var rotationMMPerS float64
 	var lastHeadingError float64
 	var iHeadingError float64
 
 	const (
 		maxRotationMMPerS      = 400
-		maxThrottleDeltaPerSec = 100
+		maxThrottleDeltaPerSec = 2000
 	)
-	maxThrottleDelta := maxThrottleDeltaPerSec * bno08x.ReportInterval.Seconds()
-	maxTranslationDelta := maxThrottleDelta
 
 	var lastLoopStart = time.Now()
 
@@ -155,7 +151,8 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	lastPrint := time.Now()
 	for cxt.Err() == nil {
 		// This should pop every 10ms
-		imuReport := m.WaitForReportAfter(lastIMUReport.Time)
+		lastIMUReportTime := imuReport.Time
+		imuReport = m.WaitForReportAfter(lastIMUReportTime)
 
 		now := time.Now()
 		loopTime := now.Sub(lastLoopStart)
@@ -206,7 +203,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// Calculate how fast we want the bot as a whole to rotate.
 		desiredBotDegreesPS := kp*headingErrorDegrees + ki*iHeadingError + kd*dHeadingError
-		rotationMMPerS = desiredBotDegreesPS * chassis.WheelTurningCircleDiaMM / 360
+		rotationMMPerS := desiredBotDegreesPS * chassis.WheelTurningCircleDiaMM / 360
 		if rotationMMPerS > maxRotationMMPerS {
 			rotationMMPerS = maxRotationMMPerS
 		} else if rotationMMPerS < -maxRotationMMPerS {
@@ -218,6 +215,9 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 				loopTime, headingEstimate, targetHeading, headingErrorDegrees, iHeadingError, dHeadingError, rotationMMPerS)
 		}
 		targetThrottle := controls.throttleMMPerS
+
+		maxThrottleDelta := maxThrottleDeltaPerSec * loopTime.Seconds()
+		maxTranslationDelta := maxThrottleDelta
 		if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
 			fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
