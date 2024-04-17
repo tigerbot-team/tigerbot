@@ -3,6 +3,8 @@ package headingholder
 import (
 	"context"
 	"fmt"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/chassis"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/picobldc"
 	"math"
 	"sync"
 	"time"
@@ -11,8 +13,6 @@ import (
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/bno08x"
 )
-
-const motorFullRange = 0x1000
 
 func NewYawRateAndThrottle(motors RawControl) *YawRateAndThrottle {
 	return &YawRateAndThrottle{
@@ -27,18 +27,22 @@ type RawControl interface {
 type YawRateAndThrottle struct {
 	Motors RawControl
 
-	controlLock                    sync.Mutex
-	yawRate, throttle, translation float64
-	currentHeading                 angle.PlusMinus180
+	controlLock sync.Mutex
+	relativeControls
+	currentHeading angle.PlusMinus180
+}
+
+type relativeControls struct {
+	yawRateDegreesPerS, throttleMMPerS, translationMMPerS float64
 }
 
 func (h *YawRateAndThrottle) SetYawAndThrottle(yawRate, throttle, translation float64) {
 	h.controlLock.Lock()
 	defer h.controlLock.Unlock()
 
-	h.yawRate = yawRate
-	h.throttle = throttle
-	h.translation = translation
+	h.yawRateDegreesPerS = yawRate * 500
+	h.throttleMMPerS = throttle * 800
+	h.translationMMPerS = translation * 800
 }
 
 func (h *YawRateAndThrottle) CurrentHeading() angle.PlusMinus180 {
@@ -52,28 +56,25 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer fmt.Println("Heading holder loop exited")
 
-	m, lastIMUReport, err := openIMU(cxt)
+	m, imuReport, err := openIMU(cxt)
 	if err != nil {
 		return
 	}
 
+	initialHeading := imuReport.RobotYaw()
+	targetHeading := angle.FromFloat(0)
 	var headingEstimate angle.PlusMinus180
-	var targetHeading = lastIMUReport.RobotYaw()
-	var filteredTranslation, filteredThrottle float64
-	var motorRotationSpeed float64
+	var filteredThrottle float64
+	var filteredTranslation float64
 	var lastHeadingError float64
 	var iHeadingError float64
 
 	const (
-		kp                     = 0.02
-		ki                     = 0.03
-		kd                     = -0.00007
-		maxIntegral            = .1
-		maxMotorSpeed          = 2.0
-		maxThrottleDeltaPerSec = 2
+		maxRotationMMPerS      = 2000
+		maxThrottleDeltaPerSec = 5000
+		maxRPS                 = 10
 	)
-	maxThrottleDelta := maxThrottleDeltaPerSec * bno08x.ReportInterval.Seconds()
-	maxTranslationDelta := maxThrottleDelta
+
 	var lastLoopStart = time.Now()
 
 	defer func() {
@@ -81,9 +82,11 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 			fmt.Println("Failed to set motor speeds:", err)
 		}
 	}()
+	lastPrint := time.Now()
 	for cxt.Err() == nil {
 		// This should pop every 10ms
-		imuReport := m.WaitForReportAfter(lastIMUReport.Time)
+		lastIMUReportTime := imuReport.Time
+		imuReport = m.WaitForReportAfter(lastIMUReportTime)
 
 		now := time.Now()
 		loopTime := now.Sub(lastLoopStart)
@@ -91,65 +94,90 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// We use an angle.PlusMinus180 to make sure we do our modulo arithmetic
 		// correctly...
-		headingEstimate = imuReport.RobotYaw()
+		headingEstimate = imuReport.RobotYaw().Sub(initialHeading)
 
 		// Grab the current control values.
 		h.controlLock.Lock()
-		targetYawRate := h.yawRate
-		targetThrottle := h.throttle
-		targetTranslation := h.translation
+		controls := h.relativeControls
 		h.currentHeading = headingEstimate
 		h.controlLock.Unlock()
 
 		// Update our target heading accordingly.
 		loopTimeSecs := loopTime.Seconds()
 
-		// Avoid letting the yaw lead the heading too much.
-		const yawRateFactor = 300
-		targetHeading = targetHeading.AddFloat(loopTimeSecs * targetYawRate * yawRateFactor)
-		leadDegrees := targetHeading.Sub(headingEstimate)
+		targetHeading = targetHeading.AddFloat(controls.yawRateDegreesPerS * loopTime.Seconds())
 
-		const maxLeadDegrees = 20.0
-		if leadDegrees.Float() > maxLeadDegrees {
-			targetHeading = headingEstimate.AddFloat(maxLeadDegrees)
-		} else if leadDegrees.Float() < -maxLeadDegrees {
-			targetHeading = headingEstimate.SubFloat(maxLeadDegrees)
+		// Cap the difference between our actual angle and the target so that we can't
+		// accumulate the desire to spin around and around.
+		leadAngle := targetHeading.Sub(headingEstimate).Float()
+		const maxLeadAngle = 20.0
+		if leadAngle < -maxLeadAngle {
+			leadAngle = -maxLeadAngle
+			targetHeading = headingEstimate.SubFloat(maxLeadAngle)
+		} else if leadAngle > maxLeadAngle {
+			leadAngle = maxLeadAngle
+			targetHeading = headingEstimate.AddFloat(maxLeadAngle)
 		}
+
+		const (
+			kp          = 6.0
+			ki          = 0.8
+			kd          = 0.10
+			maxIntegral = 20
+			maxD        = 100
+		)
 
 		// Calculate the error/derivative/integral.
-		headingError := targetHeading.Sub(headingEstimate).Float()
-		dHeadingError := (headingError - lastHeadingError) / loopTimeSecs
-		iHeadingError += headingError * loopTimeSecs
-		if targetYawRate != 0 {
+		headingErrorDegrees := targetHeading.Sub(headingEstimate).Float()
+		dHeadingError := (headingErrorDegrees - lastHeadingError) / loopTimeSecs
+		if dHeadingError > maxD {
+			dHeadingError = maxD
+		} else if dHeadingError < -maxD {
+			dHeadingError = -maxD
+		}
+
+		if math.Abs(headingErrorDegrees) < 5 {
+			iHeadingError += headingErrorDegrees * loopTimeSecs
+			if iHeadingError > maxIntegral {
+				iHeadingError = maxIntegral
+			} else if iHeadingError < -maxIntegral {
+				iHeadingError = -maxIntegral
+			}
+		} else {
 			iHeadingError = 0
 		}
-		if iHeadingError > maxIntegral {
-			iHeadingError = maxIntegral
-		} else if iHeadingError < -maxIntegral {
-			iHeadingError = -maxIntegral
+
+		// Calculate how fast we want the bot as a whole to rotate.
+		desiredBotDegreesPS := kp*headingErrorDegrees + ki*iHeadingError + kd*dHeadingError
+		if math.Abs(controls.yawRateDegreesPerS) > 30 {
+			desiredBotDegreesPS = controls.yawRateDegreesPerS
 		}
 
-		// Calculate the correction to apply.
-		rotationCorrection := kp*headingError + ki*iHeadingError + kd*dHeadingError
-
-		// Add the correction to the current speed.  We want 0 correction to mean "hold the same motor speed".
-		motorRotationSpeed = rotationCorrection
-		if motorRotationSpeed > maxMotorSpeed {
-			motorRotationSpeed = maxMotorSpeed
-		} else if motorRotationSpeed < -maxMotorSpeed {
-			motorRotationSpeed = -maxMotorSpeed
+		rotationMMPerS := desiredBotDegreesPS * chassis.WheelTurningCircleDiaMM / 360
+		if rotationMMPerS > maxRotationMMPerS {
+			rotationMMPerS = maxRotationMMPerS
+		} else if rotationMMPerS < -maxRotationMMPerS {
+			rotationMMPerS = -maxRotationMMPerS
 		}
 
-		fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.1f\n",
-			loopTime, headingEstimate, targetHeading, headingError, iHeadingError, dHeadingError, motorRotationSpeed)
-
+		if time.Since(lastPrint) > 300*time.Millisecond {
+			fmt.Printf("HH: %v Heading: %.1f Target: %.1f Error: %.1f Int: %.1f D: %.1f -> %.3f\n",
+				loopTime, headingEstimate, targetHeading, headingErrorDegrees, iHeadingError, dHeadingError, rotationMMPerS)
+		}
+		targetThrottle := controls.throttleMMPerS
+		maxThrottleDelta := maxThrottleDeltaPerSec * loopTime.Seconds()
+		maxTranslationDelta := maxThrottleDelta
 		if targetThrottle > filteredThrottle+maxThrottleDelta {
 			filteredThrottle += maxThrottleDelta
+			//fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
 		} else if targetThrottle < filteredThrottle-maxThrottleDelta {
 			filteredThrottle -= maxThrottleDelta
+			//fmt.Printf("HH capping throttle delta, target: %.2f capped: %.2f\n", targetThrottle, filteredThrottle)
 		} else {
 			filteredThrottle = targetThrottle
 		}
+		const mecFac = 1.044
+		targetTranslation := controls.translationMMPerS * mecFac
 		if targetTranslation > filteredTranslation+maxTranslationDelta {
 			filteredTranslation += maxTranslationDelta
 		} else if targetTranslation < filteredTranslation-maxTranslationDelta {
@@ -160,32 +188,34 @@ func (h *YawRateAndThrottle) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		// Map the values to speeds for each motor.  Motor rotation direction:
 		// positive = anti-clockwise.
-		frontLeft := filteredThrottle - motorRotationSpeed - filteredTranslation
-		backLeft := filteredThrottle - motorRotationSpeed + filteredTranslation
+		throttleRPS := filteredThrottle / chassis.WheelCircumMM
+		translationRPS := filteredTranslation / chassis.WheelCircumMM
+		rotationRPS := rotationMMPerS / chassis.WheelCircumMM
 
-		frontRight := -filteredThrottle - motorRotationSpeed - filteredTranslation
-		backRight := -filteredThrottle - motorRotationSpeed + filteredTranslation
+		if time.Since(lastPrint) > 300*time.Millisecond {
+			fmt.Printf("RPS: th=%.2f tr=%.2f ro=%.2f\n", throttleRPS, translationRPS, rotationRPS)
+			lastPrint = time.Now()
+		}
+		var frontLeftRPS float64 = throttleRPS - rotationRPS - translationRPS
+		var backLeftRPS float64 = throttleRPS - rotationRPS + translationRPS
+		var frontRightRPS float64 = -throttleRPS - rotationRPS - translationRPS
+		var backRightRPS float64 = -throttleRPS - rotationRPS + translationRPS
 
-		m := max(frontLeft, frontRight, backLeft, backRight)
+		m := max(frontLeftRPS, frontRightRPS, backLeftRPS, backRightRPS)
 		scale := 1.0
-		if m > 1 {
-			scale = 1.0 / m
+		if m > maxRPS {
+			scale = maxRPS / m
 		}
 
-		fl := scaleMotorOutput(frontLeft*scale, motorFullRange)
-		fr := scaleMotorOutput(frontRight*scale, motorFullRange)
-		bl := scaleMotorOutput(backLeft*scale, motorFullRange)
-		br := scaleMotorOutput(backRight*scale, motorFullRange)
+		fl := picobldc.RPSToMotorSpeed(frontLeftRPS * scale)
+		fr := picobldc.RPSToMotorSpeed(frontRightRPS * scale)
+		bl := picobldc.RPSToMotorSpeed(backLeftRPS * scale)
+		br := picobldc.RPSToMotorSpeed(backRightRPS * scale)
 
 		if err := h.Motors.SetMotorSpeeds(fl, fr, bl, br); err != nil {
 			fmt.Println("Failed to set motor speeds:", err)
 		}
-
-		lastHeadingError = headingError
-		lastIMUReport = imuReport
-	}
-	if err := h.Motors.SetMotorSpeeds(0, 0, 0, 0); err != nil {
-		fmt.Println("Failed to set motor speeds:", err)
+		lastHeadingError = headingErrorDegrees
 	}
 }
 
