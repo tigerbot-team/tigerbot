@@ -457,6 +457,7 @@ func (m *ChallengeMode) StartMotion(
 		m.log("Heading change %v -> %v", current.Heading, target.Heading)
 		hh.SetHeading(calibratedXHeading + target.Heading*PositiveAnglesAnticlockwise)
 		hh.Wait(ctx)
+		current.Heading = target.Heading
 	}
 
 	// After rotating, store the current wheel rotations.
