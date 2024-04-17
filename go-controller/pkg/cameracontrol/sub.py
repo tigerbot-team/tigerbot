@@ -94,6 +94,13 @@ class CommandServer(object):
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
         contours = self._contours_in_hue_range(hsv, HueRange(165, 10))
+
+        # No contours => tiny contour area, which will in turn mean
+        # negligible confidence.  First return value needs to be
+        # non-zero because the receiving code takes its logarithm.
+        if len(contours) == 0:
+            return "1 0 0"
+
         largestContour = max(contours, key=cv2.contourArea)
         largestContourArea = cv2.contourArea(largestContour)
         M = cv2.moments(largestContour)

@@ -108,9 +108,12 @@ func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64)
 	//
 	// 2 * ln(distance) + ln(area) = 20
 	//
-	// where distance is in mm and area is in whatever OpenCV
+	// where distance is in cm and area is in whatever OpenCV
 	// returns for contour areas.  Inverting that...
 	distance = math.Exp(10.0 - 0.5*math.Log(largestContourArea))
+
+	// Convert from cm to mm.
+	distance *= 10
 
 	x = max(min(x, 0.8), 0.2)
 	headingAdjust = 45 - 90*(x-0.2)/0.6
@@ -131,6 +134,7 @@ func (c *challenge) Iterate(
 	*challengemode.Position, // next target
 	time.Duration, // move time
 ) {
+	var target *challengemode.Position
 	c.log("Stage = %v", c.stage)
 	for {
 		switch c.stage {
@@ -143,6 +147,7 @@ func (c *challenge) Iterate(
 			// distance left to travel in order for part
 			// of the bot to be over the square.
 			targetConfidence, headingAdjust, distance := c.IdentifyMine()
+			c.log("targetConfidence %v headingAdjust %v distance %v", targetConfidence, headingAdjust, distance)
 			calcTarget := false
 			if c.approachingTarget {
 				c.log("approaching target")
@@ -152,9 +157,10 @@ func (c *challenge) Iterate(
 
 					// Restart the search.
 					c.stage = POSSIBLY_UNSAFE_FOR_SEARCH
-					return false, position, 0
+					goto stage_transition
 				}
 				c.bestHeading = position.Heading + headingAdjust
+				c.log("bestHeading -> %v", c.bestHeading)
 			} else {
 				c.log("searching for target")
 				if targetConfidence > c.bestConfidence {
@@ -201,7 +207,7 @@ func (c *challenge) Iterate(
 
 		// Return the current target, if we haven't yet
 		// reached it.
-		target := &challengemode.Position{
+		target = &challengemode.Position{
 			X:       c.xTarget,
 			Y:       c.yTarget,
 			Heading: position.Heading,
@@ -219,6 +225,7 @@ func (c *challenge) Iterate(
 		// Current target reached, so transition to next
 		// stage.
 		c.stage += 1
+	stage_transition:
 		c.log("Stage => %v", c.stage)
 		switch c.stage {
 		case POSSIBLY_UNSAFE_FOR_SEARCH:
@@ -227,6 +234,7 @@ func (c *challenge) Iterate(
 			c.xTarget = min(max(position.X, dxInitial), dxTotal-dxInitial)
 			c.yTarget = min(max(position.Y, dyInitial), dyTotal-dyInitial)
 			c.obeyHeadingTarget = false
+			c.approachingTarget = false
 		case SAFE_FOR_SEARCH:
 			// Beginning a search; store the initial
 			// heading, so we don't rotate forever.
@@ -239,7 +247,7 @@ func (c *challenge) Iterate(
 
 			// Restart the search.
 			c.stage = POSSIBLY_UNSAFE_FOR_SEARCH
-			return false, position, 0
+			goto stage_transition
 		}
 	}
 }
