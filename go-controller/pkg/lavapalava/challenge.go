@@ -28,6 +28,7 @@ func (c *challenge) Name() string {
 
 func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool) {
 	c.log = log
+	c.log("Start")
 
 	// Assume we're initially positioned in the middle of the
 	// bottom end of the course.  Second return value false means
@@ -51,7 +52,9 @@ func (c *challenge) Iterate(
 	// Take a picture to work out how we should adjust our
 	// heading.
 	targetAhead, targetLeft, headingAdjust := c.AnalyseWhiteLine()
+	c.log("targetAhead %v targetLeft %v headingAdjust %v", targetAhead, targetLeft, headingAdjust)
 	dx, dy := challengemode.AbsoluteDeltas(position.Heading, targetAhead, targetLeft)
+	c.log("dx %v dy %v", dx, dy)
 
 	target := &challengemode.Position{
 		Heading: position.Heading + headingAdjust,
