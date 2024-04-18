@@ -9,33 +9,6 @@ import (
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
 )
 
-const (
-	// Indices into various arrays.
-	RED   = 0
-	GREEN = 1
-
-	// Number of barrels that the bot can carry at once.  We'll
-	// make sure that these are always all the same colour.
-	BOT_CAPACITY = 3
-
-	dxTotal      = float64(2200)
-	dyTotal      = float64(2200)
-	xBarrelAreaL = float64(300)
-	xBarrelAreaR = float64(1900)
-	yBarrelAreaB = float64(300)
-	yBarrelAreaT = float64(1900)
-	xGreenDropL  = float64(400)
-	xGreenDropR  = float64(1000)
-	xRedDropL    = float64(1200)
-	xRedDropR    = float64(1800)
-	yDropB       = float64(2000)
-	yDropT       = float64(2200)
-	xStartL      = float64(1100) - float64(112.5)
-	xStartR      = float64(1100) + float64(112.5)
-	yStartB      = float64(200)
-	yStartT      = float64(600)
-)
-
 type coords struct {
 	x, y float64
 }
@@ -47,9 +20,6 @@ func (c coords) String() string {
 type arena struct {
 	// Coordinates of barrels that still need to be collected.
 	barrels [2][]coords
-
-	// Number of barrels that the bot is already carrying.
-	botLoad int
 
 	// Colours of the barrels that the bot is already carrying;
 	// only significant when botLoad > 0.
