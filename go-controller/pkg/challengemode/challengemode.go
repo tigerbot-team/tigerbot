@@ -322,30 +322,9 @@ func DisplacementsByTable(log Log, normalizedAngle, bl, br, fl, fr float64) (ahe
 	return rotations * m.ahead, rotations * m.left
 }
 
-func Displacements(log Log, normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
-	// To get all the signs right, use angles in the different
-	// quadrants to make the tangents positive, and not if we need
-	// to end up inverting the absolute X and Y displacements.
-	var T, YF, XS float64
-	if normalizedAngle > 90 {
-		T = 180 - normalizedAngle
-		YF = 1
-		XS = 1
-	} else if normalizedAngle >= 0 {
-		T = normalizedAngle
-		YF = 1
-		XS = 1
-	} else if normalizedAngle > -90 {
-		T = -normalizedAngle
-		YF = 1
-		XS = 1
-	} else {
-		T = normalizedAngle + 180
-		YF = 1
-		XS = 1
-	}
-	log("T %v YF %v XS %v", T, YF, XS)
+var CheckAssumptions = false
 
+func Displacements(log Log, normalizedAngle, bl, br, fl, fr float64) (ahead, left float64) {
 	// If F = forwards throttle (+tive ahead) and S = sideways
 	// throttle (+tive left):
 	//
@@ -365,55 +344,245 @@ func Displacements(log Log, normalizedAngle, bl, br, fl, fr float64) (ahead, lef
 	flminusbr := fl - br
 	log("blminusfr %v", blminusfr)
 	log("flminusbr %v", flminusbr)
-	var F, S float64
 	const k = float64(1.044)
-	if math.Abs(blminusfr) >= math.Abs(flminusbr) {
-		log("use blminusfr")
-		// blminusfr = 2 (F + S)
-		//
-		// If closer to forwards than sideways, use
-		// S/kF = tan T, where k is 1.044.
-		if normalizedAngle <= -135 ||
-			(normalizedAngle >= -45 && normalizedAngle <= 45) ||
-			normalizedAngle > 135 {
-			log("closer to forwards")
-			// blminusfr = 2F (1 + k tan T)
-			tan := math.Tan(T * RADIANS_PER_DEGREE)
-			F = 0.5 * blminusfr / (1 + k*tan)
-			S = k * F * tan
-		} else {
-			log("closer to sideways")
-			// Use Fk/S = tan (90 - T).
-			//
-			// blminusfr = 2S (1 + k tan (90 - T))
-			tan := math.Tan((90 - T) * RADIANS_PER_DEGREE)
-			S = 0.5 * blminusfr / (1 + k*tan)
-			F = S * tan / k
+	use := func(string) {}  // no-op
+	expect := func(bool) {} // no-op
+	if CheckAssumptions {
+		use = func(choice string) {
+			if choice == "blminusfr" {
+				if math.Abs(blminusfr) < 0.9*math.Abs(flminusbr) {
+					panic("wrong blminusfr choice")
+				}
+			} else if choice == "flminusbr" {
+				if 0.9*math.Abs(blminusfr) > math.Abs(flminusbr) {
+					panic("wrong flminusbr choice")
+				}
+			} else {
+				panic("unsupported choice")
+			}
 		}
-	} else {
-		log("use flminusbr")
-		// flminusbr = 2 (F - S)
-		if normalizedAngle <= -135 ||
-			(normalizedAngle >= -45 && normalizedAngle <= 45) ||
-			normalizedAngle > 135 {
-			log("closer to forwards")
-			// flminusbr = 2F (1 - k tan T)
-			tan := math.Tan(T * RADIANS_PER_DEGREE)
-			F = 0.5 * flminusbr / (1 - k*tan)
-			S = k * F * tan
-		} else {
-			// Use Fk/S = tan (90 - T).
-			//
-			// flminusbr = -2S (1 - k tan (90 - T))
-			log("closer to sideways")
-			tan := math.Tan((90 - T) * RADIANS_PER_DEGREE)
-			S = -0.5 * flminusbr / (1 - k*tan)
-			F = S * tan / k
+		expect = func(b bool) {
+			if !b {
+				panic("wrong expectation")
+			}
 		}
 	}
+	var F, S float64
+	if normalizedAngle > 135 {
+		//
+		// --------------+
+		//              /|
+		//             / |
+		//            /  |
+		//           / T |
+		//          /    |
+		//         /     | -F
+		//        /      |
+		//       /       |
+		//      /        |
+		//     /         |
+		//    -----------|
+		//         S/k
+		//
+		// T = 180 - normalizedAngle
+		// tan T = -S/kF
+		// flminusbr = 2(F-S) = 2F(1+k tan T)
+		use("flminusbr")
+		expect(flminusbr <= 0)
+		tan := math.Tan((180 - normalizedAngle) * RADIANS_PER_DEGREE)
+		F = 0.5 * flminusbr / (1 + k*tan) // was: 0.5 * flminusbr / (1 - k*tan)
+		expect(F <= 0)
+		S = -k * F * tan // was: S = k * F * tan
+		expect(S >= 0)
+	} else if normalizedAngle > 90 {
+		//
+		// --------------+
+		//            T /|
+		//             / |
+		//            /  |
+		//           /   |
+		//          /    |
+		//         /     | -F
+		//        /      |
+		//       /       |
+		//      /        |
+		//     /         |
+		//    -----------|
+		//         S/k
+		//
+		// T = normalizedAngle - 90
+		// tan T = -kF/S
+		// flminusbr = 2(F-S) = 2S(-(tan T) / k - 1)
+		use("flminusbr")
+		expect(flminusbr <= 0)
+		tan := math.Tan((normalizedAngle - 90) * RADIANS_PER_DEGREE)
+		S = -0.5 * flminusbr / (1 + tan/k) // was: -0.5 * flminusbr / (1 - k*tan)
+		expect(S >= 0)
+		F = -S * tan / k // was: S * tan / k
+		expect(F <= 0)
+	} else if normalizedAngle > 45 {
+		//
+		//        S/k
+		//    -----------|
+		//     \         |
+		//      \        |
+		//       \       |
+		//        \      |
+		//         \     |
+		//          \    | F
+		//           \   |
+		//            \  |
+		//             \ |
+		//           T  \|
+		// --------------+
+		//
+		// T = 90 - normalizedAngle
+		// tan T = kF/S
+		// blminusfr = 2(F+S) = 2S(1 + (tan T) / k)
+		use("blminusfr")
+		expect(blminusfr >= 0)
+		tan := math.Tan((90 - normalizedAngle) * RADIANS_PER_DEGREE)
+		S = 0.5 * blminusfr / (1 + tan/k) // was: 0.5 * blminusfr / (1 + k*tan)
+		expect(S >= 0)
+		F = S * tan / k // correct
+		expect(F >= 0)
+	} else if normalizedAngle > 0 {
+		//
+		//        S/k
+		//    -----------|
+		//     \         |
+		//      \        |
+		//       \       |
+		//        \      | F
+		//         \     |
+		//          \    |
+		//           \ T |
+		//            \  |
+		//             \ |
+		//              \|
+		// --------------+
+		//
+		// T = normalizedAngle
+		// tan T = S/kF
+		// blminusfr = 2(F+S) = 2F(1 + k tan T)
+		use("blminusfr")
+		expect(blminusfr >= 0)
+		tan := math.Tan(normalizedAngle * RADIANS_PER_DEGREE)
+		F = 0.5 * blminusfr / (1 + k*tan) // correct
+		expect(F >= 0)
+		S = F * k * tan // correct
+		expect(S >= 0)
+	} else if normalizedAngle > -45 {
+		//
+		//        -S/k
+		//    |----------
+		//    |         /
+		//    |        /
+		//    |       /
+		//  F |      /
+		//    |     /
+		//    |    /
+		//    | T /
+		//    |  /
+		//    | /
+		//    |/
+		//    +-------------
+		//
+		// T = - normalizedAngle
+		// tan T = -S/kF
+		// flminusbr = 2(F-S) = 2F(1 + k tan T)
+		use("flminusbr")
+		expect(flminusbr >= 0)
+		tan := math.Tan(-normalizedAngle * RADIANS_PER_DEGREE)
+		F = 0.5 * flminusbr / (1 + k*tan) // was: 0.5 * flminusbr / (1 - k*tan)
+		expect(F >= 0)
+		S = -F * k * tan // was: k * F * tan
+		expect(S <= 0)
+	} else if normalizedAngle > -90 {
+		//
+		//        -S/k
+		//    |----------
+		//    |         /
+		//    |        /
+		//    |       /
+		//  F |      /
+		//    |     /
+		//    |    /
+		//    |   /
+		//    |  /
+		//    | /
+		//    |/ T
+		//    +-------------
+		//
+		// T = 90 + normalizedAngle
+		// tan T = -kF/S
+		// flminusbr = 2(F-S) = 2S(- tan T / k - 1)
+		use("flminusbr")
+		expect(flminusbr >= 0)
+		tan := math.Tan((90 + normalizedAngle) * RADIANS_PER_DEGREE)
+		S = -0.5 * flminusbr / (1 + tan/k) // was: -0.5 * flminusbr / (1 - k*tan)
+		expect(S <= 0)
+		F = -S * tan / k // was: S * tan / k
+		expect(F >= 0)
+	} else if normalizedAngle > -135 {
+		//
+		//    +-------------
+		//    |\ T
+		//    | \
+		//    |  \
+		//    |   \
+		//    |    \
+		//    |     \
+		// -F |      \
+		//    |       \
+		//    |        \
+		//    |         \
+		//    |          \
+		//    |-----------
+		//        -S/k
+		//
+		// T = - normalizedAngle - 90
+		// tan T = kF/S
+		// blminusfr = 2(F+S) = 2S(tan T / k + 1)
+		use("blminusfr")
+		expect(blminusfr <= 0)
+		tan := math.Tan((-normalizedAngle - 90) * RADIANS_PER_DEGREE)
+		S = 0.5 * blminusfr / (1 + tan/k) // was: 0.5 * blminusfr / (1 + k*tan)
+		expect(S <= 0)
+		F = S * tan / k // correct
+		expect(F <= 0)
+	} else {
+		//
+		//    +-------------
+		//    |\
+		//    | \
+		//    |  \
+		//    | T \
+		//    |    \
+		//    |     \
+		// -F |      \
+		//    |       \
+		//    |        \
+		//    |         \
+		//    |          \
+		//    |-----------
+		//        -S/k
+		//
+		// T = 180 + normalizedAngle
+		// tan T = S/kF
+		// blminusfr = 2(F+S) = 2F(1 + k tan T)
+		use("blminusfr")
+		expect(blminusfr <= 0)
+		tan := math.Tan((180 + normalizedAngle) * RADIANS_PER_DEGREE)
+		F = 0.5 * blminusfr / (1 + k*tan) // correct
+		expect(S <= 0)
+		S = F * k * tan // correct
+		expect(F <= 0)
+	}
+
 	log("F %v S %v", F, S)
 
-	return chassis.WheelCircumMM * YF * F, chassis.WheelCircumMM * XS * S / k
+	return chassis.WheelCircumMM * F, chassis.WheelCircumMM * S / k
 }
 
 func (m *ChallengeMode) UpdatePosition(position *Position) {
@@ -556,6 +725,80 @@ func TestDisplace() {
 	fmt.Println(">> Using Shaun's partially populated calibration table...")
 	for _, o := range observations {
 		ahead, left := DisplacementsByTable(log.Printf, o.angle, o.bl, o.br, o.fl, o.fr)
+		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
+	}
+}
+
+type obs2 struct {
+	bl, br, fl, fr, angle, oldAhead, oldLeft float64
+}
+
+func TestDisplace2() {
+	var observations = []obs2{
+		// Values from log of Minesweeper test 18/4 evening.
+		{0.62109375, 0.015625, 0, -0.60546875, 45, 65.98218731453308, 65.98218731453306},
+		{0.625, 0, -0.03125, -0.67578125, 45, 69.97474005012583, 69.97474005012582},
+		{0.53515625, -0.00390625, -0.02734375, -0.578125, 45, 59.88829103389148, 59.88829103389146},
+		{0.46484375, -0.390625, 0.4609375, -0.3828125, 1.1213252548714081e-14, 93.63418729253956, 1.83249760842351e-14},
+		{0.390625, -0.44140625, 0.3984375, -0.4453125, 7.105427357601002e-15, 92.34564343071561, 1.1452069712011759e-14},
+		{0, 0, 0, 0, 7.105427357601002e-15, 0, 0},
+		{0, 0, 0, 0, 7.105427357601002e-15, 0, 0},
+		{0.38671875, -0.4609375, 0.37890625, -0.47265625, 0, 94.49321653375549, 0},
+		{0.4609375, -0.37890625, 0.46875, -0.37890625, 0, 93.20467267193156, 0},
+		{0.4140625, -0.4296875, 0.421875, -0.43359375, 0, 93.63418729253954, 0},
+		{0.4375, -0.39453125, 0.43359375, -0.40625, 0, 92.77515805132357, 0},
+		{0.125, -0.12109375, 0.125, -0.125, 2.842170943040401e-14, 27.488935718910678, 1.3635952773372135e-14},
+		{0.44140625, -0.3984375, 0.4453125, -0.41015625, -1.4210854715202004e-14, 93.63418729253951, 2.322373206714942e-14},
+		{-0.34375, -0.19921875, 0.2421875, 0.38671875, -105.53105000000002, -16.57238124876509, -59.632566211626575},
+		{-0.1015625, -0.06640625, 0.03125, 0.0703125, -105.53105000000002, -3.8993838232388445, -14.031192049794488},
+		{0, 0, 0, 0, -105.53105000000002, 0, 0},
+		{0, 0, 0, 0, -105.53105000000002, 0, 0},
+		{0, 0, 0, 0, -105.53105000000002, 0, 0},
+		{0, 0, 0, 0, -105.53105000000002, 0, 0},
+		{0, 0, 0, 0, -105.53105000000002, 0, 0},
+		{0.41796875, -0.43359375, 0.421875, -0.44140625, -0, 94.49321653375549, -0},
+		{0.421875, -0.41015625, 0.41796875, -0.42578125, -0, 93.20467267193156, -0},
+		{0.390625, -0.453125, 0.3828125, -0.46484375, -0, 94.06370191314751, -0},
+		{0.421875, -0.4296875, 0.4296875, -0.43359375, -0, 94.49321653375549, -0},
+		{0.39453125, -0.43359375, 0.40234375, -0.44140625, -0, 91.91612881010762, -0},
+		{0.421875, -0.4296875, 0.42578125, -0.4375, -0, 94.49321653375549, -0},
+		{0.45703125, -0.38671875, 0.4609375, -0.390625, -0, 93.20467267193156, -0},
+		{0.11328125, -0.11328125, 0.109375, -0.11328125, -0, 24.91184799526281, -0},
+		{-0.08203125, 0.3359375, -0.32421875, 0.06640625, 147.32839999999987, -219.6344671568, -140.8491343621183},
+		{0.55859375, 0.015625, -0.1015625, -0.65625, 46.072294610368886, 61.450600512724755, 63.794851809046435},
+		{0.6796875, 0.05859375, 0.01171875, -0.625, 46.072294610368886, 65.99517868569153, 68.51279904894376},
+		{0.33203125, -0.0078125, -0.03515625, -0.36328125, 46.072294610368886, 35.171083251655965, 36.51280907398799},
+		{0, 0, 0, 0, 46.072294610368886, 0, 0},
+		{0, 0, 0, 0, 46.072294610368886, 0, 0},
+		{0, 0, 0, 0, 46.072294610368886, 0, 0},
+		{0, 0, 0, 0, 46.072294610368886, 0, 0},
+		{0.3203125, -0.5078125, 0.3203125, -0.5078125, -0, 91.05709956889166, -0},
+		{0.42578125, -0.421875, 0.421875, -0.43359375, -0, 94.49321653375549, -0},
+		{0.4296875, -0.4296875, 0.43359375, -0.42578125, -0, 94.92273115436348, -0},
+		{0.41796875, -0.41796875, 0.42578125, -0.4296875, -0, 93.20467267193156, -0},
+		{0.41015625, -0.4375, 0.421875, -0.4375, -0, 94.49321653375549, -0},
+		{0.4296875, -0.41015625, 0.4296875, -0.42578125, -0, 94.06370191314751, -0},
+		{0.08984375, -0.09375, 0.09375, -0.09375, 1.1368683772161603e-13, 20.61670178918306, 4.0907858320116505e-14},
+		{-0.19140625, 0.03125, 0.0078125, 0.1953125, -136.70600000000013, -21.436653113067024, -20.19664207578827},
+		{0, 0, 0, 0, -136.70600000000013, 0, 0},
+		{0.390625, -0.44140625, 0.39453125, -0.44140625, -0, 91.91612881010762, -0},
+		{0.41796875, -0.41015625, 0.41015625, -0.42578125, -0, 92.77515805132357, -0},
+		{0.41015625, -0.421875, 0.4140625, -0.42578125, -0, 91.91612881010762, -0},
+		{0.4296875, -0.40625, 0.43359375, -0.41015625, -0, 92.3456434307156, -0},
+		{0.40234375, -0.4375, 0.40625, -0.44921875, -0, 93.63418729253954, -0},
+		{0.08203125, -0.08203125, 0.078125, -0.07421875, -0, 17.61009944492716, -0},
+		{-0.015625, 0.640625, -0.5859375, 0.01953125, 137.3704499999999, -3458.2680421638584, -3183.3337656062763},
+		{0.578125, 0.05859375, -0.10546875, -0.64453125, 47.172562387618655, 60.6595830552214, 65.44349897837337},
+		{0.66015625, 0.046875, -0.02734375, -0.64453125, 47.172562387618655, 64.72939533688162, 69.83427686510129},
+		{0.625, 0.0234375, -0.0546875, -0.6640625, 47.172562387618655, 63.95419299751777, 68.99793822001024},
+		{0.609375, 0.0078125, -0.0703125, -0.703125, 47.172562387618655, 65.11699650656354, 70.2524461876468},
+		{0.64453125, 0.02734375, -0.03125, -0.66015625, 47.172562387618655, 64.72939533688162, 69.83427686510129},
+		{0.625, 0.0234375, -0.07421875, -0.68359375, 47.172562387618655, 64.92319592172257, 70.04336152637404},
+	}
+
+	for _, o := range observations {
+		fmt.Println("")
+		ahead, left := Displacements(log.Printf, o.angle, o.bl, o.br, o.fl, o.fr)
 		fmt.Printf("%v -> ahead %v left %v\n", o, ahead, left)
 	}
 }

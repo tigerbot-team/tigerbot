@@ -56,7 +56,7 @@ type DisplaceCmd struct {
 }
 
 func (c *DisplaceCmd) Run(ctx *Context) error {
-	challengemode.TestDisplace()
+	challengemode.TestDisplace2()
 	return nil
 }
 
