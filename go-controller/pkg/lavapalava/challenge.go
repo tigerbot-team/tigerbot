@@ -101,7 +101,7 @@ func (c *challenge) AnalyseWhiteLine() (float64, float64, float64) {
 	targetAhead := float64(280)
 	targetLeft := -(centre + 19*gradient - 100) * 720.0 / 200.0
 	closeLeft := -(centre - 100) * 370.0 / 200.0
-	headingAdjust := math.Atan2(targetLeft-closeLeft, targetAhead)
+	headingAdjust := math.Atan2(targetLeft-closeLeft, targetAhead) / challengemode.RADIANS_PER_DEGREE
 
 	return targetAhead, targetLeft, headingAdjust
 }
