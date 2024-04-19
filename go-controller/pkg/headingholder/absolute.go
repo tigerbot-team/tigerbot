@@ -174,9 +174,9 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 		targetHeading := controls.targetHeading
 
 		const (
-			kp          = 8.0
+			kp          = 6.0
 			ki          = 0.8
-			kd          = 0.50
+			kd          = 0.20
 			maxIntegral = 20
 			maxD        = 100
 		)
