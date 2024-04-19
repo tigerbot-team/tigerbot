@@ -148,11 +148,10 @@ class CommandServer(object):
         return self._white_line(file_name, 70)
 
     def do_test_white_line(self):
-        result0 = self._white_line("test-white-line.jpg", 0)
-        result70 = self._white_line("test-white-line.jpg", 70)
-        print("Result with 0% blinkers", result0)
-        print("Result with 70% blinkers", result70)
-        return result70
+        for blinkers in range(70, 0, -10):
+            print("Result with %d%% blinkers" % blinkers,
+                  self._white_line("test-white-line.jpg", blinkers))
+        return ""
 
     # `blinkers`: How much, out of the 200 total width, to ignore on
     # the left and hand edges of the picture.
@@ -168,6 +167,7 @@ class CommandServer(object):
         jvalues = []
         ymins = []
         ymaxs = []
+        variances = []
         for j in range(20):
             row = rows - 1 - j * (rows // 40)
             # Horizontally, use 200 samples across the row.  In
@@ -205,14 +205,24 @@ class CommandServer(object):
                     count += ynorm
                     moment += ynorm * i
             if count > 0:
-                centres.append(moment / count)
-                jvalues.append(j)
-                ymins.append(ymin)
-                ymaxs.append(ymax)
+                # Now calculate the variance.
+                mean = moment / count
+                variance = 0
+                for i in range(blinkers, 200 - blinkers):
+                    y = yrow[i-blinkers]
+                    if y > yavg:
+                        variance += (i - mean) * (i - mean) * ynorm
+                variances.append(variance)
+                if variance < 1000 and variance > 10:
+                    centres.append(moment / count)
+                    jvalues.append(j)
+                    ymins.append(ymin)
+                    ymaxs.append(ymax)
         print(centres)
         print(jvalues)
         print(ymins)
         print(ymaxs)
+        print("Variances", variances)
 
         # Fit a straight line to those centres.
         fit = np.polyfit(np.array(jvalues),
