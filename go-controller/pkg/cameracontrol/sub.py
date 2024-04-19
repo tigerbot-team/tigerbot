@@ -154,6 +154,10 @@ class CommandServer(object):
         img = cv2.imread(filename)
         rows, columns, _ = img.shape
 
+        # How much, out of the 200 total width, to crop on the left
+        # and hand edges of the picture.
+        blinkers = 70
+
         # Pi camera takes photos at 4608 x 2592, which is stupidly
         # high res, but too dangerous to change at this stage.  We
         # will sample 20 rows from the lower half of the photo, and
@@ -168,6 +172,10 @@ class CommandServer(object):
             dx = (columns - 1) // 200
             yrow = []
             for i in range(200):
+                if i < blinkers or i > (200 - blinkers):
+                    yrow.append(0)
+                    continue
+
                 col = i * dx
                 b = img.item(row, col, 0)
                 g = img.item(row, col, 1)
