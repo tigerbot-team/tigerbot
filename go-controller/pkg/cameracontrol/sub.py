@@ -145,18 +145,20 @@ class CommandServer(object):
 
     def do_white_line(self):
         file_name = self._take_picture()
-        return self._white_line(file_name)
+        return self._white_line(file_name, 70)
 
     def do_test_white_line(self):
-        return self._white_line("test-white-line.jpg")
+        result0 = self._white_line("test-white-line.jpg", 0)
+        result70 = self._white_line("test-white-line.jpg", 70)
+        print("Result with 0% blinkers", result0)
+        print("Result with 70% blinkers", result70)
+        return result70
 
-    def _white_line(self, filename):
+    # `blinkers`: How much, out of the 200 total width, to ignore on
+    # the left and hand edges of the picture.
+    def _white_line(self, filename, blinkers):
         img = cv2.imread(filename)
         rows, columns, _ = img.shape
-
-        # How much, out of the 200 total width, to crop on the left
-        # and hand edges of the picture.
-        blinkers = 70
 
         # Pi camera takes photos at 4608 x 2592, which is stupidly
         # high res, but too dangerous to change at this stage.  We
@@ -171,11 +173,8 @@ class CommandServer(object):
             # the white area.
             dx = (columns - 1) // 200
             yrow = []
-            for i in range(200):
-                if i < blinkers or i > (200 - blinkers):
-                    yrow.append(0)
-                    continue
-
+            pending_first_value = True
+            for i in range(blinkers, 200 - blinkers):
                 col = i * dx
                 b = img.item(row, col, 0)
                 g = img.item(row, col, 1)
@@ -184,9 +183,10 @@ class CommandServer(object):
                 # https://docs.opencv.org/4.x/de/d25/imgproc_color_conversions.html#color_convert_rgb_gray
                 y = 0.299 * r + 0.587 * g + 0.114 * b
                 yrow.append(y)
-                if i == 0:
+                if pending_first_value:
                     ymin = y
                     ymax = y
+                    pending_first_value = False
                 else:
                     if y < ymin:
                         ymin = y
@@ -195,9 +195,10 @@ class CommandServer(object):
             yavg = (ymin + ymax) / 2
             count = 0
             moment = 0
-            for i in range(200):
-                if yrow[i] > yavg:
-                    ynorm = (yrow[i] - ymin) / (ymax - ymin)
+            for i in range(blinkers, 200 - blinkers):
+                y = yrow[i-blinkers]
+                if y > yavg:
+                    ynorm = (y - ymin) / (ymax - ymin)
                     count += ynorm
                     moment += ynorm * i
             if count > 0:
