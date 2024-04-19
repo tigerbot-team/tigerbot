@@ -165,6 +165,9 @@ class CommandServer(object):
         # will sample 20 rows from the lower half of the photo, and
         # for each of those rows work out where the white line is.
         centres = []
+        jvalues = []
+        ymins = []
+        ymaxs = []
         for j in range(20):
             row = rows - 1 - j * (rows // 40)
             # Horizontally, use 200 samples across the row.  In
@@ -203,10 +206,16 @@ class CommandServer(object):
                     moment += ynorm * i
             if count > 0:
                 centres.append(moment / count)
+                jvalues.append(j)
+                ymins.append(ymin)
+                ymaxs.append(ymax)
         print(centres)
+        print(jvalues)
+        print(ymins)
+        print(ymaxs)
 
         # Fit a straight line to those centres.
-        fit = np.polyfit(np.array([j for j in range(len(centres))]),
+        fit = np.polyfit(np.array(jvalues),
                          np.array(centres),
                          1)
         print(fit)
