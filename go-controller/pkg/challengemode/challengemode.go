@@ -670,7 +670,7 @@ func (m *ChallengeMode) StartMotion(
 	m.log("dx=%f dy=%f", dX, dY)
 	dist := math.Sqrt((dX * dX) + (dY * dY))
 
-	throttle := dist * 0.9 / moveTime.Seconds()
+	throttle := dist * 0.95 / moveTime.Seconds()
 	const maxThrottle = 100
 	if throttle > maxThrottle {
 		throttle = maxThrottle
