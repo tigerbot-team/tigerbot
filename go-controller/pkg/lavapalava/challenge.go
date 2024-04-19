@@ -99,8 +99,8 @@ func (c *challenge) AnalyseWhiteLine() (float64, float64, float64) {
 	// that distance corresponds to 72cm; and photo width at the
 	// bottom of the photo corresponds to 37cm.
 	targetAhead := float64(280)
-	targetLeft := (centre + 19*gradient - 100) * 720.0 / 200.0
-	closeLeft := (centre - 100) * 370.0 / 200.0
+	targetLeft := -(centre + 19*gradient - 100) * 720.0 / 200.0
+	closeLeft := -(centre - 100) * 370.0 / 200.0
 	headingAdjust := math.Atan2(targetLeft-closeLeft, targetAhead)
 
 	return targetAhead, targetLeft, headingAdjust
