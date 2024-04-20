@@ -88,6 +88,13 @@ func (c *challenge) Iterate(
 	}
 	c.state = NORMAL
 	c.log("targetAhead %v targetLeft %v headingAdjust %v", targetAhead, targetLeft, headingAdjust)
+	speed := 400 - math.Abs(targetLeft)*11
+	if speed < 100 {
+		speed = 100
+	}
+	c.log("speed %v", speed)
+	durationMillis := (280 * 1000) / speed
+	c.log("duration %vms", durationMillis)
 	dx, dy := challengemode.AbsoluteDeltas(position.Heading, targetAhead, targetLeft)
 	c.log("dx %v dy %v", dx, dy)
 
@@ -97,7 +104,7 @@ func (c *challenge) Iterate(
 		Y:       position.Y + dy,
 	}
 
-	return false, target, 500 * time.Millisecond
+	return false, target, time.Duration(durationMillis) * time.Millisecond
 }
 
 func (c *challenge) AnalyseWhiteLine() (float64, float64, float64, bool) {
@@ -144,5 +151,5 @@ func (c *challenge) AnalyseWhiteLine() (float64, float64, float64, bool) {
 }
 
 func (c *challenge) SpeedMMPerS() float64 {
-	return 100
+	return 400
 }
