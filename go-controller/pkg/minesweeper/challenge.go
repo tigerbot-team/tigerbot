@@ -117,6 +117,7 @@ func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64)
 
 	x = max(min(x, 0.8), 0.2)
 	headingAdjust = 45 - 90*(x-0.2)/0.6
+	headingAdjust *= 0.7
 
 	// For the images I used for calibration, this gives values
 	// between 10.67 and 15.17, and I think all the values >= 11
