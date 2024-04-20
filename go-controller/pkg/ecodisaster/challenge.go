@@ -35,6 +35,9 @@ const (
 	yStartB = float64(200)
 	yStartT = float64(600)
 
+	// Minimum distance between the centre of the bot and any wall.
+	dlBotWall = float64(200)
+
 	// Confidence level at which we'll immediately start heading
 	// to the next square, even if we haven't done a full rotation
 	// of searching yet.
@@ -135,35 +138,103 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 }
 
 func (c *challenge) calcNextIntermediateTarget(position *challengemode.Position) {
+	defer func() {
+		c.log("intermediateTarget %v", c.intermediateTarget)
+	}()
 	lenPFS := len(c.pathFromSafe)
 	if lenPFS > 0 {
+		c.log("moving back along recent path")
 		lastTarget := c.pathFromSafe[lenPFS-1]
+		c.log("lastTarget %v", lastTarget)
 		lastTargetButWithCurrentHeading := lastTarget
 		lastTargetButWithCurrentHeading.Heading = position.Heading
 		if challengemode.TargetReached(&lastTarget, position) {
+			c.log("reached last target")
 			c.pathFromSafe = c.pathFromSafe[:lenPFS-1]
 			lenPFS -= 1
 			if lenPFS > 0 {
+				c.log("intermediate -> previous path point with current heading")
 				c.intermediateTarget = c.pathFromSafe[lenPFS-1]
 				c.intermediateTarget.Heading = position.Heading
 				return
 			}
 		} else if challengemode.TargetReached(&lastTargetButWithCurrentHeading, position) {
+			c.log("intermediate -> previous path point with its own heading")
 			c.intermediateTarget = lastTarget
 			return
 		}
 	}
 	// Reaching here means we're back in a 'safe' place, i.e. close to one of the walls.
 	if c.moveTarget.X < dxTotal/2 {
-		// Move around the left hand side.
+		c.log("move around the left hand side")
 		if position.Y > yBarrelAreaT {
+			c.log("intermediate -> real move target")
 			// We should now be able to go to the real target.
 			c.intermediateTarget = c.moveTarget
 		} else if position.X < xBarrelAreaL {
+			c.log("intermediate -> top left corner")
 			// On left side wall, move to top left corner.
-			c.intermediateTarget.X =
+			c.intermediateTarget.X = dlBotWall
+			c.intermediateTarget.Y = dyTotal - dlBotWall
+			c.intermediateTarget.Heading = 90
+		} else if position.Y < yBarrelAreaB {
+			c.log("intermediate -> bottom left corner")
+			// On bottom wall, move to bottom left corner.
+			c.intermediateTarget.X = dlBotWall
+			c.intermediateTarget.Y = dlBotWall
+			c.intermediateTarget.Heading = 180
+		} else {
+			// We shouldn't be here, because we've already
+			// covered all the safe areas above.  But if
+			// we're somehow in the middle of the arena,
+			// move to the closest L/B wall.
+			if position.Y < position.X {
+				c.log("intermediate -> bottom wall")
+				c.intermediateTarget.X = position.X
+				c.intermediateTarget.Y = dlBotWall
+				c.intermediateTarget.Heading = -90
+			} else {
+				c.log("intermediate -> left wall")
+				c.intermediateTarget.X = dlBotWall
+				c.intermediateTarget.Y = position.Y
+				c.intermediateTarget.Heading = 180
+			}
+		}
 	} else {
-		// Move around the right hand side.
+		c.log("move around the right hand side")
+		if position.Y > yBarrelAreaT {
+			c.log("intermediate -> real move target")
+			// We should now be able to go to the real target.
+			c.intermediateTarget = c.moveTarget
+		} else if position.X > xBarrelAreaR {
+			c.log("intermediate -> top right corner")
+			// On right side wall, move to top right corner.
+			c.intermediateTarget.X = dxTotal - dlBotWall
+			c.intermediateTarget.Y = dyTotal - dlBotWall
+			c.intermediateTarget.Heading = 90
+		} else if position.Y < yBarrelAreaB {
+			c.log("intermediate -> bottom right corner")
+			// On bottom wall, move to bottom right corner.
+			c.intermediateTarget.X = dxTotal - dlBotWall
+			c.intermediateTarget.Y = dlBotWall
+			c.intermediateTarget.Heading = 0
+		} else {
+			// We shouldn't be here, because we've already
+			// covered all the safe areas above.  But if
+			// we're somehow in the middle of the arena,
+			// move to the closest R/B wall.
+			if position.Y < dxTotal-position.X {
+				c.log("intermediate -> bottom wall")
+				c.intermediateTarget.X = position.X
+				c.intermediateTarget.Y = dlBotWall
+				c.intermediateTarget.Heading = -90
+			} else {
+				c.log("intermediate -> right wall")
+				c.intermediateTarget.X = dxTotal - dlBotWall
+				c.intermediateTarget.Y = position.Y
+				c.intermediateTarget.Heading = 0
+			}
+		}
 	}
 }
 
