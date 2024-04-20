@@ -94,11 +94,11 @@ func (d *ServoController) loop() {
 		for i := 0; i < autoRepeatFactor; i++ {
 			if dPadY < 0 {
 				if ballThrowerPitch < ServoMaxPitch {
-					ballThrowerPitch += 0.01
+					ballThrowerPitch += 1.0 / 1024
 				}
 			} else if dPadY > 0 {
 				if ballThrowerPitch > ServoMinPitch {
-					ballThrowerPitch -= 0.01
+					ballThrowerPitch -= 1.0 / 1024
 				}
 			}
 		}
