@@ -53,6 +53,18 @@ const (
 	RED
 )
 
+func (c blockColour) String() string {
+	switch c {
+	case BLUE:
+		return "BLUE"
+	case GREEN:
+		return "GREEN"
+	case RED:
+		return "RED"
+	}
+	return "???"
+}
+
 var dyBlock [3]float64
 
 func init() {
