@@ -207,14 +207,28 @@ func (c *challenge) Iterate(
 			c.xTarget = (dxTotal - dxBlock) / 2
 		case PAST_THIRD_EDGE:
 			// Move past exit.
-			c.yTarget = dyTotal
+			c.yTarget = dyTotal + 1000
 		case ADVANCED_PAST_EXIT:
 			return true, nil, 0
 		}
 	}
 }
 
+var testMode bool = true
+var testModeCalls int = 0
+
 func (c *challenge) IdentifyFacingBlockColour() blockColour {
+	if testMode {
+		testModeCalls++
+		switch testModeCalls {
+		case 1:
+			return BLUE
+		case 2:
+			return RED
+		default:
+			return GREEN
+		}
+	}
 	rsp, err := challengemode.CameraExecute(c.log, "id-block-colour")
 	if err != nil {
 		c.log("IdentifyFacingBlockColour camera err=%v", err)
