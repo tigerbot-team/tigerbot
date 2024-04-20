@@ -15,8 +15,17 @@ const (
 )
 
 type challenge struct {
-	log challengemode.Log
+	log   challengemode.Log
+	state int
 }
+
+const (
+	NORMAL int = iota
+	LOST_LOOKING_LEFT
+	LOST_LOOKING_RIGHT
+	LOST_LOOKING_MORE_LEFT
+	LOST_LOOKING_MORE_RIGHT
+)
 
 func New() challengemode.Challenge {
 	return &challenge{}
@@ -52,7 +61,32 @@ func (c *challenge) Iterate(
 ) {
 	// Take a picture to work out how we should adjust our
 	// heading.
-	targetAhead, targetLeft, headingAdjust, _ := c.AnalyseWhiteLine()
+	targetAhead, targetLeft, headingAdjust, found := c.AnalyseWhiteLine()
+	if !found {
+		var heading float64
+		switch c.state {
+		case NORMAL:
+			c.state = LOST_LOOKING_LEFT
+			heading = position.Heading + 25
+		case LOST_LOOKING_LEFT:
+			c.state = LOST_LOOKING_RIGHT
+			heading = position.Heading - 50
+		case LOST_LOOKING_RIGHT:
+			c.state = LOST_LOOKING_MORE_RIGHT
+			heading = position.Heading - 25
+		case LOST_LOOKING_MORE_RIGHT:
+			c.state = LOST_LOOKING_MORE_LEFT
+			heading = position.Heading + 100
+		case LOST_LOOKING_MORE_LEFT:
+			// Give up!
+			return true, nil, 0
+		}
+		return false, &challengemode.Position{
+			Heading: heading,
+			Stop:    true,
+		}, 0
+	}
+	c.state = NORMAL
 	c.log("targetAhead %v targetLeft %v headingAdjust %v", targetAhead, targetLeft, headingAdjust)
 	dx, dy := challengemode.AbsoluteDeltas(position.Heading, targetAhead, targetLeft)
 	c.log("dx %v dy %v", dx, dy)
