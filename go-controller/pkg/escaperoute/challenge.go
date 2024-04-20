@@ -115,6 +115,7 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 	c.blockDone[BLUE] = false
 	c.blockDone[GREEN] = false
 	c.blockDone[RED] = false
+	testModeCalls = 0
 
 	// Assume we're initially positioned in the middle of the
 	// start box.  Also make this the initial target - so that we
@@ -122,8 +123,10 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 	c.xTarget = dxTotal - (dxInitial / 2)
 	c.yTarget = dyInitial / 2
 	return &challengemode.Position{
-		X: c.xTarget,
-		Y: c.yTarget,
+		X:              c.xTarget,
+		Y:              c.yTarget,
+		Heading:        90,
+		HeadingIsExact: true,
 	}, true
 }
 
