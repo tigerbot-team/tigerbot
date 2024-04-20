@@ -279,7 +279,7 @@ func (c *challenge) Iterate(
 					c.log("Lost target")
 
 					// Restart the search.
-					c.stage = POSSIBLY_UNSAFE_FOR_SEARCH
+					c.stage = SEARCH_OR_APPROACH
 					goto stage_transition
 				}
 				c.bestHeading = position.Heading + headingAdjust
@@ -321,24 +321,24 @@ func (c *challenge) Iterate(
 				// recompute the target.
 				c.log("Compute target position")
 				c.bestConfidence = targetConfidence
-				c.xTarget = position.X + distance*math.Cos(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
-				c.yTarget = position.Y + distance*math.Sin(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
-				c.headingTarget = c.bestHeading
-				c.obeyHeadingTarget = true
+				c.moveTarget.X = position.X + distance*math.Cos(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
+				c.moveTarget.Y = position.Y + distance*math.Sin(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
+				//c.headingTarget = c.bestHeading
+				//c.obeyHeadingTarget = true
 			}
 		}
 
 		// Return the current target, if we haven't yet
 		// reached it.
-		target = &challengemode.Position{
-			X:       c.xTarget,
-			Y:       c.yTarget,
-			Heading: position.Heading,
-		}
-		if c.obeyHeadingTarget {
-			c.log("obey heading target")
-			target.Heading = c.headingTarget
-		}
+		//target = &challengemode.Position{
+		//	X:       c.xTarget,
+		//	Y:       c.yTarget,
+		//	Heading: position.Heading,
+		//}
+		//if c.obeyHeadingTarget {
+		//	c.log("obey heading target")
+		//	target.Heading = c.headingTarget
+		//}
 		if !challengemode.TargetReached(target, position) {
 			c.log("Target (%v, %v, %v) not yet reached", target.X, target.Y, target.Heading)
 			return false, target, time.Second
@@ -350,28 +350,28 @@ func (c *challenge) Iterate(
 		c.stage += 1
 	stage_transition:
 		c.log("Stage => %v", c.stage)
-		switch c.stage {
-		case POSSIBLY_UNSAFE_FOR_SEARCH:
-			// Move to a position at least one square side
-			// away from the walls.
-			c.xTarget = min(max(position.X, dxInitial), dxTotal-dxInitial)
-			c.yTarget = min(max(position.Y, dyInitial), dyTotal-dyInitial)
-			c.obeyHeadingTarget = false
-			c.approachingTarget = false
-		case SAFE_FOR_SEARCH:
-			// Beginning a search; store the initial
-			// heading, so we don't rotate forever.
-			c.searchInitialHeading = position.Heading
-			c.bestConfidence = 0
-		case ON_BOMB_SQUARE:
-			c.log("Sit on bomb!")
-			// Sit here for a bit more than 1 second.
-			time.Sleep(1200 * time.Millisecond)
-
-			// Restart the search.
-			c.stage = POSSIBLY_UNSAFE_FOR_SEARCH
-			goto stage_transition
-		}
+		//		switch c.stage {
+		//		case POSSIBLY_UNSAFE_FOR_SEARCH:
+		//			// Move to a position at least one square side
+		//			// away from the walls.
+		//			c.xTarget = min(max(position.X, dxInitial), dxTotal-dxInitial)
+		//			c.yTarget = min(max(position.Y, dyInitial), dyTotal-dyInitial)
+		//			c.obeyHeadingTarget = false
+		//			c.approachingTarget = false
+		//		case SAFE_FOR_SEARCH:
+		//			// Beginning a search; store the initial
+		//			// heading, so we don't rotate forever.
+		//			c.searchInitialHeading = position.Heading
+		//			c.bestConfidence = 0
+		//		case ON_BOMB_SQUARE:
+		//			c.log("Sit on bomb!")
+		//			// Sit here for a bit more than 1 second.
+		//			time.Sleep(1200 * time.Millisecond)
+		//
+		//			// Restart the search.
+		//			c.stage = POSSIBLY_UNSAFE_FOR_SEARCH
+		//			goto stage_transition
+		//		}
 	}
 }
 

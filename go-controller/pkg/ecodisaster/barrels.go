@@ -24,6 +24,8 @@ type arena struct {
 	// Colours of the barrels that the bot is already carrying;
 	// only significant when botLoad > 0.
 	botColours [BOT_CAPACITY]int
+
+	botLoad int
 }
 
 // The initial state, given specified barrel positions.
