@@ -28,6 +28,13 @@ const (
 	PicoAddr = 0x42
 )
 
+var calibration = [4]uint16{
+	0x01a3,
+	0x0386,
+	0x01d5,
+	0x036b,
+}
+
 type Register byte
 
 const (
@@ -248,10 +255,13 @@ func (p *PicoBLDC) maybeConfigure(resetMotorSpeeds bool, enableMotors bool, forc
 			return err
 		}
 		if calib == 0 {
-			// Calibration register empty, do a calibration.
-			// FIXME, won't work on actual robot; needs to be on blocks.
-			fmt.Println("Pico-BLDC not calibrated, running calibration...")
-			configWord |= RegCtrlDoCalib
+			// Calibration register empty, apply calibration.
+			for i, w := range calibration {
+				err := p.writeReg(RegMot0Calib+Register(i), w)
+				if err != nil {
+					return fmt.Errorf("failed to write calibration register: %w", err)
+				}
+			}
 		}
 	}
 

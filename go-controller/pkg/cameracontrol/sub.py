@@ -73,7 +73,10 @@ class CommandServer(object):
         im = self.cam.capture_array()
         crop = im[1000:, 1000:3608]
 
-        frame_128 = cv2.resize(crop, (128,128))
+        self.show_image_on_screen(crop)
+
+    def show_image_on_screen(self, im):
+        frame_128 = cv2.resize(im, (128,128))
         frame_128 = cv2.rotate(frame_128, cv2.ROTATE_90_CLOCKWISE)
         frame_red_blue = cv2.cvtColor(frame_128, cv2.COLOR_RGB2BGR)
         frame_rgb565 = cv2.cvtColor(frame_red_blue, cv2.COLOR_RGB2BGR565)
@@ -96,6 +99,16 @@ class CommandServer(object):
 
     def do_test_mine(self):
         return self._id_mine("test-mine.jpg")
+
+    def do_show_aim_point(self):
+        im = self.cam.capture_array()
+        rows, cols = im.shape[:2]
+        aim_x_offset = 40
+        aim_y_offset = 160
+        crop = im[rows//2-200+aim_y_offset:rows//2+200+aim_y_offset,
+        cols//2-200+aim_x_offset:cols//2+200+aim_x_offset]
+        cv2.rectangle(crop, (180, 180), (220, 220), (255, 0, 0), 5)
+        self.show_image_on_screen(cv2.cvtColor(crop, cv2.COLOR_RGB2BGR))
 
     def _id_block_colour(self, filename):
         img = cv2.imread(filename)

@@ -2,8 +2,12 @@ package rcmode
 
 import (
 	"context"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/screen"
+	"log"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/rcmode/servo"
 
@@ -68,6 +72,8 @@ func (m *RCMode) loop(ctx context.Context) {
 	defer m.stopWG.Done()
 	fmt.Println("RCMode main loop started")
 
+	screen.SetEnabled(true)
+
 	fmt.Println("RCMode Starting servo controller")
 	m.servoController.Start(m.hardware)
 	defer m.servoController.Stop()
@@ -79,6 +85,26 @@ func (m *RCMode) loop(ctx context.Context) {
 	fmt.Println("RCMode taking control of motors")
 	motorController := m.hardware.StartYawAndThrottleMode()
 	defer m.hardware.StopMotorControl()
+
+	screenEnabled := true
+	screenTicker := time.NewTicker(200 * time.Millisecond)
+	defer screenTicker.Stop()
+
+	showAimC := make(chan struct{}, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-showAimC:
+
+				_, err := challengemode.CameraExecute(log.Printf, "show-aim-point")
+				if err != nil {
+					fmt.Printf("Failed to show image: %v\n", err)
+				}
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -108,6 +134,11 @@ func (m *RCMode) loop(ctx context.Context) {
 						fmt.Println("Aggressive mode")
 						mix = MixAggressive
 					}
+				case joystick.ButtonTriangle:
+					if event.Value == 1 {
+						screenEnabled = !screenEnabled
+						screen.SetEnabled(screenEnabled)
+					}
 				}
 			}
 
@@ -115,11 +146,18 @@ func (m *RCMode) loop(ctx context.Context) {
 			yaw, throttle, translation := mix(leftStickX, leftStickY, rightStickX, rightStickY)
 			motorController.SetYawAndThrottle(-yaw, throttle, translation)
 
-			m.hardware.SetServo(8, clamp(0.3+throttle/2-yaw/3, 0.2, 1))  // 0 is arm down, 1 is arm up
-			m.hardware.SetServo(10, clamp(0.7-throttle/2-yaw/3, 0, 0.8)) // 0 is arm up, 1 is arm down
-			m.hardware.SetServo(9, clamp(-yaw/2+0.5, 0.25, 0.75))        // 0.25 is right, 0.75 is left
+			//m.hardware.SetServo(8, clamp(0.3+throttle/2-yaw/3, 0.2, 1))  // 0 is arm down, 1 is arm up
+			//m.hardware.SetServo(10, clamp(0.7-throttle/2-yaw/3, 0, 0.8)) // 0 is arm up, 1 is arm down
+			//m.hardware.SetServo(9, clamp(-yaw/2+0.5, 0.25, 0.75))        // 0.25 is right, 0.75 is left
+		case <-screenTicker.C:
+			if screenEnabled {
+				continue
+			}
+			select {
+			case showAimC <- struct{}{}:
+			default:
+			}
 		}
-
 	}
 }
 

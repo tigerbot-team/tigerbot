@@ -94,11 +94,11 @@ func (d *ServoController) loop() {
 		for i := 0; i < autoRepeatFactor; i++ {
 			if dPadY < 0 {
 				if ballThrowerPitch < ServoMaxPitch {
-					ballThrowerPitch += 0.01
+					ballThrowerPitch += 1.0 / 1024
 				}
 			} else if dPadY > 0 {
 				if ballThrowerPitch > ServoMinPitch {
-					ballThrowerPitch -= 0.01
+					ballThrowerPitch -= 1.0 / 1024
 				}
 			}
 		}
@@ -208,6 +208,8 @@ func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGrou
 		fmt.Println("Done resetting servos")
 	}()
 
+	triggerWasDown := false
+
 	for {
 		updateServos()
 		select {
@@ -218,7 +220,8 @@ func (d *ServoController) fireControlLoop(ctx context.Context, wg *sync.WaitGrou
 				motorTop = ServoValueMotorOn
 				motorBottom = ServoValueMotorOn
 				stopTimer()
-			} else {
+				triggerWasDown = true
+			} else if triggerWasDown {
 				// Trigger up, push plunger forward to push ball into motors.  Start the motor shutoff timer.
 				fmt.Println("Trigger up, activating plunger to push dart forward")
 				plunger = ServoValuePlungerActive
