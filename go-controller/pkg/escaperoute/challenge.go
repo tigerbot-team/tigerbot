@@ -68,20 +68,14 @@ func (s stage) String() string {
 		return "INIT"
 	case FACING_FIRST_BLOCK:
 		return "FACING_FIRST_BLOCK"
-	case FACING_FIRST_EDGE:
-		return "FACING_FIRST_EDGE"
 	case PAST_FIRST_EDGE:
 		return "PAST_FIRST_EDGE"
 	case FACING_SECOND_BLOCK:
 		return "FACING_SECOND_BLOCK"
-	case FACING_SECOND_EDGE:
-		return "FACING_SECOND_EDGE"
 	case PAST_SECOND_EDGE:
 		return "PAST_SECOND_EDGE"
 	case FACING_THIRD_BLOCK:
 		return "FACING_THIRD_BLOCK"
-	case FACING_THIRD_EDGE:
-		return "FACING_THIRD_EDGE"
 	case PAST_THIRD_EDGE:
 		return "PAST_THIRD_EDGE"
 	case ADVANCED_PAST_EXIT:
@@ -97,6 +91,7 @@ type challenge struct {
 	thisBlockColour blockColour
 	xTarget         float64
 	yTarget         float64
+	headingTarget   float64
 }
 
 func New() challengemode.Challenge {
@@ -145,7 +140,7 @@ func (c *challenge) Iterate(
 		target := &challengemode.Position{
 			X:       c.xTarget,
 			Y:       c.yTarget,
-			Heading: 90,
+			Heading: c.headingTarget,
 		}
 		if !challengemode.TargetReached(target, position) {
 			c.log("Target (%v, %v, %v) not yet reached", target.X, target.Y, target.Heading)
@@ -164,53 +159,32 @@ func (c *challenge) Iterate(
 
 			// Move to where the left edge of the block
 			// should be.
-			c.xTarget = dxTotal - dxBlock
-			c.yTarget = dyInitial / 2
-		case FACING_FIRST_EDGE:
-			// Use camera to check believed position against block
-			// edge.  Offset value is +tive if the edge is to the
-			// right of the camera centreline and -tive if the
-			// edge is to the left.
-			c.AdjustPositionByBlockEdge(position)
-
-			// Move to position for driving past the block.
 			c.xTarget = (dxTotal - dxBlock) / 2
+			c.yTarget = dyInitial / 2
+			c.headingTarget = 180
 		case PAST_FIRST_EDGE:
 			// Advance to Y position facing next block.
 			c.yTarget = dyInitial + dyBlock[c.thisBlockColour] + dyGap/2
+			c.headingTarget = 90
 		case FACING_SECOND_BLOCK:
 			// Use camera to identify block colour.
 			c.thisBlockColour = c.IdentifyFacingBlockColour()
 
 			// Move to where the right edge of the block should be.
-			c.xTarget = dxBlock
-		case FACING_SECOND_EDGE:
-			// Use camera to check believed position against block
-			// edge.  Offset value is +tive if the edge is to the
-			// right of the camera centreline and -tive if the
-			// edge is to the left.
-			c.AdjustPositionByBlockEdge(position)
-
-			// Move to position for driving past the block.
 			c.xTarget = (dxTotal + dxBlock) / 2
+			c.headingTarget = 0
 		case PAST_SECOND_EDGE:
 			// Advance to Y position facing next block.
 			c.yTarget += dyBlock[c.thisBlockColour] + dyGap
+			c.headingTarget = 90
 		case FACING_THIRD_BLOCK:
 			// Move to where the left edge of the block should be.
-			c.xTarget = dxTotal - dxBlock
-		case FACING_THIRD_EDGE:
-			// Use camera to check believed position against block
-			// edge.  Offset value is +tive if the edge is to the
-			// right of the camera centreline and -tive if the
-			// edge is to the left.
-			c.AdjustPositionByBlockEdge(position)
-
-			// Move to position for driving past the block.
 			c.xTarget = (dxTotal - dxBlock) / 2
+			c.headingTarget = 180
 		case PAST_THIRD_EDGE:
 			// Move past exit.
 			c.yTarget = dyTotal + 1000
+			c.headingTarget = 90
 		case ADVANCED_PAST_EXIT:
 			return true, nil, 0
 		}
