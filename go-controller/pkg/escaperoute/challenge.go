@@ -254,5 +254,5 @@ func (c *challenge) AdjustPositionByBlockEdge(position *challengemode.Position) 
 }
 
 func (c *challenge) SpeedMMPerS() float64 {
-	return 200
+	return 400
 }

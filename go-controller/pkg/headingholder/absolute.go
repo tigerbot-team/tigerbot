@@ -254,7 +254,7 @@ func (h *Absolute) Loop(cxt context.Context, wg *sync.WaitGroup) {
 
 		m := max(frontLeftRPS, frontRightRPS, backLeftRPS, backRightRPS)
 		scale := 1.0
-		const maxRPS float64 = 1.0
+		const maxRPS float64 = 5.0
 		if m > maxRPS {
 			scale = maxRPS / m
 		}
