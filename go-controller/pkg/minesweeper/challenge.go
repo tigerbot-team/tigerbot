@@ -251,3 +251,7 @@ func (c *challenge) Iterate(
 		}
 	}
 }
+
+func (c *challenge) SpeedMMPerS() float64 {
+	return 100
+}

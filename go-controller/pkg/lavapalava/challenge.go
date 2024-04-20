@@ -142,3 +142,7 @@ func (c *challenge) AnalyseWhiteLine() (float64, float64, float64, bool) {
 
 	return targetAhead, targetLeft, headingAdjust, true
 }
+
+func (c *challenge) SpeedMMPerS() float64 {
+	return 100
+}

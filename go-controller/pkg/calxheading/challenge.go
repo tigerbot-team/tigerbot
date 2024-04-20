@@ -10,6 +10,10 @@ type challenge struct {
 	log challengemode.Log
 }
 
+func (c *challenge) SpeedMMPerS() float64 {
+	return 100
+}
+
 func New() challengemode.Challenge {
 	return &challenge{}
 }

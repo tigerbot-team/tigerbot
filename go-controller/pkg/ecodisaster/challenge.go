@@ -33,3 +33,7 @@ func (c *challenge) Iterate(
 ) {
 	panic("implement me!")
 }
+
+func (c *challenge) SpeedMMPerS() float64 {
+	return 100
+}

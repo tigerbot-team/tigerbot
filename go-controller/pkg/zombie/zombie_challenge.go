@@ -156,3 +156,7 @@ func (c *challenge) Fire() {
 	c.hw.SetServo(motor1, 0)
 	c.hw.SetServo(motor2, 0)
 }
+
+func (c *challenge) SpeedMMPerS() float64 {
+	return 100
+}

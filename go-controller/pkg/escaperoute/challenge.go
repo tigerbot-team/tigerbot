@@ -231,3 +231,7 @@ func (c *challenge) AdjustPositionByBlockEdge(position *challengemode.Position) 
 	//position.X -= blockEdgeOffset * adjustmentMMPerOffset
 	//panic("implement me")
 }
+
+func (c *challenge) SpeedMMPerS() float64 {
+	return 200
+}

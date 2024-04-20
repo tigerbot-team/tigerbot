@@ -58,6 +58,8 @@ type Challenge interface {
 	// Use available sensors to update our beliefs about the arena
 	// and where we are within it.
 	Iterate(position *Position, timeSinceStart time.Duration) (bool, *Position, time.Duration)
+
+	SpeedMMPerS() float64
 }
 
 type ChallengeMode struct {
@@ -681,7 +683,7 @@ func (m *ChallengeMode) StartMotion(
 	dist := math.Sqrt((dX * dX) + (dY * dY))
 
 	throttle := dist * 0.95 / moveTime.Seconds()
-	const maxThrottle = 100
+	maxThrottle := m.challenge.SpeedMMPerS()
 	if throttle > maxThrottle {
 		throttle = maxThrottle
 	}
