@@ -73,8 +73,7 @@ class CommandServer(object):
         print("Shape =", img.shape)
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-        bestColour = ""
-        bestArea = 0
+        result = ""
         for colour, range in hue_ranges.items():
             contours = self._contours_in_hue_range(hsv, range)
             largestContour = max(contours, key=cv2.contourArea)
@@ -82,11 +81,11 @@ class CommandServer(object):
 
             print(colour, ": largestContourArea", largestContourArea)
 
-            if bestColour == "" or largestContourArea > bestArea:
-                bestColour = colour
-                bestArea = largestContourArea
+            if result != "":
+                result += " "
+            result += f"{colour} {largestContourArea}"
 
-        return bestColour
+        return result
 
     def _id_mine(self, filename):
         img = cv2.imread(filename)

@@ -1,6 +1,8 @@
 package escaperoute
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
@@ -192,7 +194,7 @@ func (c *challenge) Iterate(
 	}
 }
 
-var testMode bool = true
+var testMode bool = false
 var testModeCalls int = 0
 
 func (c *challenge) IdentifyFacingBlockColour() blockColour {
@@ -211,14 +213,35 @@ func (c *challenge) IdentifyFacingBlockColour() blockColour {
 	if err != nil {
 		c.log("IdentifyFacingBlockColour camera err=%v", err)
 	}
-	switch rsp {
-	case "blue":
-		return BLUE
-	case "green":
-		return GREEN
-	default:
-		return RED
+	rspWords := strings.Split(rsp, " ")
+	var bestArea float64 = 0
+	var bestColour blockColour
+	for i := 0; i < len(rspWords); i += 2 {
+		var col blockColour
+		switch rspWords[i] {
+		case "blue":
+			col = BLUE
+		case "green":
+			col = GREEN
+		case "red":
+			col = RED
+		default:
+			c.log("unexpected colour '%v'", rspWords[i])
+			continue
+		}
+		area, err := strconv.ParseFloat(rspWords[i+1], 64)
+		if err != nil {
+			c.log("error parsing '%v': %v", rspWords[i+1], err)
+			continue
+		}
+		if area > bestArea && !c.blockDone[col] {
+			bestArea = area
+			bestColour = col
+		}
 	}
+
+	c.blockDone[bestColour] = true
+	return bestColour
 }
 
 func (c *challenge) AdjustPositionByBlockEdge(position *challengemode.Position) {
