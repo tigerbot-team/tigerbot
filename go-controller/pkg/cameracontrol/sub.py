@@ -1,10 +1,30 @@
 # import the necessary packages
 
+import sys
+
 import cv2
 import numpy as np
 from picamera2 import Picamera2, Preview
 import sys
 import time
+import json
+import os
+
+
+C = {
+    "escape": {
+        "red": [165, 10, 100, 255, 60, 255],
+        "green": [45, 100, 10, 255, 0, 255],
+        "blue": [100, 120, 90, 255, 80, 255],
+    },
+    "mine": [165, 10, 100, 255, 60, 255],
+    "eco": {
+        "red": [165, 10, 100, 255, 60, 255],
+        "green": [45, 100, 10, 255, 0, 255],
+        "blue": [100, 120, 90, 255, 80, 255],
+        "yellow": [22, 42, 100, 255, 130, 255],
+    },
+}
 
 
 class CommandServer(object):
@@ -16,6 +36,15 @@ class CommandServer(object):
 
         camera_config = self.cam.create_still_configuration()
         self.cam.configure(camera_config)
+        global C
+
+        # Write out default config.
+        with open('config-default.json', 'w') as f:
+            f.write(json.dumps(C))
+
+        if os.path.isfile('config.json'):
+            with open('config.json', 'r') as f:
+                C = json.load(f)
 
     def start(self):
         print("Call start")
@@ -74,8 +103,8 @@ class CommandServer(object):
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
         result = ""
-        for colour, range in hue_ranges.items():
-            contours = self._contours_in_hue_range(hsv, range)
+        for colour, minmax in C["escape"].items():
+            contours = self._contours_in_hue_range(hsv, minmax)
             largestContour = max(contours, key=cv2.contourArea)
             largestContourArea = cv2.contourArea(largestContour)
 
@@ -92,7 +121,7 @@ class CommandServer(object):
         print("Shape =", img.shape)
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-        contours = self._contours_in_hue_range(hsv, HueRange(165, 10))
+        contours = self._contours_in_hue_range(hsv, C["mine"])
 
         # No contours => tiny contour area, which will in turn mean
         # negligible confidence.  First return value needs to be
@@ -107,7 +136,6 @@ class CommandServer(object):
         x = (M["m10"] / M["m00"]) / columns
         y = (M["m01"] / M["m00"]) / rows
 
-
         print("largestContourArea", largestContourArea)
         print("X", x)
         print("Y", y)
@@ -119,17 +147,79 @@ class CommandServer(object):
 
         return "%f %f %f" % (largestContourArea, x, y)
 
-    def _hsv_mask(self, hsv, min, max):
-        lower = np.array([min, 100, 100])
-        upper = np.array([max, 255, 255])
+    def do_test_barrels(self):
+        mask = cv2.imread("/home/nell/piwars/barrel-calibration/mask.jpg",
+                          cv2.IMREAD_GRAYSCALE)
+        cv2.imwrite("/home/nell/piwars/barrel-calibration/mask-grey.jpg", mask)
+        rows, cols = mask.shape
+        print("mask: rows", rows, "cols", cols)
+        for pic in range(1, 19):
+            filename = "/home/nell/piwars/barrel-calibration/pic%03d.jpg" % pic
+            print("Processing", filename)
+            img = cv2.imread(filename)
+            img = cv2.bitwise_and(img, img, mask=mask)
+            cv2.imwrite(filename.replace('.jpg', '-masked.jpg'), img)
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            for colour in ["red", "green"]:
+                print("Looking for", colour)
+                r = C["eco"][colour]
+                contours = self._contours_in_hue_range(hsv, r)
+
+                # No contours => tiny contour area, which will in turn mean
+                # negligible confidence.  First return value needs to be
+                # non-zero because the receiving code takes its logarithm.
+                if len(contours) == 0:
+                    print("No", colour, "contours found")
+                    continue
+
+                largestContour = max(contours, key=cv2.contourArea)
+                largestContourArea = cv2.contourArea(largestContour)
+                M = cv2.moments(largestContour)
+                rows, columns, _ = img.shape
+                x = (M["m10"] / M["m00"]) / columns
+                y = (M["m01"] / M["m00"]) / rows
+
+                print(colour, "largestContourArea", largestContourArea)
+                print(colour, "X", x)
+                print(colour, "Y", y)
+
+                c = img.copy()
+                cv2.drawContours(c, contours, -1, (255, 0, 0), 6)
+                cv2.drawContours(c, [largestContour], 0, (0, 255, 0), 6)
+                contourFileName = filename.replace('.jpg', '-'+colour+'.jpg')
+                cv2.imwrite(contourFileName, c)
+
+        return ""
+
+    def _hsv_mask(self, hsv,
+                  hue_min, hue_max,
+                  sat_min, sat_max,
+                  val_min, val_max):
+        lower = np.array([hue_min, sat_min, val_min])
+        upper = np.array([hue_max, sat_max, val_max])
         return cv2.inRange(hsv, lower, upper)
 
     def _contours_in_hue_range(self, hsv, hue_range):
-        if hue_range.max > hue_range.min:
-            mask = self._hsv_mask(hsv, hue_range.min, hue_range.max)
+        hue_min = hue_range[0]
+        hue_max = hue_range[1]
+        sat_min = hue_range[2]
+        sat_max = hue_range[3]
+        val_min = hue_range[4]
+        val_max = hue_range[5]
+        if hue_max > hue_min:
+            mask = self._hsv_mask(hsv,
+                                  hue_min, hue_max,
+                                  sat_min, sat_max,
+                                  val_min, val_max)
         else:
-            mask = (self._hsv_mask(hsv, hue_range.min, 180) +
-                    self._hsv_mask(hsv, 0, hue_range.max))
+            mask = (self._hsv_mask(hsv,
+                                   hue_min, 180,
+                                   sat_min, sat_max,
+                                   val_min, val_max) +
+                    self._hsv_mask(hsv,
+                                   0, hue_max,
+                                   sat_min, sat_max,
+                                   val_min, val_max))
 
         # Apply two iterations each of erosion and dilation, to
         # remove noise.
@@ -237,19 +327,6 @@ class CommandServer(object):
         print(fit)
 
         return "%f %f" % (fit[0], fit[1])
-
-
-class HueRange(object):
-    def __init__(self, min, max):
-        self.min = min
-        self.max = max
-
-
-hue_ranges = {
-    "red": HueRange(165, 10),
-    "green": HueRange(45, 100),
-    "blue": HueRange(100, 120),
-}
 
 
 cs = CommandServer()
