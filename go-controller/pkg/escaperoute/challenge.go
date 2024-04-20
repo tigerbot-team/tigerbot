@@ -117,6 +117,7 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 	// will rotate if needed, but not try to displace.
 	c.xTarget = dxTotal - (dxInitial / 2)
 	c.yTarget = dyInitial / 2
+	c.headingTarget = 90
 	return &challengemode.Position{
 		X:              c.xTarget,
 		Y:              c.yTarget,
