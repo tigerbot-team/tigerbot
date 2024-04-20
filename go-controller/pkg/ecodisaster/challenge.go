@@ -420,3 +420,43 @@ func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64)
 func (c *challenge) SpeedMMPerS() float64 {
 	return 100
 }
+
+type calib struct {
+	picNum       int
+	readyToClose bool
+	aheadMM      float64
+	leftMM       float64
+}
+
+// Primary barrel in all of these is GREEN.
+var positionCalibrations = []calib{
+	{1, true, 0, 0},
+	{2, false, 20, 0},
+	{3, false, 50, 0},
+	{4, false, 100, 0},
+	{5, false, 200, 0},
+	{6, false, 300, 0},
+	{7, false, 300, 100},
+	{8, false, 200, 100},
+	{9, false, 100, 100},
+}
+
+type touchCalib struct {
+	picNum      int
+	angle       float64
+	separation  float64
+	sameColours bool
+}
+
+// Primary barrel in all of these is GREEN.
+var touchingCalibrations = []touchCalib{
+	{10, 0, 0, false},
+	{11, 90, 0, false},
+	{12, 45, 0, false},
+	{13, 0, 0, true},
+	{14, 90, 0, true},
+	{15, 45, 0, true},
+	{16, 0, 20, true},
+	{17, 90, 20, true},
+	{18, 45, 20, true},
+}
