@@ -52,7 +52,7 @@ func (c *challenge) Iterate(
 ) {
 	// Take a picture to work out how we should adjust our
 	// heading.
-	targetAhead, targetLeft, headingAdjust := c.AnalyseWhiteLine()
+	targetAhead, targetLeft, headingAdjust, _ := c.AnalyseWhiteLine()
 	c.log("targetAhead %v targetLeft %v headingAdjust %v", targetAhead, targetLeft, headingAdjust)
 	dx, dy := challengemode.AbsoluteDeltas(position.Heading, targetAhead, targetLeft)
 	c.log("dx %v dy %v", dx, dy)
@@ -66,10 +66,13 @@ func (c *challenge) Iterate(
 	return false, target, 500 * time.Millisecond
 }
 
-func (c *challenge) AnalyseWhiteLine() (float64, float64, float64) {
+func (c *challenge) AnalyseWhiteLine() (float64, float64, float64, bool) {
 	rsp, err := challengemode.CameraExecute(c.log, "white-line")
 	if err != nil {
 		c.log("AnalyseWhiteLine camera err=%v", err)
+	}
+	if rsp == "" {
+		return 0, 0, 0, false
 	}
 	rspWords := strings.Split(rsp, " ")
 	gradient, err := strconv.ParseFloat(rspWords[0], 64)
@@ -103,5 +106,5 @@ func (c *challenge) AnalyseWhiteLine() (float64, float64, float64) {
 	closeLeft := -(centre - 100) * 370.0 / 200.0
 	headingAdjust := math.Atan2(targetLeft-closeLeft, targetAhead) / challengemode.RADIANS_PER_DEGREE
 
-	return targetAhead, targetLeft, headingAdjust
+	return targetAhead, targetLeft, headingAdjust, true
 }

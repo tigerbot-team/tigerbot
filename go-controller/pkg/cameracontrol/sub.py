@@ -145,7 +145,11 @@ class CommandServer(object):
 
     def do_white_line(self):
         file_name = self._take_picture()
-        return self._white_line(file_name, 70)
+        for blinkers in range(70, 0, -10):
+            result = self._white_line(file_name, blinkers)
+            if result != "":
+                return result
+        return ""
 
     def do_test_white_line(self):
         for blinkers in range(70, 0, -10):
@@ -223,6 +227,9 @@ class CommandServer(object):
         print(ymins)
         print(ymaxs)
         print("Variances", variances)
+
+        if len(centres) < 12:
+            return ""
 
         # Fit a straight line to those centres.
         fit = np.polyfit(np.array(jvalues),
