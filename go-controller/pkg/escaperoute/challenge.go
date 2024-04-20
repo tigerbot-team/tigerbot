@@ -169,6 +169,7 @@ func (c *challenge) Iterate(
 		case FACING_SECOND_BLOCK:
 			// Use camera to identify block colour.
 			c.thisBlockColour = c.IdentifyFacingBlockColour()
+			c.log("blockColour is %v", c.thisBlockColour)
 
 			// Move to where the right edge of the block should be.
 			c.xTarget = (dxTotal + dxBlock) / 2
