@@ -40,6 +40,7 @@ type Position struct {
 	X, Y           float64 // millimetres
 	Heading        float64 // w.r.t. the positive X direction, +tive CCW
 	HeadingIsExact bool
+	Stop           bool
 }
 
 func (p *Position) String() string {
@@ -631,11 +632,20 @@ func (m *ChallengeMode) StartMotion(
 	hh hardware.HeadingAbsolute,
 	current, target *Position,
 	moveTime time.Duration) {
+
+	if target.Stop {
+		hh.SetThrottle(0)
+	}
+
 	if target.Heading != current.Heading {
 		m.log("Heading change %v -> %v", current.Heading, target.Heading)
 		hh.SetHeading(calibratedXHeading + target.Heading*PositiveAnglesAnticlockwise)
 		hh.Wait(ctx)
 		current.Heading = target.Heading
+	}
+
+	if target.Stop {
+		return
 	}
 
 	// After rotating, store the current wheel rotations.
