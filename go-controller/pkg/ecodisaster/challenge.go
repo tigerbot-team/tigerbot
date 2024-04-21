@@ -158,6 +158,11 @@ type challenge struct {
 	bestConfidence   float64
 	decidedTarget    bool
 	needDropOff      bool
+	searchPositions  map[challengemode.Position]bool
+
+	// Drop off.
+	dropTarget challengemode.Position
+	armsOpen   bool
 }
 
 func New(hw hardware.Interface) challengemode.Challenge {
@@ -176,6 +181,32 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 	c.decidedTarget = false
 	c.needDropOff = false
 	c.bestConfidence = 0
+	c.searchPositions = map[challengemode.Position]bool{
+		// Top left.
+		challengemode.Position{
+			X:       dlBotWall,
+			Y:       dyTotal - dlBotWall,
+			Heading: -45,
+		}: false,
+		// Bottom left.
+		challengemode.Position{
+			X:       dlBotWall,
+			Y:       dlBotWall,
+			Heading: 45,
+		}: false,
+		// Bottom right.
+		challengemode.Position{
+			X:       dxTotal - dlBotWall,
+			Y:       dlBotWall,
+			Heading: 135,
+		}: false,
+		// Top right.
+		challengemode.Position{
+			X:       dxTotal - dlBotWall,
+			Y:       dyTotal - dlBotWall,
+			Heading: -135,
+		}: false,
+	}
 
 	// Assume we're initially positioned in the middle of the
 	// start box.
@@ -261,7 +292,7 @@ func (c *challenge) Iterate(
 
 			nextSafePosition := c.calcNextSafePosition(position)
 			if nextSafePosition != nil {
-				c.moveTarget = nextSafePosition
+				c.moveTarget = *nextSafePosition
 			} else {
 				c.decidedTarget = true
 				c.moveTarget = c.bestSafePosition
@@ -313,6 +344,26 @@ func (c *challenge) Iterate(
 
 		case DROP_OFF:
 			c.log("drop-off")
+			if !challengemode.TargetReached(&c.dropTarget, position) {
+				// Still moving, return existing target.
+				return false, &c.dropTarget, 500 * time.Millisecond
+			} else if !c.armsOpen {
+				// Open arms.
+				c.openArms()
+				// Move further back to let barrels out.
+				if c.botColour == GREEN {
+					c.dropTarget.X = position.X - 260
+				} else {
+					c.dropTarget.X = position.X + 260
+				}
+				return false, &c.dropTarget, 500 * time.Millisecond
+			} else {
+				// Done, close arms and transition for next barrel.
+				c.closeArms()
+				c.botLoad = 0
+				c.stage = DECIDING_TARGET
+				goto stage_transition
+			}
 		}
 
 	stage_transition:
@@ -326,8 +377,36 @@ func (c *challenge) Iterate(
 		case REVERSING_BACK_TO_SAFE:
 			c.decidedTarget = false
 			c.bestConfidence = 0
+			for p := range c.searchPositions {
+				c.searchPositions[p] = false
+			}
+		case DROP_OFF:
+			c.armsOpen = false
+			c.dropTarget = *position
+			if c.botColour == GREEN {
+				c.dropTarget.X = position.X - 60
+			} else {
+				c.dropTarget.X = position.X + 60
+			}
 		}
 	}
+}
+
+func (c *challenge) calcNextSafePosition(position *challengemode.Position) (next *challengemode.Position) {
+	leastDS := float64(0)
+	for p := range c.searchPositions {
+		p := p
+		if c.searchPositions[p] {
+			// Already done this one.
+			continue
+		}
+		ds := (p.X-position.X)*(p.X-position.X) + (p.Y-position.Y)*(p.Y-position.Y)
+		if ds < leastDS || next == nil {
+			leastDS = ds
+			next = &p
+		}
+	}
+	return
 }
 
 var waypoints = []challengemode.Position{
@@ -481,10 +560,18 @@ reeval:
 	return nil
 }
 
-func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64) {
-	rsp, err := challengemode.CameraExecute(c.log, "id-mine")
+func (c *challenge) IdentifyBarrel() (confidence, headingAdjust, distance float64, colour int) {
+	command := "id-barrel-any"
+	if c.botLoad > 0 {
+		if c.botColour == GREEN {
+			command = "id-barrel-green"
+		} else {
+			command = "id-barrel-red"
+		}
+	}
+	rsp, err := challengemode.CameraExecute(c.log, command)
 	if err != nil {
-		c.log("IdentifyMine camera err=%v", err)
+		c.log("IdentifyBarrel camera err=%v", err)
 	}
 	rspWords := strings.Split(rsp, " ")
 	largestContourArea, err := strconv.ParseFloat(rspWords[0], 64)
@@ -495,10 +582,11 @@ func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64)
 	if err != nil {
 		c.log("x '%v' err=%v", rspWords[1], err)
 	}
-	//y, err := strconv.ParseFloat(rspWords[2], 64)
-	//if err != nil {
-	//	c.log("y '%v' err=%v", rspWords[2], err)
-	//}
+	if rspWords[2] == "green" {
+		colour = GREEN
+	} else {
+		colour = RED
+	}
 
 	// Based on calibration, there's a reasonably consistent
 	// inverse square relation between observed area and distance:

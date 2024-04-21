@@ -93,6 +93,18 @@ class CommandServer(object):
     def do_test_id(self):
         return self._id_block_colour("test-id.jpg")
 
+    def do_id_barrel_any(self):
+        file_name = self._take_picture()
+        return self._id_barrel(file_name, ["green", "red"])
+
+    def do_id_barrel_green(self):
+        file_name = self._take_picture()
+        return self._id_barrel(file_name, ["green"])
+
+    def do_id_barrel_red(self):
+        file_name = self._take_picture()
+        return self._id_barrel(file_name, ["red"])
+
     def do_id_mine(self):
         file_name = self._take_picture()
         return self._id_mine(file_name)
@@ -159,6 +171,52 @@ class CommandServer(object):
         cv2.imwrite(contourFileName, img)
 
         return "%f %f %f" % (largestContourArea, x, y)
+
+    def _id_barrel(self, filename, colours):
+        img = cv2.imread(filename)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        bestColour = ""
+        bestLCA = 0
+        bestX = 0
+        for colour in colours:
+            print("Looking for", colour)
+            r = C["eco"][colour]
+            contours = self._contours_in_hue_range(hsv, r)
+
+            # No contours => tiny contour area, which will in turn
+            # mean negligible confidence.  First return value needs to
+            # be non-zero because the receiving code takes its
+            # logarithm.
+            if len(contours) == 0:
+                print("No", colour, "contours found")
+                continue
+
+            largestContour = max(contours, key=cv2.contourArea)
+            largestContourArea = cv2.contourArea(largestContour)
+            M = cv2.moments(largestContour)
+            rows, columns, _ = img.shape
+            x = (M["m10"] / M["m00"]) / columns
+            y = (M["m01"] / M["m00"]) / rows
+
+            print(colour, "largestContourArea", largestContourArea)
+            print(colour, "X", x)
+            print(colour, "Y", y)
+
+            if largestContourArea > bestLCA:
+                bestColour = colour
+                bestLCA = largestContourArea
+                bestX = x
+
+            #c = img.copy()
+            #cv2.drawContours(c, contours, -1, (255, 0, 0), 6)
+            #cv2.drawContours(c, [largestContour], 0, (0, 255, 0), 6)
+            #contourFileName = filename.replace('.jpg', '-'+colour+'.jpg')
+            #cv2.imwrite(contourFileName, c)
+
+        if bestColour == "":
+            return "1 0 none"
+
+        return "%f %f %f" % (bestLCA, bestX, bestColour)
 
     def do_test_barrels(self):
         mask = cv2.imread("/home/nell/piwars/barrel-calibration/mask.jpg",
