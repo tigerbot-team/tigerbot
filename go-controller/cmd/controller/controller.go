@@ -135,7 +135,7 @@ func main() {
 					defer close(done)
 					ju.OnJoystickEvent(event)
 				}()
-				timeout := time.NewTimer(1 * time.Second)
+				timeout := time.NewTimer(10 * time.Second)
 				select {
 				case <-done:
 					timeout.Stop()
