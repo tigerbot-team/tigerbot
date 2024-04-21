@@ -156,6 +156,7 @@ type challenge struct {
 	// Searching.
 	bestSafePosition challengemode.Position
 	bestConfidence   float64
+	bestColour       int
 	decidedTarget    bool
 	needDropOff      bool
 	searchPositions  map[challengemode.Position]bool
@@ -277,15 +278,17 @@ func (c *challenge) Iterate(
 			// slightly to the left or right, and the
 			// distance left to travel.
 			c.log("searching for target")
-			targetConfidence, headingAdjust, distance := c.IdentifyBarrel()
+			targetConfidence, headingAdjust, distance, colour := c.IdentifyBarrel()
 			c.log("targetConfidence %v headingAdjust %v distance %v", targetConfidence, headingAdjust, distance)
 			if targetConfidence >= immediateConfidenceThreshold {
 				c.bestConfidence = targetConfidence
+				c.bestColour = colour
 				c.stage = APPROACHING_TARGET
 				goto stage_transition
 			}
 			if targetConfidence > c.bestConfidence {
 				c.bestConfidence = targetConfidence
+				c.bestColour = colour
 				c.bestSafePosition = *position
 				c.log("bestConfidence %v bestSafePosition %v", c.bestConfidence, c.bestSafePosition)
 			}
@@ -303,7 +306,7 @@ func (c *challenge) Iterate(
 
 		case APPROACHING_TARGET:
 			c.log("approaching target")
-			targetConfidence, headingAdjust, distance := c.IdentifyBarrel()
+			targetConfidence, headingAdjust, distance, colour := c.IdentifyBarrel()
 			c.log("targetConfidence %v headingAdjust %v distance %v", targetConfidence, headingAdjust, distance)
 
 			// Check in case target confidence is going down.
@@ -315,8 +318,9 @@ func (c *challenge) Iterate(
 				goto stage_transition
 			}
 
-			if c.reachedTarget(headingAdjust, distance) {
+			if distance < 50 {
 				c.closeArms()
+				c.botColour = c.bestColour
 				c.botLoad++
 				c.stage = REVERSING_BACK_TO_SAFE
 				goto stage_transition
@@ -326,6 +330,7 @@ func (c *challenge) Iterate(
 			c.pathFromSafe = append(c.pathFromSafe, *position)
 
 			c.bestConfidence = targetConfidence
+			c.bestColour = colour
 			target := &challengemode.Position{
 				Heading: position.Heading + headingAdjust,
 			}
@@ -595,7 +600,7 @@ func (c *challenge) IdentifyBarrel() (confidence, headingAdjust, distance float6
 	//
 	// where distance is in cm and area is in whatever OpenCV
 	// returns for contour areas.  Inverting that...
-	distance = math.Exp(10.0 - 0.5*math.Log(largestContourArea))
+	distance = math.Exp(10.0 - 0.5*math.Log(largestContourArea*12))
 
 	// Convert from cm to mm.
 	distance *= 10
@@ -615,45 +620,47 @@ func (c *challenge) SpeedMMPerS() float64 {
 	return 100
 }
 
-type calib struct {
-	picNum       int
-	readyToClose bool
-	aheadMM      float64
-	leftMM       float64
-}
-
-// Primary barrel in all of these is GREEN.
-var positionCalibrations = []calib{
-	{1, true, 0, 0},
-	{2, false, 20, 0},
-	{3, false, 50, 0},
-	{4, false, 100, 0},
-	{5, false, 200, 0},
-	{6, false, 300, 0},
-	{7, false, 300, 100},
-	{8, false, 200, 100},
-	{9, false, 100, 100},
-}
-
-type touchCalib struct {
-	picNum      int
-	angle       float64
-	separation  float64
-	sameColours bool
-}
-
-// Primary barrel in all of these is GREEN.
-var touchingCalibrations = []touchCalib{
-	{10, 0, 0, false},
-	{11, 90, 0, false},
-	{12, 45, 0, false},
-	{13, 0, 0, true},
-	{14, 90, 0, true},
-	{15, 45, 0, true},
-	{16, 0, 20, true},
-	{17, 90, 20, true},
-	{18, 45, 20, true},
-}
+//type calib struct {
+//	picNum       int
+//	readyToClose bool
+//	aheadMM      float64
+//	leftMM       float64
+//	lca          float64
+//	x            float64
+//}
+//
+//// Primary barrel in all of these is GREEN.
+//var positionCalibrations = []calib{
+//	{1, true, 0, 0, 773732, 0.506},
+//	{2, false, 20, 0, 994030, 0.491},
+//	{3, false, 50, 0, 970309, 0.533},
+//	{4, false, 100, 0, 633314, 0.535},
+//	{5, false, 200, 0, 306776, 0.513},
+//	{6, false, 300, 0, 202446, 0.359},
+//	{7, false, 300, 100, 193921, 0.37},
+//	{8, false, 200, 100, 387579, 0.327},
+//	{9, false, 100, 100, 939802, 0.208},
+//}
+//
+//type touchCalib struct {
+//	picNum      int
+//	angle       float64
+//	separation  float64
+//	sameColours bool
+//}
+//
+//// Primary barrel in all of these is GREEN.
+//var touchingCalibrations = []touchCalib{
+//	{10, 0, 0, false},
+//	{11, 90, 0, false},
+//	{12, 45, 0, false},
+//	{13, 0, 0, true},
+//	{14, 90, 0, true},
+//	{15, 45, 0, true},
+//	{16, 0, 20, true},
+//	{17, 90, 20, true},
+//	{18, 45, 20, true},
+//}
 
 func (c *challenge) openArms() {
 	c.hw.SetServo(0, -0.1)
