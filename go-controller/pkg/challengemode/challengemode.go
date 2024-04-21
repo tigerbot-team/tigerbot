@@ -702,6 +702,12 @@ func TargetReached(currentTarget, position *Position) bool {
 		math.Abs(currentTarget.Heading-position.Heading) <= maxHeadingDelta
 }
 
+func TargetReachedIgnoreHeading(currentTarget, position *Position) bool {
+	const maxPositionDelta float64 = 10 // millimetres
+	return math.Abs(currentTarget.X-position.X) <= maxPositionDelta &&
+		math.Abs(currentTarget.Y-position.Y) <= maxPositionDelta
+}
+
 type obs struct {
 	angle, fr, bl, br, fl float64
 }

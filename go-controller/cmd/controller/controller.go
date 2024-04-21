@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/tigerbot-team/tigerbot/go-controller/pkg/zombie"
 	"log"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
 	"time"
+
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/zombie"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/calxheading"
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
@@ -67,7 +68,7 @@ func main() {
 		challengemode.New(hw, escaperoute.New()),
 		challengemode.New(hw, lavapalava.New()),
 		challengemode.New(hw, minesweeper.New()),
-		challengemode.New(hw, ecodisaster.New()),
+		challengemode.New(hw, ecodisaster.New(hw)),
 		challengemode.New(hw, zombie.New(hw)),
 		pausemode.New(hw),
 	}

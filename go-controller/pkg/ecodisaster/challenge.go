@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tigerbot-team/tigerbot/go-controller/pkg/challengemode"
+	"github.com/tigerbot-team/tigerbot/go-controller/pkg/hardware"
 )
 
 const (
@@ -64,34 +65,85 @@ type stage int
 const (
 	INIT stage = iota
 
-	// Use this state when we're searching for a barrel, or
-	// approaching the barrel we plan to pick up.
-	SEARCH_OR_APPROACH
-
-	// Use this state whenever we're just moving to a new target
-	// position, without actively searching, picking up or
+	// Use this state whenever we're just moving from one
+	// known-safe position to another known-safe position.  In
+	// this state we are not actively searching, picking up or
 	// dropping off.  (We might already be carrying barrels
-	// though.)  The eventual target position is `moveTarget`, but
-	// we will get there by moving through the safe areas around
-	// the edges of the arena, and that will probably involve
-	// several intermediate target positions.
+	// though, and/or moving in order to perform a drop-off.)  The
+	// eventual target position is `moveTarget`, but we will get
+	// there by moving through the safe areas around the edges of
+	// the arena, and that will probably involve several
+	// intermediate target positions.
+	//
+	// After arriving at `moveTarget`:
+	//
+	// - Transitions to DROP_OFF, if we need to drop off.
+	//
+	// - Transitions to SEARCH_OR_APPROACH if `decidedTarget` is
+	// true.
+	//
+	// - Otherwise transitions to DECIDING_TARGET.
 	MOVING_TO_SEARCH_POSITION
 
-	// Use this state when we're executing a drop off.
-	DROPPING_OFF
+	// Deciding which barrel will be our target, or if we now need
+	// to drop off.  May be colour-dependent, if the bot is
+	// already carrying barrels.  (`botLoad` and `botColour`.)
+	// `bestConfidence` holds the best confidence since we last
+	// picked up (or lost target for) a barrel.
+	// `bestSafePosition` is the position that we were at when we
+	// got that confidence.  `decidedTarget` indicates when we
+	// have decided what the next target will be.  `needDropOff`
+	// indicates when we need to drop off.
+	//
+	// Transitions to MOVING_TO_SEARCH_POSITION to get to:
+	//
+	// - drop zone position, if drop-off need identified
+	//
+	// - `bestSafePosition`, if target has been chosen
+	//
+	// - next safe position to look from, otherwise.
+	//
+	// Transitions to APPROACHING_TARGET if sees an excellent
+	// target from the current position.
+	DECIDING_TARGET
+
+	// Use this state to approach the chosen barrel target.  The
+	// sequence of moves during this stage is stored in
+	// `pathFromSafe`.
+	//
+	// Transitions to REVERSING_BACK_TO_SAFE after picking up the
+	// barrel, or if we decide that we have lost the target.
+	APPROACHING_TARGET
+
+	// After a pick up, or after losing confidence in a target, we
+	// reverse back to the safe position that we started from,
+	// using `pathFromSafe`.
+	//
+	// `bestConfidence` is reset here.
+	// `decidedTarget` is reset here.
+	//
+	// Transitions to DECIDING_TARGET after reaching the safe
+	// position.
+	REVERSING_BACK_TO_SAFE
+
+	// Perform drop-off.
+	//
+	// Transitions to MOVING_TO_SEARCH_POSITION.  (Unless end of
+	// challenge.)
+	DROP_OFF
 )
 
 type challenge struct {
+	hw hardware.Interface
+
 	log   challengemode.Log
 	stage stage
 
-	// When MOVING_TO_SEARCH_POSITION, the eventual position we're
-	// trying to get to.
-	moveTarget challengemode.Position
-
-	// The immediate next target position.
+	// MOVING_TO_SEARCH_POSITION.
+	moveTarget         challengemode.Position
 	intermediateTarget challengemode.Position
 
+	// APPROACHING_TARGET, REVERSING_BACK_TO_SAFE
 	// Sequence of target positions we've moved through since the
 	// last safe position.
 	pathFromSafe []challengemode.Position
@@ -102,14 +154,14 @@ type challenge struct {
 	botColour int
 
 	// Searching.
-	searchInitialHeading float64
-	bestHeading          float64
-	bestConfidence       float64
-	approachingTarget    bool
+	bestSafePosition challengemode.Position
+	bestConfidence   float64
+	decidedTarget    bool
+	needDropOff      bool
 }
 
-func New() challengemode.Challenge {
-	return &challenge{}
+func New(hw hardware.Interface) challengemode.Challenge {
+	return &challenge{hw: hw}
 }
 
 func (c *challenge) Name() string {
@@ -120,122 +172,26 @@ func (c *challenge) Start(log challengemode.Log) (*challengemode.Position, bool)
 	c.log = log
 	c.stage = MOVING_TO_SEARCH_POSITION
 	c.log("Start")
+	c.botLoad = 0
+	c.decidedTarget = false
+	c.needDropOff = false
+	c.bestConfidence = 0
 
 	// Assume we're initially positioned in the middle of the
-	// start box.  Don't know the heading, but calibration should
-	// tell us that.
+	// start box.
 	position := &challengemode.Position{
-		X: (xStartL + xStartR) / 2,
-		Y: (yStartB + yStartT) / 2,
+		X:              (xStartL + xStartR) / 2,
+		Y:              (yStartB + yStartT) / 2,
+		Heading:        90,
+		HeadingIsExact: true,
 	}
 
-	// Target the same position, so we'll immediately transition
-	// to the next stage.
-	c.intermediateTarget = *position
+	// Target back to a safe position along the bottom wall.
 	c.moveTarget = *position
+	c.moveTarget.Y = dlBotWall
+	c.intermediateTarget = c.moveTarget
 
 	return position, true
-}
-
-func (c *challenge) calcNextIntermediateTarget(position *challengemode.Position) {
-	defer func() {
-		c.log("intermediateTarget %v", c.intermediateTarget)
-	}()
-	lenPFS := len(c.pathFromSafe)
-	if lenPFS > 0 {
-		c.log("moving back along recent path")
-		lastTarget := c.pathFromSafe[lenPFS-1]
-		c.log("lastTarget %v", lastTarget)
-		lastTargetButWithCurrentHeading := lastTarget
-		lastTargetButWithCurrentHeading.Heading = position.Heading
-		if challengemode.TargetReached(&lastTarget, position) {
-			c.log("reached last target")
-			c.pathFromSafe = c.pathFromSafe[:lenPFS-1]
-			lenPFS -= 1
-			if lenPFS > 0 {
-				c.log("intermediate -> previous path point with current heading")
-				c.intermediateTarget = c.pathFromSafe[lenPFS-1]
-				c.intermediateTarget.Heading = position.Heading
-				return
-			}
-		} else if challengemode.TargetReached(&lastTargetButWithCurrentHeading, position) {
-			c.log("intermediate -> previous path point with its own heading")
-			c.intermediateTarget = lastTarget
-			return
-		}
-	}
-	// Reaching here means we're back in a 'safe' place, i.e. close to one of the walls.
-	if c.moveTarget.X < dxTotal/2 {
-		c.log("move around the left hand side")
-		if position.Y > yBarrelAreaT {
-			c.log("intermediate -> real move target")
-			// We should now be able to go to the real target.
-			c.intermediateTarget = c.moveTarget
-		} else if position.X < xBarrelAreaL {
-			c.log("intermediate -> top left corner")
-			// On left side wall, move to top left corner.
-			c.intermediateTarget.X = dlBotWall
-			c.intermediateTarget.Y = dyTotal - dlBotWall
-			c.intermediateTarget.Heading = 90
-		} else if position.Y < yBarrelAreaB {
-			c.log("intermediate -> bottom left corner")
-			// On bottom wall, move to bottom left corner.
-			c.intermediateTarget.X = dlBotWall
-			c.intermediateTarget.Y = dlBotWall
-			c.intermediateTarget.Heading = 180
-		} else {
-			// We shouldn't be here, because we've already
-			// covered all the safe areas above.  But if
-			// we're somehow in the middle of the arena,
-			// move to the closest L/B wall.
-			if position.Y < position.X {
-				c.log("intermediate -> bottom wall")
-				c.intermediateTarget.X = position.X
-				c.intermediateTarget.Y = dlBotWall
-				c.intermediateTarget.Heading = -90
-			} else {
-				c.log("intermediate -> left wall")
-				c.intermediateTarget.X = dlBotWall
-				c.intermediateTarget.Y = position.Y
-				c.intermediateTarget.Heading = 180
-			}
-		}
-	} else {
-		c.log("move around the right hand side")
-		if position.Y > yBarrelAreaT {
-			c.log("intermediate -> real move target")
-			// We should now be able to go to the real target.
-			c.intermediateTarget = c.moveTarget
-		} else if position.X > xBarrelAreaR {
-			c.log("intermediate -> top right corner")
-			// On right side wall, move to top right corner.
-			c.intermediateTarget.X = dxTotal - dlBotWall
-			c.intermediateTarget.Y = dyTotal - dlBotWall
-			c.intermediateTarget.Heading = 90
-		} else if position.Y < yBarrelAreaB {
-			c.log("intermediate -> bottom right corner")
-			// On bottom wall, move to bottom right corner.
-			c.intermediateTarget.X = dxTotal - dlBotWall
-			c.intermediateTarget.Y = dlBotWall
-			c.intermediateTarget.Heading = 0
-		} else {
-			// We shouldn't be here, because we've already
-			// covered all the safe areas above.  But if
-			// we're somehow in the middle of the arena,
-			// move to the closest R/B wall.
-			if position.Y < dxTotal-position.X {
-				c.log("intermediate -> bottom wall")
-				c.intermediateTarget.X = position.X
-				c.intermediateTarget.Y = dlBotWall
-				c.intermediateTarget.Heading = -90
-			} else {
-				c.log("intermediate -> right wall")
-				c.intermediateTarget.X = dxTotal - dlBotWall
-				c.intermediateTarget.Y = position.Y
-				c.intermediateTarget.Heading = 0
-			}
-		}
-	}
 }
 
 func (c *challenge) Iterate(
@@ -246,14 +202,19 @@ func (c *challenge) Iterate(
 	*challengemode.Position, // next target
 	time.Duration, // move time
 ) {
-	var target *challengemode.Position
 	c.log("Stage = %v", c.stage)
 	for {
 		switch c.stage {
 		case MOVING_TO_SEARCH_POSITION:
 			if challengemode.TargetReached(&c.moveTarget, position) {
 				c.log("Target (%v, %v, %v) reached", c.moveTarget.X, c.moveTarget.Y, c.moveTarget.Heading)
-				c.stage = SEARCH_OR_APPROACH
+				if c.needDropOff {
+					c.stage = DROP_OFF
+				} else if c.decidedTarget {
+					c.stage = APPROACHING_TARGET
+				} else {
+					c.stage = DECIDING_TARGET
+				}
 				goto stage_transition
 			}
 			if challengemode.TargetReached(&c.intermediateTarget, position) {
@@ -261,118 +222,263 @@ func (c *challenge) Iterate(
 				c.calcNextIntermediateTarget(position)
 			}
 			return false, &c.intermediateTarget, time.Second
-		case SEARCH_OR_APPROACH:
+
+		case DECIDING_TARGET:
+			if c.botLoad >= BOT_CAPACITY {
+				c.needDropOff = true
+				if c.botColour == RED {
+					c.moveTarget.X = (xRedDropL + xRedDropR) / 2
+					c.moveTarget.Y = ((2 * yDropB) + yDropT) / 3
+					c.moveTarget.Heading = 180
+				} else {
+					c.moveTarget.X = (xGreenDropL + xGreenDropR) / 2
+					c.moveTarget.Y = ((2 * yDropB) + yDropT) / 3
+					c.moveTarget.Heading = 0
+				}
+				c.stage = MOVING_TO_SEARCH_POSITION
+				goto stage_transition
+			}
+
 			// Try to identify a target in the direction
 			// that we're currently facing - return a
 			// confidence level for that, a heading
-			// adjustment if we can see a red square but
-			// it's slightly to the left or right, and the
-			// distance left to travel in order for part
-			// of the bot to be over the square.
-			targetConfidence, headingAdjust, distance := c.IdentifyMine()
+			// adjustment if we can see a barrel but it's
+			// slightly to the left or right, and the
+			// distance left to travel.
+			c.log("searching for target")
+			targetConfidence, headingAdjust, distance := c.IdentifyBarrel()
 			c.log("targetConfidence %v headingAdjust %v distance %v", targetConfidence, headingAdjust, distance)
-			calcTarget := false
-			if c.approachingTarget {
-				c.log("approaching target")
-				// Check in case target confidence is going down.
-				if targetConfidence < c.bestConfidence*allowedConfidenceDrop {
-					c.log("Lost target")
-
-					// Restart the search.
-					c.stage = SEARCH_OR_APPROACH
-					goto stage_transition
-				}
-				c.bestHeading = position.Heading + headingAdjust
-				c.log("bestHeading -> %v", c.bestHeading)
-			} else {
-				c.log("searching for target")
-				if targetConfidence > c.bestConfidence {
-					c.bestConfidence = targetConfidence
-					c.bestHeading = position.Heading + headingAdjust
-					c.log("bestConfidence %v bestHeading %v", c.bestConfidence, c.bestHeading)
-				}
-				nextHeading := position.Heading + 40
-				if targetConfidence < immediateConfidenceThreshold &&
-					nextHeading < c.searchInitialHeading+360 {
-					c.log("Not confident enough yet, nextHeading %v", nextHeading)
-					// Not confident enough yet,
-					// and we haven't looked round
-					// the whole circle yet.
-					return false, &challengemode.Position{
-						X:       position.X,
-						Y:       position.Y,
-						Heading: nextHeading,
-					}, 0
-				}
-
-				// OK, we're going to start moving
-				// towards the believed target now.
-				c.log("Identified target")
-				c.approachingTarget = true
-				calcTarget = true
-			}
-
-			if calcTarget || targetConfidence > c.bestConfidence {
-				// Update target position for as long
-				// as confidence increases.  It will
-				// eventually decrease as the bot
-				// moves onto the square, and when
-				// that happens we _don't_ want to
-				// recompute the target.
-				c.log("Compute target position")
+			if targetConfidence >= immediateConfidenceThreshold {
 				c.bestConfidence = targetConfidence
-				c.moveTarget.X = position.X + distance*math.Cos(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
-				c.moveTarget.Y = position.Y + distance*math.Sin(c.bestHeading*challengemode.RADIANS_PER_DEGREE)
-				//c.headingTarget = c.bestHeading
-				//c.obeyHeadingTarget = true
+				c.stage = APPROACHING_TARGET
+				goto stage_transition
 			}
-		}
+			if targetConfidence > c.bestConfidence {
+				c.bestConfidence = targetConfidence
+				c.bestSafePosition = *position
+				c.log("bestConfidence %v bestSafePosition %v", c.bestConfidence, c.bestSafePosition)
+			}
 
-		// Return the current target, if we haven't yet
-		// reached it.
-		//target = &challengemode.Position{
-		//	X:       c.xTarget,
-		//	Y:       c.yTarget,
-		//	Heading: position.Heading,
-		//}
-		//if c.obeyHeadingTarget {
-		//	c.log("obey heading target")
-		//	target.Heading = c.headingTarget
-		//}
-		if !challengemode.TargetReached(target, position) {
-			c.log("Target (%v, %v, %v) not yet reached", target.X, target.Y, target.Heading)
+			nextSafePosition := c.calcNextSafePosition(position)
+			if nextSafePosition != nil {
+				c.moveTarget = nextSafePosition
+			} else {
+				c.decidedTarget = true
+				c.moveTarget = c.bestSafePosition
+			}
+
+			c.stage = MOVING_TO_SEARCH_POSITION
+			goto stage_transition
+
+		case APPROACHING_TARGET:
+			c.log("approaching target")
+			targetConfidence, headingAdjust, distance := c.IdentifyBarrel()
+			c.log("targetConfidence %v headingAdjust %v distance %v", targetConfidence, headingAdjust, distance)
+
+			// Check in case target confidence is going down.
+			if targetConfidence < c.bestConfidence*allowedConfidenceDrop {
+				c.log("Lost target")
+
+				// Reverse out.
+				c.stage = REVERSING_BACK_TO_SAFE
+				goto stage_transition
+			}
+
+			if c.reachedTarget(headingAdjust, distance) {
+				c.closeArms()
+				c.botLoad++
+				c.stage = REVERSING_BACK_TO_SAFE
+				goto stage_transition
+			}
+
+			// Save current position, for reversing out later.
+			c.pathFromSafe = append(c.pathFromSafe, *position)
+
+			c.bestConfidence = targetConfidence
+			target := &challengemode.Position{
+				Heading: position.Heading + headingAdjust,
+			}
+			target.X = position.X + distance*math.Cos(target.Heading*challengemode.RADIANS_PER_DEGREE)
+			target.Y = position.Y + distance*math.Sin(target.Heading*challengemode.RADIANS_PER_DEGREE)
 			return false, target, time.Second
-		}
-		c.log("Target (%v, %v, %v) reached", target.X, target.Y, target.Heading)
 
-		// Current target reached, so transition to next
-		// stage.
-		c.stage += 1
+		case REVERSING_BACK_TO_SAFE:
+			c.log("reversing back to safe")
+			target := c.calcNextReverseTarget(position)
+			if target == nil {
+				c.stage = DECIDING_TARGET
+				goto stage_transition
+			}
+			return false, target, time.Second
+
+		case DROP_OFF:
+			c.log("drop-off")
+		}
+
 	stage_transition:
 		c.log("Stage => %v", c.stage)
-		//		switch c.stage {
-		//		case POSSIBLY_UNSAFE_FOR_SEARCH:
-		//			// Move to a position at least one square side
-		//			// away from the walls.
-		//			c.xTarget = min(max(position.X, dxInitial), dxTotal-dxInitial)
-		//			c.yTarget = min(max(position.Y, dyInitial), dyTotal-dyInitial)
-		//			c.obeyHeadingTarget = false
-		//			c.approachingTarget = false
-		//		case SAFE_FOR_SEARCH:
-		//			// Beginning a search; store the initial
-		//			// heading, so we don't rotate forever.
-		//			c.searchInitialHeading = position.Heading
-		//			c.bestConfidence = 0
-		//		case ON_BOMB_SQUARE:
-		//			c.log("Sit on bomb!")
-		//			// Sit here for a bit more than 1 second.
-		//			time.Sleep(1200 * time.Millisecond)
-		//
-		//			// Restart the search.
-		//			c.stage = POSSIBLY_UNSAFE_FOR_SEARCH
-		//			goto stage_transition
-		//		}
+		switch c.stage {
+		case MOVING_TO_SEARCH_POSITION:
+			c.calcNextIntermediateTarget(position)
+		case APPROACHING_TARGET:
+			c.pathFromSafe = nil
+			c.openArms()
+		case REVERSING_BACK_TO_SAFE:
+			c.decidedTarget = false
+			c.bestConfidence = 0
+		}
 	}
+}
+
+var waypoints = []challengemode.Position{
+	{
+		// Middle of top wall.
+		X: dxTotal / 2,
+		Y: dyTotal - dlBotWall,
+	}, {
+		// Top right corner.
+		X: dxTotal - dlBotWall,
+		Y: dyTotal - dlBotWall,
+	}, {
+		// Bottom right corner.
+		X: dxTotal - dlBotWall,
+		Y: dlBotWall,
+	}, {
+		// Bottom left corner.
+		X: dlBotWall,
+		Y: dlBotWall,
+	}, {
+		// Top left corner.
+		X: dlBotWall,
+		Y: dyTotal - dlBotWall,
+	}, {
+		// Middle of top wall.
+		X: dxTotal / 2,
+		Y: dyTotal - dlBotWall,
+	},
+}
+
+var headingsDecreasingI = []float64{
+	180,
+	90,
+	0,
+	-90,
+	180,
+	0,
+}
+
+var headingsIncreasingI = []float64{
+	0,
+	0,
+	-90,
+	180,
+	90,
+	0,
+}
+
+func findWaypoint(position *challengemode.Position) int {
+	leastDistance := float64(0)
+	bestWaypoint := 0
+	for i := 0; i < len(waypoints)-1; i++ {
+		before := waypoints[i]
+		after := waypoints[i+1]
+		distance := float64(0)
+		if before.X == after.X {
+			distance = (position.X - before.X) * (position.X - before.X)
+			mY := min(before.Y, after.Y)
+			if position.Y < mY {
+				distance += (position.Y - mY) * (position.Y - mY)
+			}
+			mY = max(before.Y, after.Y)
+			if position.Y > mY {
+				distance += (position.Y - mY) * (position.Y - mY)
+			}
+		} else {
+			// Y coords are the same.
+			distance = (position.Y - before.Y) * (position.Y - before.Y)
+			mX := min(before.X, after.X)
+			if position.X < mX {
+				distance += (position.X - mX) * (position.X - mX)
+			}
+			mX = max(before.X, after.X)
+			if position.X > mX {
+				distance += (position.X - mX) * (position.X - mX)
+			}
+		}
+		if i == 0 || distance < leastDistance {
+			bestWaypoint = i
+			leastDistance = distance
+		}
+	}
+	return bestWaypoint
+}
+func (c *challenge) calcNextIntermediateTarget(position *challengemode.Position) {
+	defer func() {
+		c.log("intermediateTarget %v", c.intermediateTarget)
+	}()
+
+	if challengemode.TargetReachedIgnoreHeading(&c.moveTarget, position) {
+		c.intermediateTarget = c.moveTarget
+		return
+	}
+
+	ipos := findWaypoint(position)
+	itarg := findWaypoint(&c.moveTarget)
+
+reeval:
+	if itarg < ipos {
+		c.intermediateTarget = waypoints[ipos]
+		c.intermediateTarget.Heading = headingsDecreasingI[ipos]
+		if challengemode.TargetReachedIgnoreHeading(&c.intermediateTarget, position) {
+			ipos -= 1
+			goto reeval
+		}
+	} else if itarg > ipos {
+		c.intermediateTarget = waypoints[ipos+1]
+		c.intermediateTarget.Heading = headingsIncreasingI[ipos+1]
+		if challengemode.TargetReachedIgnoreHeading(&c.intermediateTarget, position) {
+			ipos += 1
+			goto reeval
+		}
+	} else {
+		c.intermediateTarget = c.moveTarget
+		if waypoints[ipos].X == waypoints[ipos+1].X {
+			if c.intermediateTarget.Y > position.Y {
+				c.intermediateTarget.Heading = 90
+			} else {
+				c.intermediateTarget.Heading = -90
+			}
+		} else {
+			if c.intermediateTarget.X > position.X {
+				c.intermediateTarget.Heading = 0
+			} else {
+				c.intermediateTarget.Heading = 180
+			}
+		}
+	}
+}
+
+func (c *challenge) calcNextReverseTarget(position *challengemode.Position) *challengemode.Position {
+reeval:
+	lenPFS := len(c.pathFromSafe)
+	if lenPFS > 0 {
+		c.log("moving back along recent path")
+		lastTarget := c.pathFromSafe[lenPFS-1]
+		c.log("lastTarget %v", lastTarget)
+		if challengemode.TargetReached(&lastTarget, position) {
+			c.log("reached last target")
+			c.pathFromSafe = c.pathFromSafe[:lenPFS-1]
+			goto reeval
+		}
+		if challengemode.TargetReachedIgnoreHeading(&lastTarget, position) {
+			c.log("intermediate -> previous path point with its own heading")
+			return &lastTarget
+		}
+		c.log("intermediate -> previous path point with current heading")
+		lastTarget.Heading = position.Heading
+		return &lastTarget
+	}
+	return nil
 }
 
 func (c *challenge) IdentifyMine() (confidence, headingAdjust, distance float64) {
@@ -459,4 +565,14 @@ var touchingCalibrations = []touchCalib{
 	{16, 0, 20, true},
 	{17, 90, 20, true},
 	{18, 45, 20, true},
+}
+
+func (c *challenge) openArms() {
+	c.hw.SetServo(0, -0.1)
+	c.hw.SetServo(12, 1.4)
+}
+
+func (c *challenge) closeArms() {
+	c.hw.SetServo(0, 1.4)
+	c.hw.SetServo(12, 0.025)
 }
